@@ -64,3 +64,6 @@ qtpro5
 win32x
 qrc_*
 install_manifest.txt
+
+# dsview-mcp build output
+dsview-mcp/target/
