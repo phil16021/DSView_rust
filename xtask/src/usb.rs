@@ -201,8 +201,10 @@ pub fn record(root: &Path, args: &[&str]) -> Result<()> {
             "result": result,
         }));
     }
-    let manifest =
-        json!({"device": name, "iface": iface, "dry_run": dry_run, "scenarios": summary});
+    let manifest = json!({
+        "device": name, "iface": iface, "dry_run": dry_run, "scenarios": summary,
+        "traces": if dry_run { json!({}) } else { trace_hashes(&out)? },
+    });
     let path = out.join(if dry_run {
         "dry-run.json"
     } else {
@@ -211,4 +213,26 @@ pub fn record(root: &Path, args: &[&str]) -> Result<()> {
     std::fs::write(&path, serde_json::to_string_pretty(&manifest)? + "\n")?;
     println!("wrote {}", path.display());
     Ok(())
+}
+
+/// sha256 and size of every pcapng in `dir`, including hand-made recordings
+/// such as startup.pcapng. The traces live outside git; this pins them.
+fn trace_hashes(dir: &Path) -> Result<Value> {
+    let mut names: Vec<_> = std::fs::read_dir(dir)?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "pcapng"))
+        .collect();
+    names.sort();
+    let mut map = serde_json::Map::new();
+    for p in names {
+        map.insert(
+            p.file_name().unwrap().to_string_lossy().into_owned(),
+            json!({
+                "sha256": dsview_testkit::corpus::sha256_file(&p)?,
+                "bytes": std::fs::metadata(&p)?.len(),
+            }),
+        );
+    }
+    Ok(Value::Object(map))
 }

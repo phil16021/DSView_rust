@@ -2,7 +2,7 @@
 
 | Phase | State | Notes |
 |---|---|---|
-| 0 Infrastructure, oracle, baselines | **done, except two items deferred** | Deferred: USB pcapng recording (needs root once, see `tools/usb/README.md`) and performance baselines (moved to Phase 1b/2, see DEVIATIONS.md) |
+| 0 Infrastructure, oracle, baselines | **done, one item deferred** | Deferred: performance baselines (moved to Phase 1b/2, see DEVIATIONS.md). USB traces recorded 2026-10-17 |
 | 1 Formats + store | **1a done** (reading, saving, CSV/VCD export through Rust behind `DSVIEW_IMPL_FORMATS`); 1b store next | See "Phase 1a" below |
 | 2 Decoder engine | not started | |
 | 3 Drivers | not started | |
@@ -37,9 +37,21 @@ sources:
 - It was recorded from the Qt DSView with `cargo xtask control record`, and is checked with
   `cargo xtask control check`.
 
-**USB baseline tooling:**
-- `cargo xtask usb record` covers 11 DSLogic scenarios.
-- All of them pass on the DSLogic Plus in `--dry-run` mode.
+**USB baseline (recorded 2026-10-17, DSLogic Plus, PID 0x0034, firmware 2.2, C driver):**
+- `cargo xtask usb record --iface usbmon1` recorded all 11 scenarios: 1/5/20 MHz × 16/8/4 channels,
+  plus two "trigger never fires, stop while waiting" cases. All passed.
+- `startup.pcapng` was recorded by hand. It holds the device open and the initial configuration
+  (0xB0/0xB1/0xB2 vendor requests). It has no FX2 firmware upload because the firmware was
+  already loaded; recording that needs a replug.
+- The 12 traces total 16 MB and are not in git (`*.pcapng` is ignored).
+  `testdata/usb/dslogic/manifest.json` pins each trace's sha256 and size, and records the
+  capture result DSView reported for it.
+- Each capture trace contains the 372-byte `DSL_setting` on EP2 and the data on EP 0x86.
+  EP 0x86 byte counts differ by rate for the same 1000448 samples (2.18 MB at 1 MHz,
+  2.80 MB at 5 MHz, 1.72 MB at 20 MHz with 16 channels). Phase 3 replay must explain this
+  from the C driver's transfer sizing.
+- Not recorded yet (by hand, see `tools/usb/README.md`): firmware upload after a replug,
+  unplug during a capture, and internal test-counter mode.
 
 **CI:** `.github/workflows/rust.yml` runs lint, tests, cargo-deny, golden check and a portability check.
 

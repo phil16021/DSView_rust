@@ -1,0 +1,684 @@
+{
+  "device": "DSLogic PLus",
+  "dry_run": false,
+  "iface": "usbmon1",
+  "scenarios": [
+    {
+      "channels": 16,
+      "pcapng": "rate-1000khz-16ch.pcapng",
+      "result": {
+        "channels": [
+          {
+            "index": 0,
+            "name": "0"
+          },
+          {
+            "index": 1,
+            "name": "1"
+          },
+          {
+            "index": 2,
+            "name": "2"
+          },
+          {
+            "index": 3,
+            "name": "3"
+          },
+          {
+            "index": 4,
+            "name": "4"
+          },
+          {
+            "index": 5,
+            "name": "5"
+          },
+          {
+            "index": 6,
+            "name": "6"
+          },
+          {
+            "index": 7,
+            "name": "7"
+          },
+          {
+            "index": 8,
+            "name": "8"
+          },
+          {
+            "index": 9,
+            "name": "9"
+          },
+          {
+            "index": 10,
+            "name": "10"
+          },
+          {
+            "index": 11,
+            "name": "11"
+          },
+          {
+            "index": 12,
+            "name": "12"
+          },
+          {
+            "index": 13,
+            "name": "13"
+          },
+          {
+            "index": 14,
+            "name": "14"
+          },
+          {
+            "index": 15,
+            "name": "15"
+          }
+        ],
+        "decoding": false,
+        "duration_s": 1.000448,
+        "have_data": true,
+        "mode": "logic",
+        "samplerate": 1000000,
+        "samples": 1000448,
+        "trigger_sample": 0,
+        "triggered": true
+      },
+      "samplerate": 1000000,
+      "scenario": "rate-1000khz-16ch",
+      "trigger": null
+    },
+    {
+      "channels": 8,
+      "pcapng": "rate-1000khz-8ch.pcapng",
+      "result": {
+        "channels": [
+          {
+            "index": 0,
+            "name": "0"
+          },
+          {
+            "index": 1,
+            "name": "1"
+          },
+          {
+            "index": 2,
+            "name": "2"
+          },
+          {
+            "index": 3,
+            "name": "3"
+          },
+          {
+            "index": 4,
+            "name": "4"
+          },
+          {
+            "index": 5,
+            "name": "5"
+          },
+          {
+            "index": 6,
+            "name": "6"
+          },
+          {
+            "index": 7,
+            "name": "7"
+          }
+        ],
+        "decoding": false,
+        "duration_s": 1.000448,
+        "have_data": true,
+        "mode": "logic",
+        "samplerate": 1000000,
+        "samples": 1000448,
+        "trigger_sample": 0,
+        "triggered": true
+      },
+      "samplerate": 1000000,
+      "scenario": "rate-1000khz-8ch",
+      "trigger": null
+    },
+    {
+      "channels": 4,
+      "pcapng": "rate-1000khz-4ch.pcapng",
+      "result": {
+        "channels": [
+          {
+            "index": 0,
+            "name": "0"
+          },
+          {
+            "index": 1,
+            "name": "1"
+          },
+          {
+            "index": 2,
+            "name": "2"
+          },
+          {
+            "index": 3,
+            "name": "3"
+          }
+        ],
+        "decoding": false,
+        "duration_s": 1.000448,
+        "have_data": true,
+        "mode": "logic",
+        "samplerate": 1000000,
+        "samples": 1000448,
+        "trigger_sample": 0,
+        "triggered": true
+      },
+      "samplerate": 1000000,
+      "scenario": "rate-1000khz-4ch",
+      "trigger": null
+    },
+    {
+      "channels": 16,
+      "pcapng": "rate-5000khz-16ch.pcapng",
+      "result": {
+        "channels": [
+          {
+            "index": 0,
+            "name": "0"
+          },
+          {
+            "index": 1,
+            "name": "1"
+          },
+          {
+            "index": 2,
+            "name": "2"
+          },
+          {
+            "index": 3,
+            "name": "3"
+          },
+          {
+            "index": 4,
+            "name": "4"
+          },
+          {
+            "index": 5,
+            "name": "5"
+          },
+          {
+            "index": 6,
+            "name": "6"
+          },
+          {
+            "index": 7,
+            "name": "7"
+          },
+          {
+            "index": 8,
+            "name": "8"
+          },
+          {
+            "index": 9,
+            "name": "9"
+          },
+          {
+            "index": 10,
+            "name": "10"
+          },
+          {
+            "index": 11,
+            "name": "11"
+          },
+          {
+            "index": 12,
+            "name": "12"
+          },
+          {
+            "index": 13,
+            "name": "13"
+          },
+          {
+            "index": 14,
+            "name": "14"
+          },
+          {
+            "index": 15,
+            "name": "15"
+          }
+        ],
+        "decoding": false,
+        "duration_s": 0.2000896,
+        "have_data": true,
+        "mode": "logic",
+        "samplerate": 5000000,
+        "samples": 1000448,
+        "trigger_sample": 0,
+        "triggered": true
+      },
+      "samplerate": 5000000,
+      "scenario": "rate-5000khz-16ch",
+      "trigger": null
+    },
+    {
+      "channels": 8,
+      "pcapng": "rate-5000khz-8ch.pcapng",
+      "result": {
+        "channels": [
+          {
+            "index": 0,
+            "name": "0"
+          },
+          {
+            "index": 1,
+            "name": "1"
+          },
+          {
+            "index": 2,
+            "name": "2"
+          },
+          {
+            "index": 3,
+            "name": "3"
+          },
+          {
+            "index": 4,
+            "name": "4"
+          },
+          {
+            "index": 5,
+            "name": "5"
+          },
+          {
+            "index": 6,
+            "name": "6"
+          },
+          {
+            "index": 7,
+            "name": "7"
+          }
+        ],
+        "decoding": false,
+        "duration_s": 0.2000896,
+        "have_data": true,
+        "mode": "logic",
+        "samplerate": 5000000,
+        "samples": 1000448,
+        "trigger_sample": 0,
+        "triggered": true
+      },
+      "samplerate": 5000000,
+      "scenario": "rate-5000khz-8ch",
+      "trigger": null
+    },
+    {
+      "channels": 4,
+      "pcapng": "rate-5000khz-4ch.pcapng",
+      "result": {
+        "channels": [
+          {
+            "index": 0,
+            "name": "0"
+          },
+          {
+            "index": 1,
+            "name": "1"
+          },
+          {
+            "index": 2,
+            "name": "2"
+          },
+          {
+            "index": 3,
+            "name": "3"
+          }
+        ],
+        "decoding": false,
+        "duration_s": 0.2000896,
+        "have_data": true,
+        "mode": "logic",
+        "samplerate": 5000000,
+        "samples": 1000448,
+        "trigger_sample": 0,
+        "triggered": true
+      },
+      "samplerate": 5000000,
+      "scenario": "rate-5000khz-4ch",
+      "trigger": null
+    },
+    {
+      "channels": 16,
+      "pcapng": "rate-20000khz-16ch.pcapng",
+      "result": {
+        "channels": [
+          {
+            "index": 0,
+            "name": "0"
+          },
+          {
+            "index": 1,
+            "name": "1"
+          },
+          {
+            "index": 2,
+            "name": "2"
+          },
+          {
+            "index": 3,
+            "name": "3"
+          },
+          {
+            "index": 4,
+            "name": "4"
+          },
+          {
+            "index": 5,
+            "name": "5"
+          },
+          {
+            "index": 6,
+            "name": "6"
+          },
+          {
+            "index": 7,
+            "name": "7"
+          },
+          {
+            "index": 8,
+            "name": "8"
+          },
+          {
+            "index": 9,
+            "name": "9"
+          },
+          {
+            "index": 10,
+            "name": "10"
+          },
+          {
+            "index": 11,
+            "name": "11"
+          },
+          {
+            "index": 12,
+            "name": "12"
+          },
+          {
+            "index": 13,
+            "name": "13"
+          },
+          {
+            "index": 14,
+            "name": "14"
+          },
+          {
+            "index": 15,
+            "name": "15"
+          }
+        ],
+        "decoding": false,
+        "duration_s": 0.0500224,
+        "have_data": true,
+        "mode": "logic",
+        "samplerate": 20000000,
+        "samples": 1000448,
+        "trigger_sample": 0,
+        "triggered": true
+      },
+      "samplerate": 20000000,
+      "scenario": "rate-20000khz-16ch",
+      "trigger": null
+    },
+    {
+      "channels": 8,
+      "pcapng": "rate-20000khz-8ch.pcapng",
+      "result": {
+        "channels": [
+          {
+            "index": 0,
+            "name": "0"
+          },
+          {
+            "index": 1,
+            "name": "1"
+          },
+          {
+            "index": 2,
+            "name": "2"
+          },
+          {
+            "index": 3,
+            "name": "3"
+          },
+          {
+            "index": 4,
+            "name": "4"
+          },
+          {
+            "index": 5,
+            "name": "5"
+          },
+          {
+            "index": 6,
+            "name": "6"
+          },
+          {
+            "index": 7,
+            "name": "7"
+          }
+        ],
+        "decoding": false,
+        "duration_s": 0.0500224,
+        "have_data": true,
+        "mode": "logic",
+        "samplerate": 20000000,
+        "samples": 1000448,
+        "trigger_sample": 0,
+        "triggered": true
+      },
+      "samplerate": 20000000,
+      "scenario": "rate-20000khz-8ch",
+      "trigger": null
+    },
+    {
+      "channels": 4,
+      "pcapng": "rate-20000khz-4ch.pcapng",
+      "result": {
+        "channels": [
+          {
+            "index": 0,
+            "name": "0"
+          },
+          {
+            "index": 1,
+            "name": "1"
+          },
+          {
+            "index": 2,
+            "name": "2"
+          },
+          {
+            "index": 3,
+            "name": "3"
+          }
+        ],
+        "decoding": false,
+        "duration_s": 0.0500224,
+        "have_data": true,
+        "mode": "logic",
+        "samplerate": 20000000,
+        "samples": 1000448,
+        "trigger_sample": 0,
+        "triggered": true
+      },
+      "samplerate": 20000000,
+      "scenario": "rate-20000khz-4ch",
+      "trigger": null
+    },
+    {
+      "channels": 16,
+      "pcapng": "trigger-rising-ch0-stop-while-waiting.pcapng",
+      "result": {
+        "samples_after_stop": 9216,
+        "status_before_stop": {
+          "capture": {
+            "have_data": false,
+            "mode": "logic"
+          },
+          "decoding": false,
+          "progress_percent": 0,
+          "saving": false,
+          "triggered": false,
+          "working": true
+        },
+        "stop_ms": 50
+      },
+      "samplerate": 1000000,
+      "scenario": "trigger-rising-ch0-stop-while-waiting",
+      "trigger": {
+        "channel": 0,
+        "type": "rising"
+      }
+    },
+    {
+      "channels": 16,
+      "pcapng": "trigger-high-ch1-stop-while-waiting.pcapng",
+      "result": {
+        "samples_after_stop": 1000448,
+        "status_before_stop": {
+          "capture": {
+            "channels": [
+              {
+                "index": 0,
+                "name": "0"
+              },
+              {
+                "index": 1,
+                "name": "1"
+              },
+              {
+                "index": 2,
+                "name": "2"
+              },
+              {
+                "index": 3,
+                "name": "3"
+              },
+              {
+                "index": 4,
+                "name": "4"
+              },
+              {
+                "index": 5,
+                "name": "5"
+              },
+              {
+                "index": 6,
+                "name": "6"
+              },
+              {
+                "index": 7,
+                "name": "7"
+              },
+              {
+                "index": 8,
+                "name": "8"
+              },
+              {
+                "index": 9,
+                "name": "9"
+              },
+              {
+                "index": 10,
+                "name": "10"
+              },
+              {
+                "index": 11,
+                "name": "11"
+              },
+              {
+                "index": 12,
+                "name": "12"
+              },
+              {
+                "index": 13,
+                "name": "13"
+              },
+              {
+                "index": 14,
+                "name": "14"
+              },
+              {
+                "index": 15,
+                "name": "15"
+              }
+            ],
+            "decoding": false,
+            "duration_s": 1.000448,
+            "have_data": true,
+            "mode": "logic",
+            "samplerate": 1000000,
+            "samples": 1000448,
+            "trigger_sample": 0,
+            "triggered": true
+          },
+          "decoding": false,
+          "saving": false,
+          "working": false
+        },
+        "stop_ms": 0
+      },
+      "samplerate": 1000000,
+      "scenario": "trigger-high-ch1-stop-while-waiting",
+      "trigger": {
+        "channel": 1,
+        "type": "high"
+      }
+    }
+  ],
+  "traces": {
+    "rate-1000khz-16ch.pcapng": {
+      "bytes": 2200588,
+      "sha256": "d2e388f1a5d06f23c95574e0ae9983a22c4bb814d353a1902ddb12d5eba26712"
+    },
+    "rate-1000khz-4ch.pcapng": {
+      "bytes": 559356,
+      "sha256": "b89e567ef4e6a6f91c6063ed24ea8695bada340e216093ec76fa324f2100253a"
+    },
+    "rate-1000khz-8ch.pcapng": {
+      "bytes": 1101644,
+      "sha256": "9870f5e85e65e4392983d3d8ad07d623772ec50f5b625b1e232f4ae543a08c8a"
+    },
+    "rate-20000khz-16ch.pcapng": {
+      "bytes": 1727692,
+      "sha256": "888076eb90905aaf3cafa7994913db730232678337512bad960fc403e6ecb039"
+    },
+    "rate-20000khz-4ch.pcapng": {
+      "bytes": 1408716,
+      "sha256": "a469a1b4f2a41369d0c393ca6b8c22c7b61f12592c638ec46f7d598e22088116"
+    },
+    "rate-20000khz-8ch.pcapng": {
+      "bytes": 1727260,
+      "sha256": "1e02c20053f94f327a2448e341691931506809ea3f51daab9a89ffb4e4334827"
+    },
+    "rate-5000khz-16ch.pcapng": {
+      "bytes": 2810972,
+      "sha256": "681bedbc256751007df0ca86f9e79687ee8257616d81f95534d18629e981ee72"
+    },
+    "rate-5000khz-4ch.pcapng": {
+      "bytes": 711180,
+      "sha256": "c653fe4d8ae031fd52e31c5aa79433c19513f81e99444dd48489c09d390288e3"
+    },
+    "rate-5000khz-8ch.pcapng": {
+      "bytes": 1413644,
+      "sha256": "3431832c2dda53345a873a15727fd70ca452254035a6d2346367bbe7947f18fe"
+    },
+    "startup.pcapng": {
+      "bytes": 27832,
+      "sha256": "c59c3112dc53583c01466f09342f96e4824c4cb9379bec19c48d62ef2fc54d9d"
+    },
+    "trigger-high-ch1-stop-while-waiting.pcapng": {
+      "bytes": 2200588,
+      "sha256": "de1adea3d15204521082510f615983455d711b4e996d10696758ca94eea55e93"
+    },
+    "trigger-rising-ch0-stop-while-waiting.pcapng": {
+      "bytes": 210644,
+      "sha256": "1c9a4866a5a21dbef7304a3f8150acc0c38ec4eb521e8ac58eca536b3f58dca1"
+    }
+  }
+}

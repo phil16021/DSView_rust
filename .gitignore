@@ -67,3 +67,6 @@ install_manifest.txt
 
 # Rust workspace build output
 /target/
+
+# USB baseline traces (pinned by testdata/usb/*/manifest.json, stored outside git)
+*.pcapng
