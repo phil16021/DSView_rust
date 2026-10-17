@@ -84,6 +84,7 @@ public:
 
     void del_all_protocol(); 
     bool add_protocol_by_id(QString id, bool silent, std::list<pv::data::decode::Decoder*> &sub_decoders);
+    bool remove_protocol(int index);
 
     void reset_view();
     void update_view_status();
@@ -119,6 +120,7 @@ private:
     void UpdateFont() override;
 
     void adjustPannelSize();
+    void remove_protocol_item(void *handle);
 
 signals:
     void protocol_updated();

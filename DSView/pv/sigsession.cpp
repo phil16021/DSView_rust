@@ -59,6 +59,7 @@
 #include "ui/msgbox.h"
 #include "ui/langresource.h"
 #include <qelapsedtimer.h>
+#include <algorithm>
 
 namespace pv
 {
@@ -1770,6 +1771,24 @@ namespace pv
         }
     }
 
+    // Re-run a decoder on the current data without the options dialog.
+    bool SigSession::start_decode(int index)
+    {
+        if (index < 0 || index >= (int)_decode_traces.size())
+            return false;
+
+        if (!have_view_data() || is_working())
+            return false;
+
+        auto trace = _decode_traces[index];
+        remove_decode_task(trace);
+        trace->decoder()->clear();
+        trace->frame_ended();
+        add_decode_task(trace);
+        data_updated();
+        return true;
+    }
+
     void SigSession::rst_decoder_by_key_handel(void *handel)
     {
         int dex = get_trace_index_by_key_handel(handel);
@@ -2280,6 +2299,13 @@ namespace pv
     void SigSession::add_msg_listener(IMessageListener *ln)
     {
         _msg_listeners.push_back(ln);
+    }
+
+    void SigSession::remove_msg_listener(IMessageListener *ln)
+    {
+        auto it = std::find(_msg_listeners.begin(), _msg_listeners.end(), ln);
+        if (it != _msg_listeners.end())
+            _msg_listeners.erase(it);
     }
 
     void SigSession::broadcast_msg(int msg)

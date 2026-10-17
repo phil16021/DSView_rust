@@ -73,6 +73,10 @@ class SearchDock;
 namespace view {
 class View;
 }
+
+namespace mcp {
+class ControlApi;
+}
  
 //The mainwindow,referenced by MainFrame
 //TODO: create graph view,toolbar,and show device list
@@ -84,6 +88,7 @@ class MainWindow :
     public IMessageListener
 {
 	Q_OBJECT
+    friend class mcp::ControlApi;
 
 public:
     static const int Min_Width  = 350;

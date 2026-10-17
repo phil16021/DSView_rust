@@ -224,9 +224,11 @@ if(Qt6Core_FOUND)
     # here turns a missing module into a configure error instead of a UI whose
     # checkboxes, combobox arrows and window buttons are silently not painted.
     find_package(Qt6Svg REQUIRED)
+    # QLocalServer for the optional MCP control socket (--mcp).
+    find_package(Qt6Network REQUIRED)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${Qt6Widgets_EXECUTABLE_COMPILE_FLAGS}")
-    set(QT_INCLUDE_DIRS ${Qt6Gui_INCLUDE_DIRS} ${Qt6Widgets_INCLUDE_DIRS} ${Qt6Svg_INCLUDE_DIRS})
-    set(QT_LIBRARIES Qt6::Gui Qt6::Widgets)
+    set(QT_INCLUDE_DIRS ${Qt6Gui_INCLUDE_DIRS} ${Qt6Widgets_INCLUDE_DIRS} ${Qt6Svg_INCLUDE_DIRS} ${Qt6Network_INCLUDE_DIRS})
+    set(QT_LIBRARIES Qt6::Gui Qt6::Widgets Qt6::Network)
     ds_link_qt_svg(Qt6::Svg)
     if(WIN32)
         find_package(Qt6Core5Compat REQUIRED)
@@ -245,9 +247,10 @@ if(Qt5Core_FOUND)
     find_package(Qt5Widgets REQUIRED)
     find_package(Qt5Gui REQUIRED)
     find_package(Qt5Svg REQUIRED) # see the Qt6 branch above
+    find_package(Qt5Network REQUIRED)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${Qt5Widgets_EXECUTABLE_COMPILE_FLAGS}")
-    set(QT_INCLUDE_DIRS ${Qt5Gui_INCLUDE_DIRS} ${Qt5Widgets_INCLUDE_DIRS} ${Qt5Svg_INCLUDE_DIRS})
-    set(QT_LIBRARIES Qt5::Gui Qt5::Widgets)
+    set(QT_INCLUDE_DIRS ${Qt5Gui_INCLUDE_DIRS} ${Qt5Widgets_INCLUDE_DIRS} ${Qt5Svg_INCLUDE_DIRS} ${Qt5Network_INCLUDE_DIRS})
+    set(QT_LIBRARIES Qt5::Gui Qt5::Widgets Qt5::Network)
     ds_link_qt_svg(Qt5::Svg)
     add_definitions(${Qt5Gui_DEFINITIONS} ${Qt5Widgets_DEFINITIONS})
 endif()
@@ -336,6 +339,8 @@ set(DSView_SOURCES
     DSView/pv/prop/string.cpp
     DSView/pv/dialogs/storeprogress.cpp
     DSView/pv/storesession.cpp
+    DSView/pv/mcp/controlapi.cpp
+    DSView/pv/mcp/controlserver.cpp
     DSView/pv/view/devmode.cpp
     DSView/pv/dialogs/waitingdialog.cpp
     DSView/pv/dialogs/dsomeasure.cpp
@@ -440,6 +445,7 @@ set(DSView_HEADERS
     DSView/pv/prop/string.h
     DSView/pv/dialogs/storeprogress.h
     DSView/pv/storesession.h
+    DSView/pv/mcp/controlserver.h
     DSView/pv/view/devmode.h
     DSView/pv/dialogs/waitingdialog.h
     DSView/pv/dialogs/dsomeasure.h

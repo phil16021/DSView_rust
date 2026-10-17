@@ -206,6 +206,8 @@ bool StoreSession::save_start()
         else
         {
             if (_thread.joinable()) _thread.join();
+            // Mark busy before the thread runs, so pollers never see a finished state early.
+            _is_busy = true;
             _thread = std::thread(&StoreSession::save_proc, this, snapshot);
             return !_has_error;
         }
@@ -848,6 +850,7 @@ bool StoreSession::export_start()
     else
     {
         if (_thread.joinable()) _thread.join();
+        _is_busy = true;
         _thread = std::thread(&StoreSession::export_proc, this, snapshot);
         return !_has_error;
     }
@@ -1425,7 +1428,8 @@ bool StoreSession::load_decoders(dock::ProtocolDock *widget, QJsonArray &dec_arr
             continue; //protocol is not exists;
         }
 
-        dec_index++;
+        // The new trace is always appended; earlier traces may already exist.
+        dec_index = (int)_session->get_decode_signals().size() - 1;
 
         if (dec_obj.contains("label")){
             _session->set_decoder_row_label(dec_index, dec_obj["label"].toString());    

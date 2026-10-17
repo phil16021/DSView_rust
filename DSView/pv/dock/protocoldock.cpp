@@ -874,6 +874,29 @@ void ProtocolDock::OnProtocolDelete(void *handle){
         return;
     } 
 
+    remove_protocol_item(handle);
+}
+
+// Remove a decoder by its position in the session's decode trace list, without confirmation.
+bool ProtocolDock::remove_protocol(int index)
+{
+    auto &traces = _session->get_decode_signals();
+    if (index < 0 || index >= (int)traces.size())
+        return false;
+
+    for (auto lay : _protocol_lay_items)
+    {
+        if (lay->_trace == traces[index])
+        {
+            remove_protocol_item(lay);
+            return true;
+        }
+    }
+    return false;
+}
+
+void ProtocolDock::remove_protocol_item(void *handle)
+{
     for (auto it = _protocol_lay_items.begin(); it != _protocol_lay_items.end(); it++)
     {
         if ((*it) == handle)

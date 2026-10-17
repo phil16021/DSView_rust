@@ -231,6 +231,7 @@ public:
     }
 
     void rst_decoder(int index); 
+    bool start_decode(int index);
     void rst_decoder_by_key_handel(void *handel);
 
     inline pv::data::DecoderModel* get_decoder_model(){
@@ -401,10 +402,15 @@ public:
 
     inline void decode_done(){
         _callback->decode_done();
+        broadcast_msg(DSV_MSG_DECODE_DONE);
     }
 
     inline bool is_saving(){
         return _is_saving;
+    }
+
+    inline bool is_decoding(){
+        return _is_decoding;
     }
 
     inline void set_saving(bool flag){
@@ -439,6 +445,7 @@ public:
     bool have_hardware_data();
     struct ds_device_base_info* get_device_list(int &out_count, int &actived_index);
     void add_msg_listener(IMessageListener *ln);
+    void remove_msg_listener(IMessageListener *ln);
     void broadcast_msg(int msg);    
     bool have_new_realtime_refresh(bool keep);
     view::DecodeTrace* get_decoder_trace(int index);

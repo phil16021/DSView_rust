@@ -84,6 +84,10 @@ public:
     inline QString GetFileName(){
         return _file_name;
     }
+    inline void SetFileName(const QString &file_name, const QString &suffix){
+        _file_name = file_name;
+        _suffix = suffix;
+    }
 
     bool IsLogicDataType();
 

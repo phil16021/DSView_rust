@@ -93,6 +93,7 @@ public:
 #define DSV_MSG_STORE_CONF_PREV         7003
 
 #define DSV_MSG_CLEAR_DECODE_DATA       8001
+#define DSV_MSG_DECODE_DONE             8002
 
 #define DSV_MSG_APP_OPTIONS_CHANGED     9001
 #define DSV_MSG_FONT_OPTIONS_CHANGED    9002

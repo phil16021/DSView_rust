@@ -31,6 +31,8 @@
 #include "dsapplication.h"
 #include "mystyle.h" 
 #include "pv/mainframe.h"
+#include "pv/mainwindow.h"
+#include "pv/mcp/controlserver.h"
 #include "pv/config/appconfig.h"
 #include "DSView/config.h"
 #include "pv/appcontrol.h"
@@ -38,6 +40,7 @@
 #include "pv/ui/langresource.h"
 #include <QDateTime>
 #include <string>
+#include <memory>
 #include <ds_types.h>
 
 #ifdef _WIN32
@@ -54,6 +57,7 @@ void usage()
 		"  -l, --loglevel                  Set log level, value between 0 to 5\n"
 		"  -v, -V, --version               Show release version\n"
 		"  -s, --storelog                  Save log to locale file\n"
+		"      --mcp                       Accept local MCP control (see dsview-mcp)\n"
 		"  -h, -?, --help                  Show help option\n"
 		"\n", DS_BIN_NAME, DS_DESCRIPTION);
 }
@@ -65,6 +69,7 @@ int main(int argc, char *argv[])
 	const char *open_file = NULL;
 	int logLevel = -1;
 	bool bStoreLog = false;
+	bool bMcp = false;
 
 	//----------------------rebuild command param
 #ifdef _WIN32
@@ -104,6 +109,7 @@ int main(int argc, char *argv[])
 			{"version", no_argument, 0, 'v'},
 			{"storelog", no_argument, 0, 's'},
 			{"help", no_argument, 0, 'h'},
+			{"mcp", no_argument, 0, 'm'},
 			{0, 0, 0, 0}
 		};
 
@@ -120,6 +126,10 @@ int main(int argc, char *argv[])
 
 		case 's': // the store log flag
 			bStoreLog = true;
+			break;
+
+		case 'm': // local MCP control socket
+			bMcp = true;
 			break;
 
 		case 'V': // version
@@ -255,8 +265,16 @@ bool bHighScale = true;
 		control->Start();
 		w.ShowFormInit();  
 		w.ShowHelpDocAsync();  //to show the dailog for open help document
+
+		std::unique_ptr<pv::mcp::ControlServer> mcp;
+		if (bMcp){
+			mcp.reset(new pv::mcp::ControlServer(static_cast<pv::MainWindow*>(w.GetMainWindow())));
+			if (!mcp->start())
+				mcp.reset();
+		}
 		
 		ret = a.exec(); //Run the application
+		mcp.reset();
 		control->Stop();
 
 		dsv_info("Main window closed.");
