@@ -104,4 +104,8 @@ jobs:
           cmake -S . -B build -DDSVIEW_RUST_CORE=ON
           cmake --build build -j"$(nproc)"
       - name: Rust core is linked
-        run: nm build/DSView | grep -q ' T dsv_version'
+        run: nm build/bin/DSView | grep -q ' T dsv_version'
+      - name: C vs Rust inside DSView (open, export, save every corpus capture)
+        run: |
+          DESTDIR="$PWD/stage" cmake --install build --prefix /usr
+          cargo xtask control ab --bin "$PWD/stage/usr/bin/DSView"

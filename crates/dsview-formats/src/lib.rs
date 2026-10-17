@@ -4,14 +4,20 @@
 //! * [`header`]: the `header` entry, interpreted like the C loader
 //! * [`dsl`]: `.dsl`/`.demo` capture reader and writer
 //! * [`samplerate`]: samplerate strings
+//! * [`export`]: CSV/VCD export (byte-compatible with libsigrok4DSL's output modules)
+//! * [`cfmt`]: C printf-compatible number formatting
+//! * [`zipw`]: safe, atomic `.dsl` archive writing
 //!
 //! All parsing is bounded: malformed or hostile files produce an [`Error`],
 //! never a panic or an unbounded allocation (fuzzed in `fuzz/`).
 
+pub mod cfmt;
 pub mod dsl;
+pub mod export;
 pub mod header;
 pub mod keyfile;
 pub mod samplerate;
+pub mod zipw;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

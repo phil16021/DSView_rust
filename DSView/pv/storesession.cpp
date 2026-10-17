@@ -177,17 +177,17 @@ bool StoreSession::save_start()
 
     if (meta_data.empty()) {
         _error = L_S(STR_PAGE_MSG, S_ID(IDS_MSG_STORESESS_SAVESTART_ERROR4), "Generate temp file data failed.");
-        QFile::remove(_file_name);
+        m_zipDoc.Discard(path::ConvertPath(_file_name).c_str());
         return false;
     }
     if (decoder_data.empty()){
         _error = L_S(STR_PAGE_MSG, S_ID(IDS_MSG_STORESESS_SAVESTART_ERROR5), "Generate decoder file data failed.");
-        QFile::remove(_file_name);
+        m_zipDoc.Discard(path::ConvertPath(_file_name).c_str());
         return false;
     }
     if (session_data.empty()){
         _error = L_S(STR_PAGE_MSG, S_ID(IDS_MSG_STORESESS_SAVESTART_ERROR6), "Generate session file data failed.");
-        QFile::remove(_file_name);
+        m_zipDoc.Discard(path::ConvertPath(_file_name).c_str());
         return false;
     }
    
@@ -216,7 +216,7 @@ bool StoreSession::save_start()
          _error = L_S(STR_PAGE_MSG, S_ID(IDS_MSG_STORESESS_SAVESTART_ERROR7), "Generate zip file failed.");
     }
 
-    QFile::remove(_file_name);
+    m_zipDoc.Discard(path::ConvertPath(_file_name).c_str());
     return false;
 }
 
@@ -338,7 +338,7 @@ void StoreSession::save_logic(pv::data::LogicSnapshot *logic_snapshot)
                 progress_updated();
 
                 if (_has_error){
-                    QFile::remove(_file_name);
+                    m_zipDoc.Discard(path::ConvertPath(_file_name).c_str());
                 }
                 if (need_malloc){
                     free(block_buf);
@@ -365,7 +365,7 @@ void StoreSession::save_logic(pv::data::LogicSnapshot *logic_snapshot)
     progress_updated();
 
     if (_canceled || block_count == 0){
-        QFile::remove(_file_name);
+        m_zipDoc.Discard(path::ConvertPath(_file_name).c_str());
     }
     else {
         bool bret = m_zipDoc.Close();
@@ -441,7 +441,7 @@ void StoreSession::save_analog(pv::data::AnalogSnapshot *analog_snapshot)
                 }
                 progress_updated();
                 if (_has_error)
-                    QFile::remove(_file_name);
+                    m_zipDoc.Discard(path::ConvertPath(_file_name).c_str());
                 return;
             }
             _units_stored += size;
@@ -452,7 +452,7 @@ void StoreSession::save_analog(pv::data::AnalogSnapshot *analog_snapshot)
     progress_updated();
 
     if (_canceled || num == 0){
-        QFile::remove(_file_name);
+        m_zipDoc.Discard(path::ConvertPath(_file_name).c_str());
     }
     else {
         bool bret = m_zipDoc.Close();
@@ -498,7 +498,7 @@ void StoreSession::save_dso(pv::data::DsoSnapshot *dso_snapshot)
                 }
                 progress_updated();
                 if (_has_error)
-                    QFile::remove(_file_name);
+                    m_zipDoc.Discard(path::ConvertPath(_file_name).c_str());
                 return;
             }
 
@@ -510,7 +510,7 @@ void StoreSession::save_dso(pv::data::DsoSnapshot *dso_snapshot)
     progress_updated();
 
     if (_canceled || size == 0 || ch_num == 0){
-        QFile::remove(_file_name);
+        m_zipDoc.Discard(path::ConvertPath(_file_name).c_str());
     }
     else {
         bool bret = m_zipDoc.Close();

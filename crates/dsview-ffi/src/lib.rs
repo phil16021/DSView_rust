@@ -1,11 +1,16 @@
 //! C ABI (`dsv_*`) of the Rust DSView core, linked into the Qt build with
 //! `-DDSVIEW_RUST_CORE=ON`. Header: `include/dsview_ffi.h`.
 //!
-//! * `dsv_version`, `dsv_last_error`
+//! * `dsv_version`, `dsv_last_error`, `dsv_use_rust`
 //! * `dsv_dsl_*`: `.dsl`/`.demo` reading for libsigrok4DSL's session driver
+//! * `dsv_export_*`: CSV/VCD export behind libsigrok4DSL's output modules
+//! * `dsv_zip_writer_*`, `dsv_dsl_entry`: `.dsl` saving/metadata behind ZipMaker/ZipReader
 
 pub mod dsl;
 pub mod error;
+pub mod export;
+pub mod switch;
+pub mod zip;
 
 use std::ffi::c_char;
 

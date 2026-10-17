@@ -514,6 +514,7 @@ set(libsigrok4DSL_SOURCES
     libsigrok4DSL/output/gnuplot.c
     libsigrok4DSL/output/srzip.c
     libsigrok4DSL/output/vcd.c
+    libsigrok4DSL/output/rs_output.c
     libsigrok4DSL/hardware/DSL/dslogic.c
     libsigrok4DSL/hardware/common/usb.c
     libsigrok4DSL/hardware/common/ezusb.c

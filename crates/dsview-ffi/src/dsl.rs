@@ -14,6 +14,20 @@ pub struct DsvDsl {
     stream: Option<StreamState>,
     strings: Vec<Vec<Option<CString>>>, // per channel: name, trigger, map_unit
     status_names: Vec<Vec<CString>>,
+    last_entry: Vec<u8>,
+}
+
+impl DsvDsl {
+    /// Reads a metadata entry into the handle's buffer.
+    pub(crate) fn read_meta(&mut self, name: &str) -> Result<Option<&[u8]>, dsview_formats::Error> {
+        match self.reader.meta_entry(name)? {
+            Some(bytes) => {
+                self.last_entry = bytes;
+                Ok(Some(&self.last_entry))
+            }
+            None => Ok(None),
+        }
+    }
 }
 
 #[repr(C)]
@@ -126,6 +140,7 @@ pub unsafe extern "C" fn dsv_dsl_open(path: *const c_char, out: *mut *mut DsvDsl
                     stream: None,
                     strings,
                     status_names,
+                    last_entry: Vec::new(),
                 });
                 unsafe { *out = Box::into_raw(handle) };
                 DSV_OK

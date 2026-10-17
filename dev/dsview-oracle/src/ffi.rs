@@ -75,6 +75,56 @@ unsafe extern "C" {
     ) -> c_int;
 }
 
+#[repr(C)]
+pub struct OracleExportChannel {
+    pub index: c_int,
+    pub kind: c_int,
+    pub enabled: c_int,
+    pub name: *const c_char,
+    pub vdiv: u64,
+    pub vfactor: u64,
+    pub hw_offset: u16,
+    pub map_max: f64,
+    pub map_min: f64,
+    pub map_unit: *const c_char,
+}
+
+pub const EXP_META: c_int = 0;
+pub const EXP_LOGIC: c_int = 1;
+pub const EXP_DSO: c_int = 2;
+pub const EXP_ANALOG: c_int = 3;
+pub const EXP_END: c_int = 4;
+
+#[repr(C)]
+pub struct OracleExportPacket {
+    pub kind: c_int,
+    pub samplerate: u64,
+    pub limit_samples: u64,
+    pub has_ref: c_int,
+    pub ref_min: u32,
+    pub ref_max: u32,
+    pub data: *const u8,
+    pub len: u64,
+    pub unitsize: u16,
+    pub num_samples: c_int,
+    pub export_original: c_int,
+}
+
+unsafe extern "C" {
+    pub fn oracle_export_run(
+        module_id: *const c_char,
+        kind: c_int,
+        start_index: u64,
+        time_string: *const c_char,
+        chans: *const OracleExportChannel,
+        n_ch: c_int,
+        pkts: *const OracleExportPacket,
+        n_pkts: c_int,
+        out: *mut *mut c_char,
+    ) -> c_int;
+    pub fn oracle_free(p: *mut c_void);
+}
+
 // enum oracle_packet_kind / oracle_channel_kind in csrc/oracle.h.
 pub const PKT_LOGIC: c_int = 1;
 pub const PKT_DSO: c_int = 2;

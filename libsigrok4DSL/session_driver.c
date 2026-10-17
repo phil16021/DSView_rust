@@ -57,10 +57,7 @@ static int sr_load_virtual_device_session(struct sr_dev_inst *sdi);
 #ifdef DSVIEW_RUST_CORE
 static int use_rust_reader(void)
 {
-    const char *v = getenv("DSVIEW_IMPL_FORMATS");
-    if (v == NULL || *v == '\0')
-        v = getenv("DSVIEW_IMPL");
-    return v != NULL && strcmp(v, "rust") == 0;
+    return dsv_use_rust("FORMATS");
 }
 #endif
 

@@ -52,6 +52,11 @@ public:
     //get the last error
     const char *GetError();
 
+    // Abandon the archive (on error or cancel). The C writer has already
+    // truncated fileName, so it is removed; the Rust writer only drops its
+    // temporary file and leaves an existing fileName untouched.
+    void Discard(const char *fileName);
+
 public:
     int m_opt_compress_level;
 
@@ -59,6 +64,7 @@ private:
     zipFile         m_zDoc; //zip file handle
     zip_fileinfo    *m_zi; //life must as m_zDoc; 
     char     m_error[500];
+    void    *m_rs; // dsv_zip_writer when the Rust core writes (DSVIEW_IMPL_FORMATS=rust)
 };
 
 
@@ -88,7 +94,7 @@ public:
     void Close();
 
     inline bool HaveArchive(){
-        return m_archive != NULL;
+        return m_archive != NULL || m_rs != NULL;
     }
 
     ZipInnerFileData* GetInnterFileData(const char *innerFile);
@@ -98,5 +104,6 @@ public:
 
 private:
     unzFile  m_archive;
+    void    *m_rs; // dsv_dsl when the Rust core reads (DSVIEW_IMPL_FORMATS=rust)
 };
  

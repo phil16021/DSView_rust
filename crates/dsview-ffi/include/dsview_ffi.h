@@ -25,10 +25,24 @@
 
 #define DSV_ERR_PANIC -99
 
+#define DSV_EXPORT_META 0
+
+#define DSV_EXPORT_LOGIC 1
+
+#define DSV_EXPORT_DSO 2
+
+#define DSV_EXPORT_ANALOG 3
+
+#define DSV_EXPORT_END 4
+
 /**
  * Opaque handle owned by C between `dsv_dsl_open` and `dsv_dsl_close`.
  */
 typedef struct dsv_dsl dsv_dsl;
+
+typedef struct dsv_export dsv_export;
+
+typedef struct dsv_zip_writer dsv_zip_writer;
 
 typedef struct dsv_dsl_header_info {
   uint32_t version;
@@ -87,6 +101,45 @@ typedef struct dsv_dsl_channel_info {
   double map_min;
   uint32_t n_status;
 } dsv_dsl_channel_info;
+
+/**
+ * One device channel (`struct sr_channel` fields the exporters use).
+ */
+typedef struct dsv_export_channel {
+  uint16_t index;
+  /**
+   * 0 logic, 1 DSO, 2 analog, 3 other.
+   */
+  int32_t kind;
+  int32_t enabled;
+  const char *name;
+  uint64_t vdiv;
+  uint64_t vfactor;
+  uint16_t hw_offset;
+  double map_max;
+  double map_min;
+  const char *map_unit;
+} dsv_export_channel;
+
+/**
+ * One datafeed packet. `data`/`len` are the payload bytes.
+ */
+typedef struct dsv_export_packet {
+  int32_t kind;
+  int32_t has_samplerate;
+  uint64_t samplerate;
+  int32_t has_limit_samples;
+  uint64_t limit_samples;
+  int32_t has_ref_min;
+  uint32_t ref_min;
+  int32_t has_ref_max;
+  uint32_t ref_max;
+  const uint8_t *data;
+  uint64_t len;
+  uint32_t unitsize;
+  uint64_t num_samples;
+  int32_t export_original;
+} dsv_export_packet;
 
 #ifdef __cplusplus
 extern "C" {
@@ -155,6 +208,104 @@ int32_t dsv_dsl_next_packet(struct dsv_dsl *h,
  * Message of the last failed call on this thread ("" if none). Valid until the next failing call.
  */
 const char *dsv_last_error(void);
+
+/**
+ * Creates a CSV ("csv") or VCD ("vcd") exporter for channel type `kind`.
+ *
+ * # Safety
+ * `format` NUL-terminated; `chans` points to `n` channels; `out` writable.
+ */
+int32_t dsv_export_new(const char *format,
+                       int32_t kind_code,
+                       uint64_t start_index,
+                       const struct dsv_export_channel *chans,
+                       uint32_t n,
+                       struct dsv_export **out);
+
+/**
+ * Sets the "sampled on" time (CSV) and `$date` (VCD) strings.
+ *
+ * # Safety
+ * `h` from `dsv_export_new`; strings NUL-terminated or NULL.
+ */
+void dsv_export_set_strings(struct dsv_export *h, const char *time_string, const char *date_string);
+
+/**
+ * Feeds one packet. `*out` receives the produced text (free with
+ * `dsv_string_free`) or NULL when the packet produces none.
+ *
+ * # Safety
+ * `h` from `dsv_export_new`; `p` valid with `len` readable bytes at `data`; `out` writable.
+ */
+int32_t dsv_export_receive(struct dsv_export *h, const struct dsv_export_packet *p, char **out);
+
+/**
+ * # Safety
+ * `h` from `dsv_export_new`, not used afterwards. NULL is ignored.
+ */
+void dsv_export_free(struct dsv_export *h);
+
+/**
+ * Frees a string returned by this library. NULL is ignored.
+ *
+ * # Safety
+ * `s` must come from this library.
+ */
+void dsv_string_free(char *s);
+
+/**
+ * C entry point for [`use_rust`]: 1 for Rust, 0 for C.
+ *
+ * # Safety
+ * `subsystem` must be NUL-terminated or NULL.
+ */
+int32_t dsv_use_rust(const char *subsystem);
+
+/**
+ * Starts writing a `.dsl` at `path` (atomically; see dsview_formats::zipw).
+ *
+ * # Safety
+ * `path` NUL-terminated; `out` writable.
+ */
+int32_t dsv_zip_writer_create(const char *path, struct dsv_zip_writer **out);
+
+/**
+ * Adds entry `name` with `len` bytes.
+ *
+ * # Safety
+ * `h` from `dsv_zip_writer_create`; `name` NUL-terminated; `data` has `len` bytes.
+ */
+int32_t dsv_zip_writer_add(struct dsv_zip_writer *h,
+                           const char *name,
+                           const uint8_t *data,
+                           uint64_t len);
+
+/**
+ * Completes the archive and moves it into place. The handle stays valid
+ * for `dsv_zip_writer_free`.
+ *
+ * # Safety
+ * `h` from `dsv_zip_writer_create`.
+ */
+int32_t dsv_zip_writer_finish(struct dsv_zip_writer *h);
+
+/**
+ * Frees the handle; an unfinished archive is discarded. NULL is ignored.
+ *
+ * # Safety
+ * `h` from `dsv_zip_writer_create`, not used afterwards.
+ */
+void dsv_zip_writer_free(struct dsv_zip_writer *h);
+
+/**
+ * Reads metadata entry `name` (`session`, `decoders`, `header`).
+ * Returns 1 when found (data valid until the next call or close), 0 when
+ * missing, negative on error.
+ *
+ * # Safety
+ * `h` from `dsv_dsl_open`; `name` NUL-terminated; outputs writable.
+ */
+int32_t dsv_dsl_entry(struct dsv_dsl *h, const char *name, const uint8_t **data, uint64_t *len);
 
 #ifdef __cplusplus
 }  // extern "C"

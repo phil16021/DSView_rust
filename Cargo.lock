@@ -279,7 +279,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cc",
+ "dsview-formats",
  "pkg-config",
+ "proptest",
  "serde_json",
  "sha2",
  "zip",

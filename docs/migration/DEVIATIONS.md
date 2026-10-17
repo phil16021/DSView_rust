@@ -53,6 +53,35 @@ wait for it.
 - The C writer numbers `trigger` keys with a running counter (`probecnt`), so with disabled logic channels a
   trigger can be restored on the wrong channel. `dsview-formats` reproduces the reader's addressing exactly.
 
+### F5. CSV export writes decimal commas under many locales
+**Observed (Phase 1a, `export_diff.rs::c_csv_uses_locale_decimal_comma`):**
+- With `LC_NUMERIC=de_AT.utf8`, `output/csv.c` writes DSO and analog values as `-0,28000` inside a
+  comma-separated file.
+- Qt sets the process locale from the environment, so this happens in DSView for every user with a
+  decimal-comma locale (most of continental Europe).
+- Only the time column has a comma-to-dot workaround.
+
+**Rust behaviour:** the exporter always writes `.`.
+
+### F6. An empty logic packet crashes the CSV and VCD exporters
+**Observed (Phase 1a, `export_diff.rs::c_crashes_on_empty_logic_packet`, ignored by default):**
+- `for (i = 0; i <= length - unitsize; ...)` underflows when `length < unitsize`, and the process gets SIGSEGV.
+
+**Rust behaviour:** produces no output for an empty packet.
+
+### F7. Saving ignores write errors and is not atomic
+- `ZipMaker::AddFromBuffer` always returns true, so a full disk silently produces a truncated `.dsl`.
+- Saving writes over the target in place, so a cancelled or failed save destroys the previous file.
+
+**Rust behaviour:** `DslZipWriter` reports every error and checks the header. It writes to a temporary
+file, verifies it opens, and renames it into place. `ZipMaker::Discard` keeps the previous file when Rust
+writes.
+
+### F8. Sample counts are printed with an unpadded remainder
+- `sr_si_string_u64` prints 131072 samples as "131.72 k Samples" in CSV headers.
+- **Kept byte for byte**: it is cosmetic, and changing it would break the export diff.
+- To be fixed after the Rust export becomes the default.
+
 ## Planned behaviour deviations (Rust intentionally differs)
 
 | Area | C behaviour | Rust behaviour | Phase |
@@ -67,7 +96,14 @@ wait for it.
 | `.dsl` file rejection | Hardened C loader rejects bad headers when the session loads | Rejected already when the file is opened (`sr_new_virtual_device`), with the reason in the log | 1a ✔ |
 | Datafeed packets from files | `struct sr_datafeed_*` fields the driver does not set are left uninitialised | All fields zeroed | 1a ✔ |
 | Header values written by Rust | Probe names written raw; a backslash makes GKeyFile reject the name | GKeyFile escaping (`\\`, `\n`, leading `\s`) | 1a ✔ |
-| Zip entry bytes | minizip deflate | `zip` crate deflate; entry *contents* identical, compressed bytes differ | 1a ✔ |
+| Zip entry bytes | minizip deflate | `zip` crate deflate at the same level (1); entry *contents* identical, compressed bytes differ | 1a ✔ |
+| CSV/VCD export, empty logic packet | Crash (F6) | No output | 1a ✔ |
+| CSV export numbers | Locale decimal comma (F5) | Always `.` | 1a ✔ |
+| CSV export, 32+ logic channels | Undefined behaviour (`1 << i` on `int`, mask sign extension) | Correct n-bit mask | 1a ✔ |
+| CSV export, analog with more than 8 channels | Stack overflow (`int enalbe_channel_flags[8]`) | Works | 1a ✔ |
+| CSV export, DSO channel index ≥ enabled count | Reads past the frame | Reads 0 | 1a ✔ |
+| Saving `.dsl` | Write errors ignored; in-place overwrite (F7) | Errors reported; atomic temp file plus rename; previous file kept on cancel | 1a ✔ |
+| Saving `.dsl`, entry names | Any | Only DSView's names; the header must parse | 1a ✔ |
 
 ## Departures from PLAN.md
 
@@ -75,6 +111,8 @@ wait for it.
 |---|---|---|
 | Corrosion for the CMake ↔ cargo build | A `dsview_ffi` custom target that runs `cargo build --locked` (option `DSVIEW_RUST_CORE`, OFF by default) | Corrosion is fetched from GitHub at configure time, the kind of unpinned download the security review flagged. The custom target uses only the committed `Cargo.lock` |
 | cbindgen-generated header | Done in Phase 1a: `cargo xtask gen-header`, checked in CI | — |
+| `.dsc` profiles in Phase 1a | Deferred to Phase 4/5 | Profiles are read and written only by the Qt GUI (`MainWindow`, Qt JSON), so a C seam has no user; the Rust model is built with the Rust session/GUI |
+| srzip/gnuplot export in Rust | srzip stays C until it is ported; gnuplot is dropped in Phase 6 | csv and vcd cover the export dialog defaults; srzip (sigrok `.sr`) needs a sigrok-compatible writer of its own |
 | Goldens as zstd JSONL | gzip (`.jsonl.gz`, via `flate2`) | Pure Rust, no C build dependency; 60 KB for the protocol.demo decode golden |
 | Phase 0 performance baselines (`get_display_edges`, ingest, decode throughput) | Deferred to the start of Phase 1b / Phase 2 | `get_display_edges` and ingest need `oracle-store` (LogicSnapshot built against Qt Core), which is Phase 1b's oracle. Decode throughput needs large synthetic captures from `dsview-siggen`; the only corpus capture (131k samples) is dominated by Python start-up |
 | USB traces recorded in Phase 0 | Recorder and scenarios done and validated on the DSLogic in dry-run mode; the pcapng recording itself is pending | Needs root once: usbmon module plus dumpcap capture rights (see `tools/usb/README.md`) |

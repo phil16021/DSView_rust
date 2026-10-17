@@ -3,7 +3,7 @@
 | Phase | State | Notes |
 |---|---|---|
 | 0 Infrastructure, oracle, baselines | **done, except two items deferred** | Deferred: USB pcapng recording (needs root once, see `tools/usb/README.md`) and performance baselines (moved to Phase 1b/2, see DEVIATIONS.md) |
-| 1 Formats + store | **1a reading done**, 1a writing/export and 1b store next | See "Phase 1a" below |
+| 1 Formats + store | **1a done** (reading, saving, CSV/VCD export through Rust behind `DSVIEW_IMPL_FORMATS`); 1b store next | See "Phase 1a" below |
 | 2 Decoder engine | not started | |
 | 3 Drivers | not started | |
 | 4 Session + control API | not started | |
@@ -70,8 +70,22 @@ sources:
     all 9 captures give identical results.
   - The crafted malicious files are rejected by the Rust reader with a clear log message.
 
-**Remaining in 1a:**
-- Saving through the Rust writer from `StoreSession` (an incremental writer API; DSO/analog writers).
-- csv/vcd/srzip export.
-- `.dsc` profiles.
-- Making Rust the default reader after one release of A/B.
+**Saving and export (second step of 1a):**
+- **Saving:** `DslZipWriter` behind `ZipMaker` (`dsv_zip_writer_*`) and `dsv_dsl_entry` behind `ZipReader`.
+  `StoreSession` uses `ZipMaker::Discard`, so a cancelled Rust save keeps the previous file.
+- **Export:** CSV and VCD exporters behind libsigrok's output-module interface
+  (`libsigrok4DSL/output/rs_output.c`, chosen in `sr_output_list()`).
+- **One switch:** `dsv_use_rust("FORMATS")` decides for the session driver, export and save.
+- **Byte-exact checks** (`dev/dsview-oracle/tests/export_diff.rs`):
+  - Rust CSV (logic/DSO/analog) and VCD against the C modules on 400 random cases each.
+  - `%.15g`, `%.5f` and `%.0f` against glibc `snprintf`.
+  - Findings F5 (locale) and F6 (crash) reproduced.
+- **Live A/B** (`cargo xtask control ab`): opening, CSV/VCD export and saving every corpus capture inside a
+  running DSView gives identical results with `DSVIEW_IMPL=c` and `rust`. Rust-saved files read
+  identically in the C loader; the only header difference is the wall-clock `trigger time`.
+  - Also runs in CI from a `DESTDIR`-staged install.
+
+**Left for later (see DEVIATIONS.md, "Departures"):**
+- `.dsc` profiles (Phase 4/5).
+- srzip export.
+- Making Rust the default after one release of A/B.

@@ -97,6 +97,7 @@ fn main() {
     sources.extend(COMMON.iter().map(|f| root.join("common").join(f)));
     sources.push(manifest.join("csrc/oracle_decode.c"));
     sources.push(manifest.join("csrc/oracle_dsl.c"));
+    sources.push(manifest.join("csrc/oracle_export.c"));
 
     for src in &sources {
         println!("cargo:rerun-if-changed={}", src.display());

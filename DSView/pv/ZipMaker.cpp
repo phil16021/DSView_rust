@@ -25,13 +25,18 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
-  
+#include <cstdio>
+#ifdef DSVIEW_RUST_CORE
+#include "dsview_ffi.h"
+#endif
+
 ZipMaker::ZipMaker() :
     m_zDoc(NULL)
 {
-    m_error[0] = 0; 
+    m_error[0] = 0;
     m_opt_compress_level = Z_BEST_SPEED;
     m_zi = NULL;
+    m_rs = NULL;
 }
 
 ZipMaker::~ZipMaker()
@@ -44,8 +49,20 @@ bool ZipMaker::CreateNew(const char *fileName, bool bAppend)
      assert(fileName);
 
      Release();
- 
-     m_zDoc = zipOpen64(fileName, bAppend); 
+
+#ifdef DSVIEW_RUST_CORE
+     // DSVIEW_IMPL_FORMATS=rust: written by the Rust core (atomic, validated).
+     if (dsv_use_rust("FORMATS")) {
+        if (dsv_zip_writer_create(fileName, (struct dsv_zip_writer **)&m_rs) != DSV_OK) {
+            snprintf(m_error, sizeof(m_error), "%s", dsv_last_error());
+            m_rs = NULL;
+            return false;
+        }
+        return true;
+     }
+#endif
+
+     m_zDoc = zipOpen64(fileName, bAppend);
      if (m_zDoc == NULL) {
         strcpy(m_error, "zipOpen64 error");
     } 
@@ -72,7 +89,13 @@ bool ZipMaker::CreateNew(const char *fileName, bool bAppend)
 }
 
 void ZipMaker::Release()
-{  
+{
+#ifdef DSVIEW_RUST_CORE
+    if (m_rs){
+        dsv_zip_writer_free((struct dsv_zip_writer *)m_rs);
+        m_rs = NULL;
+    }
+#endif
     if (m_zDoc){
        zipClose((zipFile)m_zDoc, NULL);
        m_zDoc = NULL;       
@@ -84,6 +107,15 @@ void ZipMaker::Release()
 }
 
 bool ZipMaker::Close(){
+#ifdef DSVIEW_RUST_CORE
+    if (m_rs){
+        if (dsv_zip_writer_finish((struct dsv_zip_writer *)m_rs) != DSV_OK){
+            snprintf(m_error, sizeof(m_error), "%s", dsv_last_error());
+            return false;
+        }
+        return true;
+    }
+#endif
     if (m_zDoc){
        zipClose((zipFile)m_zDoc, NULL);
        m_zDoc = NULL;
@@ -96,7 +128,17 @@ bool ZipMaker::AddFromBuffer(const char *innerFile, const char *buffer, unsigned
 {
     assert(buffer);
     assert(innerFile);
-    assert(m_zDoc);   
+
+#ifdef DSVIEW_RUST_CORE
+    if (m_rs){
+        if (dsv_zip_writer_add((struct dsv_zip_writer *)m_rs, innerFile, (const uint8_t *)buffer, buferSize) != DSV_OK){
+            snprintf(m_error, sizeof(m_error), "%s", dsv_last_error());
+            return false;
+        }
+        return true;
+    }
+#endif
+    assert(m_zDoc);
     int level = m_opt_compress_level;
 
     if (level < Z_DEFAULT_COMPRESSION  || level > Z_BEST_COMPRESSION){
@@ -155,6 +197,17 @@ bool ZipMaker::AddFromFile(const char *localFile, const char *innerFile)
     return ret;
 }
 
+void ZipMaker::Discard(const char *fileName)
+{
+    bool rust = m_rs != NULL;
+#ifdef DSVIEW_RUST_CORE
+    rust = rust || dsv_use_rust("FORMATS");
+#endif
+    Release();
+    if (!rust && fileName)
+        std::remove(fileName);
+}
+
 const char *ZipMaker::GetError()
 {
     if (m_error[0])
@@ -181,6 +234,14 @@ ZipInnerFileData::~ZipInnerFileData()
 ZipReader::ZipReader(const char *filePath)
 {
     m_archive = NULL;
+    m_rs = NULL;
+#ifdef DSVIEW_RUST_CORE
+    if (dsv_use_rust("FORMATS")) {
+        if (dsv_dsl_open(filePath, (struct dsv_dsl **)&m_rs) != DSV_OK)
+            m_rs = NULL;
+        return;
+    }
+#endif
     m_archive = unzOpen64(filePath);
 }
 
@@ -191,6 +252,12 @@ ZipReader::~ZipReader()
 
 void ZipReader::Close()
 {
+#ifdef DSVIEW_RUST_CORE
+    if (m_rs != NULL){
+        dsv_dsl_close((struct dsv_dsl *)m_rs);
+        m_rs = NULL;
+    }
+#endif
     if (m_archive != NULL){
         unzClose(m_archive);
         m_archive = NULL;
@@ -202,7 +269,21 @@ ZipInnerFileData* ZipReader::GetInnterFileData(const char *innerFile)
     char *metafile = NULL;
     char szFilePath[15];
     unz_file_info64 fileInfo;
-   
+
+#ifdef DSVIEW_RUST_CORE
+    if (m_rs != NULL){
+        const uint8_t *data = NULL;
+        uint64_t len = 0;
+        if (dsv_dsl_entry((struct dsv_dsl *)m_rs, innerFile, &data, &len) != 1 || len == 0)
+            return NULL;
+        metafile = (char *)malloc(len);
+        if (metafile == NULL)
+            return NULL;
+        memcpy(metafile, data, len);
+        return new ZipInnerFileData(metafile, (int)len);
+    }
+#endif
+
     if (m_archive == NULL){
         return NULL;
     }

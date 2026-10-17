@@ -80,4 +80,43 @@ typedef void (*oracle_packet_cb)(void *user, int type, int format, const uint8_t
 int oracle_dsl_run(const char *path, int log_level, struct oracle_dsl_info *info,
                    oracle_packet_cb cb, void *user);
 
+/* ------------------------------------------------------------ export modules */
+
+struct oracle_export_channel {
+    int index;
+    int kind;              /* enum oracle_channel_kind */
+    int enabled;
+    const char *name;
+    uint64_t vdiv;
+    uint64_t vfactor;
+    uint16_t hw_offset;
+    double map_max;
+    double map_min;
+    const char *map_unit;
+};
+
+enum oracle_export_type { ORACLE_EXP_META, ORACLE_EXP_LOGIC, ORACLE_EXP_DSO, ORACLE_EXP_ANALOG, ORACLE_EXP_END };
+
+struct oracle_export_packet {
+    int type;              /* enum oracle_export_type */
+    uint64_t samplerate;
+    uint64_t limit_samples;
+    int has_ref;
+    uint32_t ref_min;
+    uint32_t ref_max;
+    const uint8_t *data;
+    uint64_t len;
+    uint16_t unitsize;
+    int num_samples;
+    int export_original;
+};
+
+/* Runs libsigrok4DSL output module `module_id` (csv, vcd, ...) for a capture
+ * of channel kind `kind` and returns all text it produced (free with
+ * oracle_free). Returns 0, or -1 when the module rejects the input. */
+int oracle_export_run(const char *module_id, int kind, uint64_t start_index, const char *time_string,
+                      const struct oracle_export_channel *chans, int n_ch,
+                      const struct oracle_export_packet *pkts, int n_pkts, char **out);
+void oracle_free(void *p);
+
 #endif

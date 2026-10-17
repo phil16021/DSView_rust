@@ -8,12 +8,16 @@ usize_is_size_t = true
 
 [export]
 prefix = ""
-include = ["DsvDslHeader", "DsvDslChannel"]
+include = ["DsvDslHeader", "DsvDslChannel", "DsvExportChannel", "DsvExportPacket"]
 
 [export.rename]
 "DsvDsl" = "dsv_dsl"
 "DsvDslHeader" = "dsv_dsl_header_info"
 "DsvDslChannel" = "dsv_dsl_channel_info"
+"DsvExport" = "dsv_export"
+"DsvZipWriter" = "dsv_zip_writer"
+"DsvExportChannel" = "dsv_export_channel"
+"DsvExportPacket" = "dsv_export_packet"
 
 [enum]
 prefix_with_name = true

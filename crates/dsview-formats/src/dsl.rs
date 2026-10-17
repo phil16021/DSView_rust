@@ -125,6 +125,11 @@ impl<R: Read + Seek> DslReader<R> {
         })
     }
 
+    /// Raw bytes of a metadata entry (`session`, `decoders`, `header`), size-limited.
+    pub fn meta_entry(&mut self, name: &str) -> Result<Option<Vec<u8>>, Error> {
+        read_entry(&mut self.zip, name, self.limits.max_meta_bytes)
+    }
+
     fn entry(&mut self, name: &str) -> Result<Vec<u8>, Error> {
         read_entry(&mut self.zip, name, self.limits.max_entry_bytes)?
             .ok_or_else(|| Error::MissingEntry(name.to_string()))

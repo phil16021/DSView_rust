@@ -66,6 +66,11 @@ extern SR_PRIV struct sr_output_module output_csv;
 extern SR_PRIV struct sr_output_module output_analog;
 extern SR_PRIV struct sr_output_module output_srzip;
 extern SR_PRIV struct sr_output_module output_wav;
+#ifdef DSVIEW_RUST_CORE
+#include "dsview_ffi.h"
+extern SR_PRIV struct sr_output_module output_csv_rs;
+extern SR_PRIV struct sr_output_module output_vcd_rs;
+#endif
 /* @endcond */
 
 static const struct sr_output_module *output_module_list[] = {
@@ -89,8 +94,23 @@ static const struct sr_output_module *output_module_list[] = {
  *
  * @since 0.4.0
  */
+#ifdef DSVIEW_RUST_CORE
+/* DSVIEW_IMPL_FORMATS=rust: CSV and VCD come from the Rust core (rs_output.c). */
+static const struct sr_output_module *output_module_list_rs[] = {
+	&output_csv_rs,
+	&output_vcd_rs,
+	&output_gnuplot,
+	&output_srzip,
+	NULL,
+};
+#endif
+
 SR_API const struct sr_output_module **sr_output_list(void)
 {
+#ifdef DSVIEW_RUST_CORE
+	if (dsv_use_rust("FORMATS"))
+		return output_module_list_rs;
+#endif
 	return output_module_list;
 }
 
