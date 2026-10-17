@@ -35,6 +35,24 @@ evaluates conditions differently at chunk edges.
 **Consequence:** the Rust session must expose stop as an explicit state, Stopping → Done, and callers must
 wait for it.
 
+### F3. Fractional samplerates do not survive a C round trip
+**Observed (Phase 1a, code reading plus property tests):**
+- `sr_si_string_u64` writes a non-integral rate as `<rate/unit>.<rate%unit>`, where the remainder is in Hz
+  and unpadded. 1.05 MHz becomes "1.50000 MHz", and 1.5 MHz becomes "1.500000 MHz".
+- `sr_parse_sizestring` stops at the dot and ignores the error it returns, so DSView loads such a file at
+  **2 Hz** or **1 Hz**.
+
+**Rust behaviour:**
+- `dsview-formats` decodes the writer's actual format, so it recovers every rate the C writer can produce.
+  This is property-tested over 0..10 GHz.
+- The Rust writer never emits a dot (it writes "1050 kHz"), so both readers agree on Rust-written files.
+
+### F4. Per-channel header keys are positional
+- `vDivN`, `enableN`, `couplingN` and similar keys address the *N-th channel in the list*, not the channel with index N.
+- `triggerN` addresses the channel with *index* N.
+- The C writer numbers `trigger` keys with a running counter (`probecnt`), so with disabled logic channels a
+  trigger can be restored on the wrong channel. `dsview-formats` reproduces the reader's addressing exactly.
+
 ## Planned behaviour deviations (Rust intentionally differs)
 
 | Area | C behaviour | Rust behaviour | Phase |
@@ -43,13 +61,20 @@ wait for it.
 | Decoder `wait()` pin tuple | One tuple object, mutated in place | A fresh tuple per call | 2 |
 | Decoder options from files | Applied as stored | Path/exec options (`objdump`, `elffile`, `mapping`) reset to defaults until the user confirms | 2 |
 | USB stop/abort | No transfer cancellation, infinite timeouts, unbounded busy-polls | FORCE_RDY → grace period → cancel all transfers; every wait has a deadline | 3 |
+| `.dsl` samplerate | Fractional rates misread (F3); an unparsable string silently loads as 0 or garbage | Decodes the C writer's format; an unparsable string is an error | 1a ✔ |
+| `.dsl` misaligned logic block | Stream silently ends at that block | Load error ("logic block is not 8-byte aligned") | 1a ✔ |
+| `.dsl` version 1, data not a multiple of 128 bytes | Last partial 64-sample block converted from a stale buffer | Partial block dropped | 1a ✔ |
+| `.dsl` file rejection | Hardened C loader rejects bad headers when the session loads | Rejected already when the file is opened (`sr_new_virtual_device`), with the reason in the log | 1a ✔ |
+| Datafeed packets from files | `struct sr_datafeed_*` fields the driver does not set are left uninitialised | All fields zeroed | 1a ✔ |
+| Header values written by Rust | Probe names written raw; a backslash makes GKeyFile reject the name | GKeyFile escaping (`\\`, `\n`, leading `\s`) | 1a ✔ |
+| Zip entry bytes | minizip deflate | `zip` crate deflate; entry *contents* identical, compressed bytes differ | 1a ✔ |
 
 ## Departures from PLAN.md
 
 | Plan said | Done instead | Why |
 |---|---|---|
 | Corrosion for the CMake ↔ cargo build | A `dsview_ffi` custom target that runs `cargo build --locked` (option `DSVIEW_RUST_CORE`, OFF by default) | Corrosion is fetched from GitHub at configure time, the kind of unpinned download the security review flagged. The custom target uses only the committed `Cargo.lock` |
-| cbindgen-generated header | `crates/dsview-ffi/include/dsview_ffi.h` written by hand | The ABI is one function so far; cbindgen (not installed) comes in with the first real API in Phase 1 |
+| cbindgen-generated header | Done in Phase 1a: `cargo xtask gen-header`, checked in CI | — |
 | Goldens as zstd JSONL | gzip (`.jsonl.gz`, via `flate2`) | Pure Rust, no C build dependency; 60 KB for the protocol.demo decode golden |
 | Phase 0 performance baselines (`get_display_edges`, ingest, decode throughput) | Deferred to the start of Phase 1b / Phase 2 | `get_display_edges` and ingest need `oracle-store` (LogicSnapshot built against Qt Core), which is Phase 1b's oracle. Decode throughput needs large synthetic captures from `dsview-siggen`; the only corpus capture (131k samples) is dominated by Python start-up |
 | USB traces recorded in Phase 0 | Recorder and scenarios done and validated on the DSLogic in dry-run mode; the pcapng recording itself is pending | Needs root once: usbmon module plus dumpcap capture rights (see `tools/usb/README.md`) |

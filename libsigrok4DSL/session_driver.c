@@ -25,8 +25,12 @@
 #include <sys/time.h>
 #include <assert.h>
 #include <string.h>
+#include <stdlib.h>
 #include <minizip/unzip.h>
 #include "log.h"
+#ifdef DSVIEW_RUST_CORE
+#include "dsview_ffi.h"
+#endif
 
 /* Message logging helpers with subsystem-specific prefix string. */
 
@@ -46,6 +50,19 @@ static int sr_load_virtual_device_session(struct sr_dev_inst *sdi);
 
 #define MAX_HEADER_SIZE (1024 * 1024)
 #define MAX_FILE_PROBES 64 /* logic data is unpacked through a uint64_t bit mask */
+
+/* Migration to Rust (docs/migration/PLAN.md, Phase 1a): with
+ * DSVIEW_IMPL_FORMATS=rust (or DSVIEW_IMPL=rust) captures are parsed and
+ * streamed by the Rust core (crates/dsview-formats) instead of the code below. */
+#ifdef DSVIEW_RUST_CORE
+static int use_rust_reader(void)
+{
+    const char *v = getenv("DSVIEW_IMPL_FORMATS");
+    if (v == NULL || *v == '\0')
+        v = getenv("DSVIEW_IMPL");
+    return v != NULL && strcmp(v, "rust") == 0;
+}
+#endif
 
 static uint64_t samplerates[1];
 static uint64_t samplecounts[1];
@@ -127,6 +144,7 @@ struct session_vdev
     uint8_t max_height;
     struct sr_status mstatus;
     struct session_packet_buffer   *packet_buffer;
+    void *rs_reader; /* dsv_dsl handle while streaming through the Rust core */
 };
 
 #define SESSION_MAX_CHANNEL_COUNT 512
@@ -714,6 +732,190 @@ static int receive_data_logic_dso_v2(int fd, int revents, const struct sr_dev_in
 }
 
 
+#ifdef DSVIEW_RUST_CORE
+/* Same packets as receive_data()/receive_data_logic_dso_v2(), produced by the Rust reader. */
+static int receive_data_rust(int fd, int revents, const struct sr_dev_inst *sdi)
+{
+    struct session_vdev *vdev = sdi->priv;
+    struct sr_datafeed_packet packet;
+    struct sr_datafeed_logic logic;
+    struct sr_datafeed_dso dso;
+    struct sr_datafeed_analog analog;
+    int kind = 0;
+    const uint8_t *data = NULL;
+    uint64_t len = 0, num_samples = 0;
+    int ret;
+
+    (void)fd;
+    memset(&packet, 0, sizeof(packet));
+    memset(&logic, 0, sizeof(logic));
+    memset(&dso, 0, sizeof(dso));
+    memset(&analog, 0, sizeof(analog));
+    packet.status = SR_PKT_OK;
+
+    ret = (revents == -1) ? 0 : dsv_dsl_next_packet(vdev->rs_reader, &kind, &data, &len, &num_samples);
+
+    if (ret > 0)
+    {
+        if (kind == DSV_PACKET_LOGIC)
+        {
+            packet.type = SR_DF_LOGIC;
+            packet.payload = &logic;
+            logic.format = LA_CROSS_DATA;
+            logic.length = len;
+            logic.data = (void *)data;
+        }
+        else if (kind == DSV_PACKET_DSO)
+        {
+            packet.type = SR_DF_DSO;
+            packet.payload = &dso;
+            dso.probes = sdi->channels;
+            dso.num_samples = (int)num_samples;
+            dso.mq = SR_MQ_VOLTAGE;
+            dso.unit = SR_UNIT_VOLT;
+            dso.mqflags = SR_MQFLAG_AC;
+            dso.data = (void *)data;
+        }
+        else
+        {
+            packet.type = SR_DF_ANALOG;
+            packet.payload = &analog;
+            analog.probes = sdi->channels;
+            analog.num_samples = (int)num_samples;
+            analog.unit_bits = vdev->unit_bits;
+            analog.mq = SR_MQ_VOLTAGE;
+            analog.unit = SR_UNIT_VOLT;
+            analog.mqflags = SR_MQFLAG_AC;
+            analog.data = (void *)data;
+        }
+        ds_data_forward(sdi, &packet);
+        return TRUE;
+    }
+
+    if (ret < 0)
+    {
+        sr_err("%s: %s", __func__, dsv_last_error());
+        packet.status = SR_PKT_SOURCE_ERROR;
+    }
+    packet.type = SR_DF_END;
+    packet.payload = NULL;
+    ds_data_forward(sdi, &packet);
+    sr_session_source_remove(-1);
+
+    dsv_dsl_close(vdev->rs_reader);
+    vdev->rs_reader = NULL;
+    return TRUE;
+}
+
+/* sr_load_virtual_device_session() with the header parsed by the Rust core. */
+static int load_session_rust(struct sr_dev_inst *sdi)
+{
+    struct dsv_dsl *h = NULL;
+    struct dsv_dsl_header_info hdr;
+    struct dsv_dsl_channel_info ch;
+    struct sr_channel *probe;
+    const char *status_name;
+    uint64_t status_value;
+    uint32_t i, j;
+    int type;
+
+    if (dsv_dsl_open(sdi->path, &h) != DSV_OK)
+    {
+        sr_err("%s: %s", __func__, dsv_last_error());
+        return SR_ERR;
+    }
+    dsv_dsl_header(h, &hdr);
+    sr_info("Loading '%s' with the Rust reader (DSVIEW_IMPL_FORMATS=rust).", sdi->path);
+
+    sdi->driver->config_set(SR_CONF_FILE_VERSION, g_variant_new_int16(hdr.version), sdi, NULL, NULL);
+    sdi->driver->config_set(SR_CONF_SAMPLERATE, g_variant_new_uint64(hdr.samplerate), sdi, NULL, NULL);
+    sdi->driver->config_set(SR_CONF_LIMIT_SAMPLES, g_variant_new_uint64(hdr.total_samples), sdi, NULL, NULL);
+    if (hdr.has_hdiv)
+        sdi->driver->config_set(SR_CONF_TIMEBASE, g_variant_new_uint64(hdr.hdiv), sdi, NULL, NULL);
+    if (hdr.has_hdiv_min)
+        sdi->driver->config_set(SR_CONF_MIN_TIMEBASE, g_variant_new_uint64(hdr.hdiv_min), sdi, NULL, NULL);
+    if (hdr.has_hdiv_max)
+        sdi->driver->config_set(SR_CONF_MAX_TIMEBASE, g_variant_new_uint64(hdr.hdiv_max), sdi, NULL, NULL);
+    if (hdr.has_unit_bits)
+        sdi->driver->config_set(SR_CONF_UNIT_BITS, g_variant_new_byte(hdr.unit_bits), sdi, NULL, NULL);
+    if (hdr.has_ref_min)
+        sdi->driver->config_set(SR_CONF_REF_MIN, g_variant_new_uint32(hdr.ref_min), sdi, NULL, NULL);
+    if (hdr.has_ref_max)
+        sdi->driver->config_set(SR_CONF_REF_MAX, g_variant_new_uint32(hdr.ref_max), sdi, NULL, NULL);
+    if (hdr.has_trigger_time)
+        sdi->driver->config_set(SR_CONF_TRIGGER_TIME, g_variant_new_int64(hdr.trigger_time), sdi, NULL, NULL);
+    sdi->driver->config_set(SR_CONF_TRIGGER_POS, g_variant_new_uint64(hdr.trigger_pos), sdi, NULL, NULL);
+    sdi->driver->config_set(SR_CONF_NUM_BLOCKS, g_variant_new_uint64(hdr.total_blocks), sdi, NULL, NULL);
+    sdi->driver->config_set(SR_CONF_CAPTURE_NUM_PROBES, g_variant_new_uint64(hdr.total_probes), sdi, NULL, NULL);
+
+    for (i = 0; i < hdr.n_channels; i++)
+    {
+        dsv_dsl_channel(h, i, &ch);
+        type = ch.mode == DSO ? SR_CHANNEL_DSO : ch.mode == ANALOG ? SR_CHANNEL_ANALOG : SR_CHANNEL_LOGIC;
+        if (!(probe = sr_channel_new(ch.index, type, ch.enabled, ch.name)))
+        {
+            sr_err("%s: create channel failed", __func__);
+            dsv_dsl_close(h);
+            return SR_ERR;
+        }
+        sdi->channels = g_slist_append(sdi->channels, probe);
+    }
+
+    for (i = 0; i < hdr.n_channels; i++)
+    {
+        dsv_dsl_channel(h, i, &ch);
+        probe = g_slist_nth(sdi->channels, i)->data;
+
+        if (ch.trigger)
+            sr_dev_trigger_set(sdi, ch.index, ch.trigger);
+        if (ch.has_coupling)
+            sdi->driver->config_set(SR_CONF_PROBE_COUPLING, g_variant_new_byte(ch.coupling), sdi, probe, NULL);
+        if (ch.has_vdiv)
+            sdi->driver->config_set(SR_CONF_PROBE_VDIV, g_variant_new_uint64(ch.vdiv), sdi, probe, NULL);
+        if (ch.has_vfactor)
+            sdi->driver->config_set(SR_CONF_PROBE_FACTOR, g_variant_new_uint64(ch.vfactor), sdi, probe, NULL);
+        if (ch.has_voffset)
+            sdi->driver->config_set(SR_CONF_PROBE_HW_OFFSET, g_variant_new_uint16(ch.voffset), sdi, probe, NULL);
+        if (ch.has_vtrig)
+            sdi->driver->config_set(SR_CONF_TRIGGER_VALUE, g_variant_new_byte(ch.vtrig), sdi, probe, NULL);
+
+        for (j = 0; j < ch.n_status; j++)
+        {
+            int key = 0;
+            GVariant *v = NULL;
+
+            dsv_dsl_channel_status(h, i, j, &status_name, &status_value);
+            if (!strcmp(status_name, "period"))      { key = SR_CONF_STATUS_PERIOD; v = g_variant_new_uint32(status_value); }
+            else if (!strcmp(status_name, "pcnt"))   { key = SR_CONF_STATUS_PCNT;   v = g_variant_new_uint32(status_value); }
+            else if (!strcmp(status_name, "max"))    { key = SR_CONF_STATUS_MAX;    v = g_variant_new_byte(status_value); }
+            else if (!strcmp(status_name, "min"))    { key = SR_CONF_STATUS_MIN;    v = g_variant_new_byte(status_value); }
+            else if (!strcmp(status_name, "plen"))   { key = SR_CONF_STATUS_PLEN;   v = g_variant_new_uint32(status_value); }
+            else if (!strcmp(status_name, "llen"))   { key = SR_CONF_STATUS_LLEN;   v = g_variant_new_uint32(status_value); }
+            else if (!strcmp(status_name, "level"))  { key = SR_CONF_STATUS_LEVEL;  v = g_variant_new_boolean(status_value); }
+            else if (!strcmp(status_name, "plevel")) { key = SR_CONF_STATUS_PLEVEL; v = g_variant_new_boolean(status_value); }
+            else if (!strcmp(status_name, "low"))    { key = SR_CONF_STATUS_LOW;    v = g_variant_new_byte(status_value); }
+            else if (!strcmp(status_name, "high"))   { key = SR_CONF_STATUS_HIGH;   v = g_variant_new_byte(status_value); }
+            else if (!strcmp(status_name, "rlen"))   { key = SR_CONF_STATUS_RLEN;   v = g_variant_new_uint32(status_value); }
+            else if (!strcmp(status_name, "flen"))   { key = SR_CONF_STATUS_FLEN;   v = g_variant_new_uint32(status_value); }
+            else if (!strcmp(status_name, "rms"))    { key = SR_CONF_STATUS_RMS;    v = g_variant_new_uint64(status_value); }
+            else if (!strcmp(status_name, "mean"))   { key = SR_CONF_STATUS_MEAN;   v = g_variant_new_uint32(status_value); }
+            if (v != NULL)
+                sdi->driver->config_set(key, v, sdi, probe, NULL);
+        }
+
+        if (ch.map_unit)
+            sdi->driver->config_set(SR_CONF_PROBE_MAP_UNIT, g_variant_new_string(ch.map_unit), sdi, probe, NULL);
+        if (ch.has_map_max)
+            sdi->driver->config_set(SR_CONF_PROBE_MAP_MAX, g_variant_new_double(ch.map_max), sdi, probe, NULL);
+        if (ch.has_map_min)
+            sdi->driver->config_set(SR_CONF_PROBE_MAP_MIN, g_variant_new_double(ch.map_min), sdi, probe, NULL);
+    }
+
+    dsv_dsl_close(h);
+    return SR_OK;
+}
+#endif
+
 /* driver callbacks */
 static int dev_clear(void);
 
@@ -816,6 +1018,11 @@ static void free_temp_buffer(struct session_vdev *vdev)
     safe_free(vdev->packet_buffer);    
     safe_free(vdev->buf);
     safe_free(vdev->logic_buf);
+
+#ifdef DSVIEW_RUST_CORE
+    dsv_dsl_close(vdev->rs_reader);
+#endif
+    vdev->rs_reader = NULL;
 }
 
 static int dev_close(struct sr_dev_inst *sdi)
@@ -1398,6 +1605,20 @@ static int dev_acquisition_start(struct sr_dev_inst *sdi, void *cb_data)
         sr_err("history archive is not closed.");
     }
 
+#ifdef DSVIEW_RUST_CORE
+    if (use_rust_reader())
+    {
+        dsv_dsl_close(vdev->rs_reader);
+        vdev->rs_reader = NULL;
+        if (dsv_dsl_open(sdi->path, (struct dsv_dsl **)&vdev->rs_reader) != DSV_OK)
+        {
+            sr_err("%s: %s", __func__, dsv_last_error());
+            return SR_ERR;
+        }
+        goto send_header;
+    }
+#endif
+
     sr_dbg("Opening archive file %s", sdi->path);
 
     vdev->archive = unzOpen64(sdi->path);
@@ -1435,6 +1656,9 @@ static int dev_acquisition_start(struct sr_dev_inst *sdi, void *cb_data)
             vdev->cur_channel = vdev->num_probes - 1;
     }
 
+#ifdef DSVIEW_RUST_CORE
+send_header:
+#endif
     for (l = sdi->channels; l; l = l->next)
     {
         probe = l->data;
@@ -1459,6 +1683,11 @@ static int dev_acquisition_start(struct sr_dev_inst *sdi, void *cb_data)
     }
 
     /* freewheeling source */
+#ifdef DSVIEW_RUST_CORE
+    if (vdev->rs_reader != NULL)
+        sr_session_source_add(-1, 0, 0, receive_data_rust, sdi);
+    else
+#endif
     if ((sdi->mode == LOGIC && vdev->version > 1) 
             || (sdi->mode == DSO && vdev->version > 2)){
         sr_session_source_add(-1, 0, 0, receive_data_logic_dso_v2, sdi);
@@ -1496,6 +1725,24 @@ SR_PRIV int sr_new_virtual_device(const char *filename, struct sr_dev_inst **out
         sr_err("%s: @out_di was NULL", __func__);
         return SR_ERR_ARG;
     }
+
+#ifdef DSVIEW_RUST_CORE
+    if (use_rust_reader())
+    {
+        struct dsv_dsl *h = NULL;
+        struct dsv_dsl_header_info hdr;
+
+        if (dsv_dsl_open(filename, &h) != DSV_OK)
+        {
+            sr_err("%s: %s", __func__, dsv_last_error());
+            return SR_ERR;
+        }
+        dsv_dsl_header(h, &hdr);
+        dsv_dsl_close(h);
+        mode = hdr.mode;
+        goto make_device;
+    }
+#endif
 
     archive = unzOpen64(filename);
     if (NULL == archive)
@@ -1586,6 +1833,9 @@ SR_PRIV int sr_new_virtual_device(const char *filename, struct sr_dev_inst **out
     g_key_file_free(kf);
     g_free(metafile);
 
+#ifdef DSVIEW_RUST_CORE
+make_device:
+#endif
     sdi = sr_dev_inst_new(mode, SR_ST_INACTIVE, NULL, NULL, NULL);
     sdi->driver = &session_driver;
     sdi->dev_type = DEV_TYPE_FILELOG;
@@ -1631,6 +1881,11 @@ static int sr_load_virtual_device_session(struct sr_dev_inst *sdi)
 
     // Clear all channels.
     sr_dev_probes_free(sdi);
+
+#ifdef DSVIEW_RUST_CORE
+    if (use_rust_reader())
+        return load_session_rust(sdi);
+#endif
 
     archive = unzOpen64(sdi->path);
     if (NULL == archive)

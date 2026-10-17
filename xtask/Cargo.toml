@@ -9,5 +9,6 @@ publish.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+dsview-formats = { path = "../crates/dsview-formats" }
 dsview-testkit = { path = "../dev/dsview-testkit" }
 serde_json.workspace = true

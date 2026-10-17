@@ -1,0 +1,29 @@
+[package]
+name = "dsview-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+dsview-formats = { path = "../crates/dsview-formats" }
+
+[[bin]]
+name = "header"
+path = "fuzz_targets/header.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dsl_reader"
+path = "fuzz_targets/dsl_reader.rs"
+test = false
+doc = false
+bench = false
+
+# Not part of the main workspace (needs nightly + sanitizers).
+[workspace]

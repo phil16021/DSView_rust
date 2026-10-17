@@ -9,3 +9,6 @@ publish.workspace = true
 
 [lib]
 crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+dsview-formats = { path = "../dsview-formats" }

@@ -1,8 +1,11 @@
-//! C ABI (`dsv_*`) of the Rust DSView core.
+//! C ABI (`dsv_*`) of the Rust DSView core, linked into the Qt build with
+//! `-DDSVIEW_RUST_CORE=ON`. Header: `include/dsview_ffi.h`.
 //!
-//! Phase 0 only proves the build plumbing: the Qt build links this static
-//! library and logs its version at startup. Later phases add the formats,
-//! store, decoder and acquisition APIs here.
+//! * `dsv_version`, `dsv_last_error`
+//! * `dsv_dsl_*`: `.dsl`/`.demo` reading for libsigrok4DSL's session driver
+
+pub mod dsl;
+pub mod error;
 
 use std::ffi::c_char;
 

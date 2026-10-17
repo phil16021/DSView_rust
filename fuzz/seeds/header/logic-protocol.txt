@@ -1,0 +1,28 @@
+[version]
+version = 3
+[header]
+driver = virtual-demo
+device mode = 0
+capturefile = data
+total samples = 131072
+total probes = 16
+total blocks = 1
+samplerate = 25 MHz
+trigger time = -28800000
+trigger pos = 0
+probe0 = SDA
+probe1 = SCL
+probe2 = 2
+probe3 = 3
+probe4 = 4
+probe5 = UART
+probe6 = 6
+probe7 = 7
+probe8 = 8
+probe9 = CAN-FD
+probe10 = 10
+probe11 = 11
+probe12 = CLK
+probe13 = CS#
+probe14 = MOSI
+probe15 = MISO

@@ -4,6 +4,7 @@
 
 pub mod control;
 pub mod corpus;
+pub mod dsl_summary;
 pub mod golden;
 
 use std::path::PathBuf;

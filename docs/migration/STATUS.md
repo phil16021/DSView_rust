@@ -3,7 +3,7 @@
 | Phase | State | Notes |
 |---|---|---|
 | 0 Infrastructure, oracle, baselines | **done, except two items deferred** | Deferred: USB pcapng recording (needs root once, see `tools/usb/README.md`) and performance baselines (moved to Phase 1b/2, see DEVIATIONS.md) |
-| 1 Formats + store | not started | |
+| 1 Formats + store | **1a reading done**, 1a writing/export and 1b store next | See "Phase 1a" below |
 | 2 Decoder engine | not started | |
 | 3 Drivers | not started | |
 | 4 Session + control API | not started | |
@@ -44,3 +44,34 @@ sources:
 **CI:** `.github/workflows/rust.yml` runs lint, tests, cargo-deny, golden check and a portability check.
 
 **Removed:** the stale `DSView/test` and `libsigrok4DSL/tests`.
+
+## Phase 1a (formats): status
+
+**Done and verified:**
+- **`crates/dsview-formats`:**
+  - GKeyFile-compatible INI parser.
+  - The header interpreted exactly like the C loader, including all quirks and the security hardening.
+  - Samplerate parsing (F3).
+  - `.dsl`/`.demo` reader for logic, DSO and analog, versions 1-3, with size limits.
+  - Pull-based packet stream with the C driver's packet boundaries.
+  - A writer for logic captures.
+- **Differential tests:**
+  - The Rust reader equals the C session driver on all 9 corpus files: headers, channels, data hashes and
+    packet counts (`tests/golden_dsl.rs`).
+  - Rust-written files read back identically in C (`cargo xtask golden check`).
+  - Three synthetic multi-block captures (up to 3 blocks, odd sample counts, packet boundaries in the middle
+    of a block) read identically by C and Rust.
+- **Fuzzing:** targets `header` and `dsl_reader`. 2.3 million and 145,000 runs found no crash.
+- **FFI seam:**
+  - `dsv_dsl_*` in `crates/dsview-ffi` with a cbindgen header.
+  - `libsigrok4DSL/session_driver.c` loads captures through Rust when `DSVIEW_IMPL_FORMATS=rust` (or
+    `DSVIEW_IMPL=rust`) is set and DSView is built with `-DDSVIEW_RUST_CORE=ON`.
+  - `cargo xtask control ab --bin <DSView>` runs the same probes through a live DSView with both readers;
+    all 9 captures give identical results.
+  - The crafted malicious files are rejected by the Rust reader with a clear log message.
+
+**Remaining in 1a:**
+- Saving through the Rust writer from `StoreSession` (an incremental writer API; DSO/analog writers).
+- csv/vcd/srzip export.
+- `.dsc` profiles.
+- Making Rust the default reader after one release of A/B.

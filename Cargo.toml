@@ -1,14 +1,16 @@
 [workspace]
 resolver = "3"
+exclude = ["fuzz"]
 members = [
     "crates/dsview-ffi",
+    "crates/dsview-formats",
     "dev/dsview-oracle",
     "dev/dsview-testkit",
     "dsview-mcp",
     "xtask",
 ]
 # The oracle compiles the original C sources; it is a dev tool, never shipped.
-default-members = ["crates/dsview-ffi", "dev/dsview-testkit", "dsview-mcp", "xtask"]
+default-members = ["crates/dsview-ffi", "crates/dsview-formats", "dev/dsview-testkit", "dsview-mcp", "xtask"]
 
 [workspace.package]
 edition = "2024"

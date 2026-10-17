@@ -37,16 +37,33 @@ jobs:
       - uses: actions/checkout@v6
       - name: Install oracle build dependencies
         run: sudo apt-get update && sudo apt-get install -y $ORACLE_DEPS
-      - name: Toolchain and nextest
+      - name: Toolchain, nextest and cbindgen
         run: |
           rustup show
-          cargo install --locked cargo-nextest
+          cargo install --locked cargo-nextest cbindgen
       - name: Unit tests
         run: cargo nextest run --workspace --locked --profile ci
       - name: Corpus hashes
         run: cargo xtask corpus verify
-      - name: Golden check (C oracle reproduces the stored goldens)
+      - name: Golden check (C oracle reproduces the stored goldens; Rust reader/writer vs C)
         run: cargo xtask golden check
+      - name: C header of dsview-ffi is current
+        run: cargo xtask gen-header --check
+
+  fuzz-smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Nightly and cargo-fuzz
+        run: |
+          rustup toolchain install nightly --profile minimal
+          cargo install --locked cargo-fuzz
+      - name: Fuzz each target for 60 s
+        working-directory: fuzz
+        run: |
+          for t in header dsl_reader; do
+            cargo +nightly fuzz run "$t" "corpus/$t" "seeds/$t" -- -max_total_time=60 -rss_limit_mb=2048
+          done
 
   supply-chain:
     runs-on: ubuntu-24.04

@@ -8,6 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+dsview-formats = { path = "../../crates/dsview-formats" }
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
