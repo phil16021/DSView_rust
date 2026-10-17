@@ -33,6 +33,8 @@
 
 #define CHANNEL_MAX_COUNT 64
 
+struct dsv_logic_counts;
+
 namespace LogicSnapshotTest {
 class Pow2;
 class Basic;
@@ -130,9 +132,7 @@ public:
     bool pattern_search(int64_t start, int64_t end, int64_t& index,
                         std::map<uint16_t, QString> &pattern, bool isNext);
 
-    inline void set_loop(bool bLoop){
-        _is_loop = bLoop;
-    }
+    void set_loop(bool bLoop);
 
     inline bool is_loop(){
         return _is_loop;
@@ -150,9 +150,7 @@ public:
         return _loop_offset;
     }
 
-    inline void cancel_search(){
-        _is_search_stop = true;
-    }
+    void cancel_search();
 
     int get_block_index_with_sample(uint64_t sample_index, uint64_t *out_offset);
 
@@ -247,6 +245,10 @@ private:
 
     void free_head_blocks(int count);
 
+    // DSVIEW_IMPL_STORE=rust: mirrors the Rust store's counters into the
+    // Snapshot fields the inline getters read.
+    void rs_sync(const struct dsv_logic_counts *c, bool channels);
+
 private:
     std::vector<std::vector<struct RootNode>> _ch_data;
     uint8_t     _byte_fraction;
@@ -262,6 +264,7 @@ private:
     struct BlockIndex _cur_ref_block_indexs[CHANNEL_MAX_COUNT];
     int         _lst_free_block_index;
     bool        _is_search_stop;
+    void       *_rs; // struct dsv_logic_store *, NULL for the C++ store
  
 	friend class LogicSnapshotTest::Pow2;
 	friend class LogicSnapshotTest::Basic;

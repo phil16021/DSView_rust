@@ -10,6 +10,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 dsview-formats = { path = "../crates/dsview-formats" }
+dsview-store = { path = "../crates/dsview-store" }
 
 [[bin]]
 name = "header"
@@ -21,6 +22,13 @@ bench = false
 [[bin]]
 name = "dsl_reader"
 path = "fuzz_targets/dsl_reader.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "stores"
+path = "fuzz_targets/stores.rs"
 test = false
 doc = false
 bench = false

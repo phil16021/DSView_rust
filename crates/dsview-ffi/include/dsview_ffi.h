@@ -35,12 +35,24 @@
 
 #define DSV_EXPORT_END 4
 
+typedef struct dsv_analog_store dsv_analog_store;
+
 /**
  * Opaque handle owned by C between `dsv_dsl_open` and `dsv_dsl_close`.
  */
 typedef struct dsv_dsl dsv_dsl;
 
+/**
+ * Opaque handles owned by C between `dsv_*_new` and `dsv_*_free`.
+ */
+typedef struct dsv_dso_store dsv_dso_store;
+
 typedef struct dsv_export dsv_export;
+
+/**
+ * Opaque handle owned by C between `dsv_logic_new` and `dsv_logic_free`.
+ */
+typedef struct dsv_logic_store dsv_logic_store;
 
 typedef struct dsv_zip_writer dsv_zip_writer;
 
@@ -140,6 +152,53 @@ typedef struct dsv_export_packet {
   uint64_t num_samples;
   int32_t export_original;
 } dsv_export_packet;
+
+/**
+ * The `pv::data::Snapshot` fields the C++ wrapper mirrors after each change.
+ */
+typedef struct dsv_logic_counts {
+  uint64_t sample_count;
+  uint64_t ring_sample_count;
+  uint64_t total_sample_count;
+  uint64_t loop_offset;
+  uint32_t channel_num;
+  bool last_ended;
+  bool memory_failed;
+  bool able_free;
+  bool is_loop;
+} dsv_logic_counts;
+
+typedef struct dsv_dso_counts {
+  uint64_t sample_count;
+  uint64_t total_sample_count;
+  uint32_t channel_num;
+  bool last_ended;
+  bool memory_failed;
+  bool is_file;
+  bool instant;
+  bool out_of_range;
+} dsv_dso_counts;
+
+typedef struct dsv_analog_counts {
+  uint64_t sample_count;
+  uint64_t total_sample_count;
+  uint64_t ring_sample_count;
+  uint32_t channel_num;
+  uint8_t unit_bytes;
+  bool last_ended;
+  bool memory_failed;
+} dsv_analog_counts;
+
+/**
+ * `AnalogSnapshot::EnvelopeSection`; `samples` points at (min, max) byte pairs.
+ */
+typedef struct dsv_envelope_section {
+  uint64_t start;
+  uint32_t scale;
+  uint64_t length;
+  uint64_t samples_num;
+  const uint8_t *samples;
+} dsv_envelope_section;
 
 #ifdef __cplusplus
 extern "C" {
@@ -252,6 +311,336 @@ void dsv_export_free(struct dsv_export *h);
  * `s` must come from this library.
  */
 void dsv_string_free(char *s);
+
+/**
+ * A new, cleared store. Free with `dsv_logic_free`.
+ */
+struct dsv_logic_store *dsv_logic_new(void);
+
+/**
+ * # Safety
+ * `p` must come from `dsv_logic_new` (or be NULL) and not be used after.
+ */
+void dsv_logic_free(struct dsv_logic_store *p);
+
+/**
+ * Counters without changing anything.
+ */
+void dsv_logic_get_counts(const struct dsv_logic_store *p, struct dsv_logic_counts *out);
+
+/**
+ * C++ `clear()`: frees all data.
+ */
+void dsv_logic_clear(const struct dsv_logic_store *p, struct dsv_logic_counts *out);
+
+/**
+ * C++ `init()`: resets counters, keeps data.
+ */
+void dsv_logic_init(const struct dsv_logic_store *p, struct dsv_logic_counts *out);
+
+void dsv_logic_set_loop(const struct dsv_logic_store *p, bool is_loop);
+
+/**
+ * First LA_CROSS packet of a capture; `chans` are the enabled logic
+ * channels' indexes in device order.
+ *
+ * # Safety
+ * `data`: `len` bytes; `chans`: `n_chans` entries.
+ */
+void dsv_logic_first_payload(const struct dsv_logic_store *p,
+                             const uint8_t *data,
+                             uint64_t len,
+                             uint64_t total_sample_count,
+                             const uint16_t *chans,
+                             uint32_t n_chans,
+                             bool able_free,
+                             struct dsv_logic_counts *out);
+
+/**
+ * # Safety
+ * `data`: `len` bytes.
+ */
+void dsv_logic_append_payload(const struct dsv_logic_store *p,
+                              const uint8_t *data,
+                              uint64_t len,
+                              struct dsv_logic_counts *out);
+
+void dsv_logic_capture_ended(const struct dsv_logic_store *p, struct dsv_logic_counts *out);
+
+/**
+ * Copies up to `cap` channel indexes (storage order) to `out`; returns how
+ * many channels have data.
+ *
+ * # Safety
+ * `out`: room for `cap` entries (may be NULL when `cap` is 0).
+ */
+uint32_t dsv_logic_channels(const struct dsv_logic_store *p, uint16_t *out, uint32_t cap);
+
+bool dsv_logic_has_data(const struct dsv_logic_store *p, int32_t sig);
+
+/**
+ * Run of samples from `start` for decoders. Returns the data (NULL for a
+ * constant block), sets `*end_sample` and, on success, `*lbp` (the leaf to
+ * release with `dsv_logic_free_decode_lpb`).
+ *
+ * # Safety
+ * `end_sample` must be valid; `lbp` may be NULL.
+ */
+const uint8_t *dsv_logic_get_samples(const struct dsv_logic_store *p,
+                                     uint64_t start,
+                                     int32_t sig,
+                                     uint64_t *end_sample,
+                                     const uint8_t **lbp);
+
+bool dsv_logic_get_sample(const struct dsv_logic_store *p, uint64_t index, int32_t sig);
+
+/**
+ * C++ `get_display_edges`. `edges` gets `*n_edges` entries of
+ * `is_edge << 1 | level` (`width`, or `width + 1` when an edge falls on the
+ * last pixel, as in C++); `tog_pos`/`tog_val` get `*n_togs` (at most
+ * `max(max_togs, 1)`) toggles. Returns the first sample's level.
+ *
+ * # Safety
+ * `edges`: `width + 1` entries; `tog_pos`/`tog_val`: `max_togs + 1`
+ * entries; `n_edges`/`n_togs` valid.
+ */
+bool dsv_logic_display_edges(const struct dsv_logic_store *p,
+                             uint64_t start,
+                             uint64_t end,
+                             uint16_t width,
+                             uint16_t max_togs,
+                             double pixels_offset,
+                             double min_length,
+                             uint16_t sig,
+                             uint8_t *edges,
+                             uint32_t *n_edges,
+                             uint16_t *tog_pos,
+                             uint8_t *tog_val,
+                             uint32_t *n_togs);
+
+/**
+ * # Safety
+ * `index` must be valid.
+ */
+bool dsv_logic_nxt_edge(const struct dsv_logic_store *p,
+                        uint64_t *index,
+                        bool last_sample,
+                        uint64_t end,
+                        double min_length,
+                        int32_t sig);
+
+/**
+ * # Safety
+ * `index` must be valid.
+ */
+bool dsv_logic_pre_edge(const struct dsv_logic_store *p,
+                        uint64_t *index,
+                        bool last_sample,
+                        double min_length,
+                        int32_t sig);
+
+int32_t dsv_logic_block_num(const struct dsv_logic_store *p);
+
+uint64_t dsv_logic_block_size(const struct dsv_logic_store *p, int32_t block);
+
+/**
+ * Block data (NULL for a constant block, whose level goes to `*sample`).
+ *
+ * # Safety
+ * `sample` must be valid.
+ */
+const uint8_t *dsv_logic_block_buf(const struct dsv_logic_store *p,
+                                   int32_t block,
+                                   int32_t sig,
+                                   bool *sample);
+
+/**
+ * Pattern search; `flags[i]` ('0', '1', 'X', 'R', 'F', 'C') applies to
+ * channel `chans[i]`.
+ *
+ * # Safety
+ * `index` valid; `chans`/`flags`: `n` entries each.
+ */
+bool dsv_logic_pattern_search(const struct dsv_logic_store *p,
+                              int64_t start,
+                              int64_t end,
+                              int64_t *index,
+                              const uint16_t *chans,
+                              const uint8_t *flags,
+                              uint32_t n,
+                              bool is_next);
+
+/**
+ * Stops a running `dsv_logic_pattern_search` (does not take the lock).
+ *
+ * # Safety
+ * `p` from `dsv_logic_new` or NULL.
+ */
+void dsv_logic_cancel_search(const struct dsv_logic_store *p);
+
+/**
+ * # Safety
+ * `offset` may be NULL.
+ */
+int32_t dsv_logic_block_index_with_sample(const struct dsv_logic_store *p,
+                                          uint64_t sample,
+                                          uint64_t *offset);
+
+void dsv_logic_decode_end(const struct dsv_logic_store *p);
+
+void dsv_logic_free_decode_lpb(const struct dsv_logic_store *p, const uint8_t *lbp);
+
+struct dsv_dso_store *dsv_dso_new(void);
+
+/**
+ * # Safety
+ * `p` from `dsv_dso_new` (or NULL), not used after.
+ */
+void dsv_dso_free(struct dsv_dso_store *p);
+
+void dsv_dso_get_counts(const struct dsv_dso_store *p, struct dsv_dso_counts *out);
+
+void dsv_dso_clear(const struct dsv_dso_store *p, struct dsv_dso_counts *out);
+
+void dsv_dso_init(const struct dsv_dso_store *p, struct dsv_dso_counts *out);
+
+void dsv_dso_capture_ended(const struct dsv_dso_store *p, struct dsv_dso_counts *out);
+
+void dsv_dso_set_ref_range(const struct dsv_dso_store *p, uint32_t ref_max, uint32_t ref_min);
+
+/**
+ * First frame: `num_samples` interleaved samples of the used channels
+ * (enabled ones, or all for a file); `idx`/`enabled` list the device's DSO
+ * channels.
+ *
+ * # Safety
+ * `data`: `num_samples` × used channels bytes; `idx`/`enabled`: `n` entries.
+ */
+void dsv_dso_first_payload(const struct dsv_dso_store *p,
+                           const uint8_t *data,
+                           int32_t num_samples,
+                           uint64_t total_sample_count,
+                           const uint16_t *idx,
+                           const bool *enabled,
+                           uint32_t n,
+                           bool instant,
+                           bool is_file,
+                           struct dsv_dso_counts *out);
+
+/**
+ * # Safety
+ * `data`: `num_samples` × `channel_num` bytes.
+ */
+void dsv_dso_append_payload(const struct dsv_dso_store *p,
+                            const uint8_t *data,
+                            int32_t num_samples,
+                            struct dsv_dso_counts *out);
+
+/**
+ * Channel `sig`'s samples from `start`; NULL for an unknown channel.
+ */
+const uint8_t *dsv_dso_get_samples(const struct dsv_dso_store *p, uint64_t start, int32_t sig);
+
+int32_t dsv_dso_block_num(const struct dsv_dso_store *p);
+
+uint64_t dsv_dso_block_size(const struct dsv_dso_store *p, int32_t block);
+
+/**
+ * # Safety
+ * `maxv`/`minv` valid.
+ */
+bool dsv_dso_max_min(const struct dsv_dso_store *p, int32_t order, uint8_t *maxv, uint8_t *minv);
+
+/**
+ * # Safety
+ * `out`: room for `cap` entries.
+ */
+uint32_t dsv_dso_channels(const struct dsv_dso_store *p, uint16_t *out, uint32_t cap);
+
+struct dsv_analog_store *dsv_analog_new(void);
+
+/**
+ * # Safety
+ * `p` from `dsv_analog_new` (or NULL), not used after.
+ */
+void dsv_analog_free(struct dsv_analog_store *p);
+
+void dsv_analog_get_counts(const struct dsv_analog_store *p, struct dsv_analog_counts *out);
+
+void dsv_analog_clear(const struct dsv_analog_store *p, struct dsv_analog_counts *out);
+
+void dsv_analog_init(const struct dsv_analog_store *p, struct dsv_analog_counts *out);
+
+void dsv_analog_capture_ended(const struct dsv_analog_store *p, struct dsv_analog_counts *out);
+
+/**
+ * First packet; `idx`/`enabled` list the device's analog channels (all of
+ * them carry data).
+ *
+ * # Safety
+ * `data`: `num_samples` × channels × ceil(unit_bits / 8) bytes;
+ * `idx`/`enabled`: `n` entries.
+ */
+void dsv_analog_first_payload(const struct dsv_analog_store *p,
+                              const uint8_t *data,
+                              int32_t num_samples,
+                              uint8_t unit_bits,
+                              uint16_t unit_pitch,
+                              uint64_t total_sample_count,
+                              const uint16_t *idx,
+                              const bool *enabled,
+                              uint32_t n,
+                              struct dsv_analog_counts *out);
+
+/**
+ * # Safety
+ * `data`: `num_samples` × channels × unit bytes.
+ */
+void dsv_analog_append_payload(const struct dsv_analog_store *p,
+                               const uint8_t *data,
+                               int32_t num_samples,
+                               uint16_t unit_pitch,
+                               struct dsv_analog_counts *out);
+
+const uint8_t *dsv_analog_get_samples(const struct dsv_analog_store *p, uint64_t start);
+
+/**
+ * The whole sample ring (NULL before the first packet).
+ */
+const uint8_t *dsv_analog_data(const struct dsv_analog_store *p);
+
+/**
+ * # Safety
+ * `out` valid.
+ */
+void dsv_analog_envelope_section(const struct dsv_analog_store *p,
+                                 uint64_t start,
+                                 int64_t count,
+                                 float min_length,
+                                 int32_t probe,
+                                 struct dsv_envelope_section *out);
+
+int32_t dsv_analog_ch_order(const struct dsv_analog_store *p, int32_t sig);
+
+bool dsv_analog_has_enabled_channel(const struct dsv_analog_store *p, int32_t sig);
+
+int32_t dsv_analog_block_num(const struct dsv_analog_store *p);
+
+uint64_t dsv_analog_block_size(const struct dsv_analog_store *p, int32_t block);
+
+/**
+ * # Safety
+ * `out`: room for `cap` entries.
+ */
+uint32_t dsv_analog_channels(const struct dsv_analog_store *p, uint16_t *out, uint32_t cap);
+
+/**
+ * Indexes of the enabled analog channels.
+ *
+ * # Safety
+ * `out`: room for `cap` entries.
+ */
+uint32_t dsv_analog_enabled_channels(const struct dsv_analog_store *p, uint16_t *out, uint32_t cap);
 
 /**
  * C entry point for [`use_rust`]: 1 for Rust, 0 for C.

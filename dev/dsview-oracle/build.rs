@@ -2,7 +2,7 @@
 //! the oracle glue into one static library. Set ORACLE_SANITIZE=1 for
 //! ASan/UBSan builds (CI `oracle-diff`).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const LIBSIGROK: &[&str] = &[
     "version.c",
@@ -85,6 +85,9 @@ fn main() {
             .flag("-fsanitize=address,undefined")
             .flag("-fno-omit-frame-pointer");
         println!("cargo:rustc-link-arg=-fsanitize=address,undefined");
+        // rustc links with -nodefaultlibs, so name the runtimes explicitly
+        println!("cargo:rustc-link-lib=dylib=asan");
+        println!("cargo:rustc-link-lib=dylib=ubsan");
     }
 
     let mut sources: Vec<PathBuf> = Vec::new();
@@ -106,6 +109,62 @@ fn main() {
     println!("cargo:rerun-if-env-changed=ORACLE_SANITIZE");
 
     build.files(&sources).compile("dsview_oracle_c");
+    build_store(&root, &manifest, &includes, sanitize);
     println!("cargo:rustc-link-lib=m");
     println!("cargo:rustc-link-lib=pthread");
+}
+
+/// pv::data::{Logic,Dso,Analog}Snapshot, compiled unchanged against Qt Core. DSView's
+/// CMakeLists forces a Release build, so NDEBUG is set as in the shipped app.
+fn build_store(root: &Path, manifest: &Path, includes: &[PathBuf], sanitize: bool) {
+    let qt = pkg_config::Config::new()
+        .probe("Qt6Core")
+        .or_else(|_| pkg_config::Config::new().probe("Qt5Core"))
+        .expect("pkg-config Qt6Core or Qt5Core");
+
+    // dsvdef.h includes "DSView/config.h", which CMake generates.
+    let gen_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("gen");
+    std::fs::create_dir_all(gen_dir.join("DSView")).unwrap();
+    std::fs::write(
+        gen_dir.join("DSView/config.h"),
+        "#pragma once\n#define DS_TITLE \"DSView\"\n#define DS_VERSION_STRING \"oracle\"\n",
+    )
+    .unwrap();
+
+    let sources = [
+        root.join("DSView/pv/data/snapshot.cpp"),
+        root.join("DSView/pv/data/logicsnapshot.cpp"),
+        root.join("DSView/pv/data/dsosnapshot.cpp"),
+        root.join("DSView/pv/data/analogsnapshot.cpp"),
+        manifest.join("csrc/oracle_store.cpp"),
+        manifest.join("csrc/oracle_store_ad.cpp"),
+    ];
+    for src in &sources {
+        println!("cargo:rerun-if-changed={}", src.display());
+    }
+
+    let mut build = cc::Build::new();
+    build
+        .cpp(true)
+        .std("c++17")
+        .define("NDEBUG", None)
+        .define("QT_NO_KEYWORDS", None)
+        .includes(includes)
+        .includes(&qt.include_paths)
+        .include(&gen_dir)
+        .include(root.join("DSView"))
+        .include(root.join("DSView/pv"))
+        .include(root.join("libsigrok4DSL"))
+        .include(root.join("common"))
+        .include(manifest.join("csrc"))
+        .flag("-fPIC")
+        .warnings(false)
+        .opt_level(2)
+        .debug(true);
+    if sanitize {
+        build
+            .flag("-fsanitize=address,undefined")
+            .flag("-fno-omit-frame-pointer");
+    }
+    build.files(&sources).compile("dsview_oracle_store");
 }

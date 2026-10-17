@@ -14,9 +14,15 @@ sha2.workspace = true
 zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
+criterion = { version = "0.8", default-features = false }
 dsview-formats = { path = "../../crates/dsview-formats" }
+dsview-store = { path = "../../crates/dsview-store" }
 proptest = "1"
 
 [build-dependencies]
 cc = "1"
 pkg-config = "0.3"
+
+[[bench]]
+name = "store"
+harness = false

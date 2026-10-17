@@ -5,10 +5,14 @@
 //! * `dsv_dsl_*`: `.dsl`/`.demo` reading for libsigrok4DSL's session driver
 //! * `dsv_export_*`: CSV/VCD export behind libsigrok4DSL's output modules
 //! * `dsv_zip_writer_*`, `dsv_dsl_entry`: `.dsl` saving/metadata behind ZipMaker/ZipReader
+//! * `dsv_logic_*`: the logic sample store behind `pv::data::LogicSnapshot`
+//! * `dsv_dso_*`, `dsv_analog_*`: the DSO/analog stores behind `DsoSnapshot`/`AnalogSnapshot`
 
 pub mod dsl;
 pub mod error;
 pub mod export;
+pub mod store;
+pub mod store_ad;
 pub mod switch;
 pub mod zip;
 

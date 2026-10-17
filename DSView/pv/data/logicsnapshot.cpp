@@ -31,6 +31,12 @@
 #include "../utility/array.h"
 #include "../log.h"
 
+#ifdef DSVIEW_RUST_CORE
+#include "dsview_ffi.h"
+// DSVIEW_IMPL_STORE=rust: every public method goes to the Rust store.
+#define RS ((struct dsv_logic_store *)_rs)
+#endif
+
 using namespace std;
 
 int _free_count = 0;
@@ -60,10 +66,60 @@ LogicSnapshot::LogicSnapshot() :
     _loop_offset = 0;
     _able_free = true;
     _is_search_stop = false;
+    _rs = NULL;
+#ifdef DSVIEW_RUST_CORE
+    if (dsv_use_rust("STORE"))
+        _rs = dsv_logic_new();
+#endif
 }
 
 LogicSnapshot::~LogicSnapshot()
 {
+#ifdef DSVIEW_RUST_CORE
+    dsv_logic_free(RS);
+#endif
+}
+
+void LogicSnapshot::rs_sync(const struct dsv_logic_counts *c, bool channels)
+{
+#ifdef DSVIEW_RUST_CORE
+    _sample_count = c->sample_count;
+    _ring_sample_count = c->ring_sample_count;
+    _total_sample_count = c->total_sample_count;
+    _loop_offset = c->loop_offset;
+    _channel_num = c->channel_num;
+    _last_ended = c->last_ended;
+    _memory_failed = c->memory_failed;
+    _able_free = c->able_free;
+    _is_loop = c->is_loop;
+
+    if (channels) {
+        uint16_t ch[CHANNEL_MAX_COUNT];
+        uint32_t n = dsv_logic_channels(RS, ch, CHANNEL_MAX_COUNT);
+        _ch_index.assign(ch, ch + min<uint32_t>(n, CHANNEL_MAX_COUNT));
+    }
+#else
+    (void)c;
+    (void)channels;
+#endif
+}
+
+void LogicSnapshot::set_loop(bool bLoop)
+{
+    _is_loop = bLoop;
+#ifdef DSVIEW_RUST_CORE
+    if (_rs)
+        dsv_logic_set_loop(RS, bLoop);
+#endif
+}
+
+void LogicSnapshot::cancel_search()
+{
+    _is_search_stop = true;
+#ifdef DSVIEW_RUST_CORE
+    if (_rs)
+        dsv_logic_cancel_search(RS);
+#endif
 }
 
 void LogicSnapshot::free_data()
@@ -92,6 +148,14 @@ void LogicSnapshot::free_data()
 void LogicSnapshot::init()
 {
     std::lock_guard<std::mutex> lock(_mutex);
+#ifdef DSVIEW_RUST_CORE
+    if (_rs) {
+        struct dsv_logic_counts c;
+        dsv_logic_init(RS, &c);
+        rs_sync(&c, false);
+        return;
+    }
+#endif
     init_all(); 
 }
 
@@ -111,6 +175,14 @@ void LogicSnapshot::init_all()
 void LogicSnapshot::clear()
 {
     std::lock_guard<std::mutex> lock(_mutex);
+#ifdef DSVIEW_RUST_CORE
+    if (_rs) {
+        struct dsv_logic_counts c;
+        dsv_logic_clear(RS, &c);
+        rs_sync(&c, true);
+        return;
+    }
+#endif
     free_data();
     init_all();
 
@@ -119,6 +191,23 @@ void LogicSnapshot::clear()
 
 void LogicSnapshot::first_payload(const sr_datafeed_logic &logic, uint64_t total_sample_count, GSList *channels, bool able_free)
 {
+#ifdef DSVIEW_RUST_CORE
+    if (_rs) {
+        std::vector<uint16_t> chans;
+        for (const GSList *l = channels; l; l = l->next) {
+            sr_channel *const probe = (sr_channel*)l->data;
+            if (probe->type == SR_CHANNEL_LOGIC && probe->enabled)
+                chans.push_back(probe->index);
+        }
+        std::lock_guard<std::mutex> lock(_mutex);
+        struct dsv_logic_counts c;
+        dsv_logic_first_payload(RS, (const uint8_t *)logic.data, logic.length, total_sample_count,
+                                chans.data(), chans.size(), able_free, &c);
+        rs_sync(&c, true);
+        return;
+    }
+#endif
+
     bool channel_changed = false;
     uint16_t channel_num = 0;
     _able_free = able_free;
@@ -214,6 +303,14 @@ void LogicSnapshot::first_payload(const sr_datafeed_logic &logic, uint64_t total
 void LogicSnapshot::append_payload(const sr_datafeed_logic &logic)
 {
     std::lock_guard<std::mutex> lock(_mutex);
+#ifdef DSVIEW_RUST_CORE
+    if (_rs) {
+        struct dsv_logic_counts c;
+        dsv_logic_append_payload(RS, (const uint8_t *)logic.data, logic.length, &c);
+        rs_sync(&c, false);
+        return;
+    }
+#endif
 
     append_cross_payload(logic);
 }
@@ -464,6 +561,14 @@ void LogicSnapshot::append_cross_payload(const sr_datafeed_logic &logic)
 void LogicSnapshot::capture_ended()
 {
     std::lock_guard<std::mutex> lock(_mutex);
+#ifdef DSVIEW_RUST_CORE
+    if (_rs) {
+        struct dsv_logic_counts c;
+        dsv_logic_capture_ended(RS, &c);
+        rs_sync(&c, false);
+        return;
+    }
+#endif
 
     Snapshot::capture_ended();  
 
@@ -604,6 +709,10 @@ void LogicSnapshot::calc_mipmap(unsigned int order, uint8_t index0, uint8_t inde
 const uint8_t *LogicSnapshot::get_samples(uint64_t start_sample, uint64_t &end_sample, int sig_index, void **lbp)
 {  
     std::lock_guard<std::mutex> lock(_mutex);
+#ifdef DSVIEW_RUST_CORE
+    if (_rs)
+        return dsv_logic_get_samples(RS, start_sample, sig_index, &end_sample, (const uint8_t **)lbp);
+#endif
 
     uint64_t sample_count = _ring_sample_count;
     assert(start_sample < sample_count);
@@ -672,6 +781,10 @@ const uint8_t *LogicSnapshot::get_samples(uint64_t start_sample, uint64_t &end_s
 bool LogicSnapshot::get_sample(uint64_t index, int sig_index)
 {
     std::lock_guard<std::mutex> lock(_mutex);
+#ifdef DSVIEW_RUST_CORE
+    if (_rs)
+        return dsv_logic_get_sample(RS, index, sig_index);
+#endif
     return get_sample_unlock(index, sig_index);
 }
 
@@ -721,6 +834,24 @@ bool LogicSnapshot::get_display_edges(std::vector<std::pair<bool, bool> > &edges
         togs.clear();
 
     std::lock_guard<std::mutex> lock(_mutex);
+
+#ifdef DSVIEW_RUST_CORE
+    if (_rs) {
+        std::vector<uint8_t> e(width + 1);
+        std::vector<uint16_t> tp(max_togs + 1);
+        std::vector<uint8_t> tv(max_togs + 1);
+        uint32_t ne = 0, nt = 0;
+        bool first = dsv_logic_display_edges(RS, start, end, width, max_togs, pixels_offset, min_length,
+                                             sig_index, e.data(), &ne, tp.data(), tv.data(), &nt);
+        edges.reserve(ne);
+        for (uint32_t i = 0; i < ne; i++)
+            edges.push_back(pair<bool, bool>((e[i] & 2) != 0, (e[i] & 1) != 0));
+        togs.reserve(nt);
+        for (uint32_t i = 0; i < nt; i++)
+            togs.push_back(pair<uint16_t, bool>(tp[i], tv[i] != 0));
+        return first;
+    }
+#endif
 
     if (_ring_sample_count == 0)
         return false;
@@ -776,6 +907,10 @@ bool LogicSnapshot::get_nxt_edge(uint64_t &index, bool last_sample, uint64_t end
                       double min_length, int sig_index)
 {
     std::lock_guard<std::mutex> lock(_mutex);
+#ifdef DSVIEW_RUST_CORE
+    if (_rs)
+        return dsv_logic_nxt_edge(RS, &index, last_sample, end, min_length, sig_index);
+#endif
     return get_nxt_edge_unlock(index, last_sample, end, min_length, sig_index);
 }
 
@@ -877,6 +1012,10 @@ bool LogicSnapshot::get_pre_edge(uint64_t &index, bool last_sample,
                       double min_length, int sig_index)
 {
     std::lock_guard<std::mutex> lock(_mutex);
+#ifdef DSVIEW_RUST_CORE
+    if (_rs)
+        return dsv_logic_pre_edge(RS, &index, last_sample, min_length, sig_index);
+#endif
 
     index += _loop_offset;
     _ring_sample_count += _loop_offset;
@@ -1259,6 +1398,19 @@ bool LogicSnapshot::pattern_search(int64_t start, int64_t end, int64_t& index,
                         std::map<uint16_t, QString> &pattern, bool isNext)
 {
     std::lock_guard<std::mutex> lock(_mutex);
+
+#ifdef DSVIEW_RUST_CORE
+    if (_rs) {
+        std::vector<uint16_t> chans;
+        std::vector<uint8_t> flags;
+        for (auto it = pattern.begin(); it != pattern.end(); it++) {
+            chans.push_back(it->first);
+            flags.push_back((uint8_t)*(it->second.toStdString().c_str()));
+        }
+        return dsv_logic_pattern_search(RS, start, end, &index, chans.data(), flags.data(),
+                                        chans.size(), isNext);
+    }
+#endif
     
     _is_search_stop = false;
     start += _loop_offset;
@@ -1399,6 +1551,10 @@ bool LogicSnapshot::has_data(int sig_index)
 int LogicSnapshot::get_block_num()
 {
     std::lock_guard<std::mutex> lock(_mutex);
+#ifdef DSVIEW_RUST_CORE
+    if (_rs)
+        return dsv_logic_block_num(RS);
+#endif
     return get_block_num_unlock();
 }
 
@@ -1427,6 +1583,10 @@ int LogicSnapshot::get_block_num_unlock()
 uint64_t LogicSnapshot::get_block_size(int block_index)
 {
     std::lock_guard<std::mutex> lock(_mutex);
+#ifdef DSVIEW_RUST_CORE
+    if (_rs)
+        return dsv_logic_block_size(RS, block_index);
+#endif
     return get_block_size_unlock(block_index);
 }
 
@@ -1475,6 +1635,10 @@ uint64_t LogicSnapshot::get_block_size_unlock(int block_index)
 uint8_t *LogicSnapshot::get_block_buf(int block_index, int sig_index, bool &sample)
 {
     std::lock_guard<std::mutex> lock(_mutex);
+#ifdef DSVIEW_RUST_CORE
+    if (_rs)
+        return (uint8_t *)dsv_logic_block_buf(RS, block_index, sig_index, &sample);
+#endif
     return get_block_buf_unlock(block_index, sig_index, sample);
 }
 
@@ -1555,6 +1719,12 @@ void LogicSnapshot::move_first_node_to_last()
 void LogicSnapshot::decode_end()
 {
    std::lock_guard<std::mutex> lock(_mutex);
+#ifdef DSVIEW_RUST_CORE
+    if (_rs) {
+        dsv_logic_decode_end(RS);
+        return;
+    }
+#endif
 
    for(void *p : _free_block_list){
         free(p);
@@ -1567,6 +1737,12 @@ void LogicSnapshot::free_decode_lpb(void *lbp)
     assert(lbp);
 
     std::lock_guard<std::mutex> lock(_mutex);
+#ifdef DSVIEW_RUST_CORE
+    if (_rs) {
+        dsv_logic_free_decode_lpb(RS, (const uint8_t *)lbp);
+        return;
+    }
+#endif
 
     for (auto it = _free_block_list.begin(); it != _free_block_list.end(); it++)
     {
@@ -1602,6 +1778,10 @@ void LogicSnapshot::free_head_blocks(int count)
 int LogicSnapshot::get_block_index_with_sample(uint64_t sample_index, uint64_t *out_offset)
 {
     std::lock_guard<std::mutex> lock(_mutex);
+#ifdef DSVIEW_RUST_CORE
+    if (_rs)
+        return dsv_logic_block_index_with_sample(RS, sample_index, out_offset);
+#endif
 
     int block_index = 0;
     uint64_t offset = 0;

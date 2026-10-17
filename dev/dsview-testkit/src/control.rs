@@ -198,6 +198,8 @@ fn normalize(v: &mut Value, out: &str) {
         Value::Array(a) => a.iter_mut().for_each(|x| normalize(x, out)),
         Value::Object(o) => {
             o.remove("version");
+            // DSVIEW_IMPL* choice, not behaviour
+            o.remove("implementations");
             // Hardware that happens to be plugged in must not change demo transcripts.
             if let Some(Value::Array(devs)) = o.get_mut("devices") {
                 devs.retain(|d| d["name"].as_str().is_some_and(|n| n.starts_with("Demo")));

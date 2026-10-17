@@ -29,6 +29,12 @@
 #include "../dsvdef.h"
 #include "../log.h"
 
+#ifdef DSVIEW_RUST_CORE
+#include "dsview_ffi.h"
+// DSVIEW_IMPL_STORE=rust: the data lives in the Rust store.
+#define RS ((struct dsv_dso_store *)_rs)
+#endif
+
 using namespace std;
 
 namespace pv {
@@ -57,6 +63,11 @@ DsoSnapshot::DsoSnapshot() :
     _ref_min = 0;
     _ref_max = 0;
     _data_out_off_range = false;
+    _rs = NULL;
+#ifdef DSVIEW_RUST_CORE
+    if (dsv_use_rust("STORE"))
+        _rs = dsv_dso_new();
+#endif
 
 	memset(_envelope_levels, 0, sizeof(_envelope_levels));
 }
@@ -64,6 +75,56 @@ DsoSnapshot::DsoSnapshot() :
 DsoSnapshot::~DsoSnapshot()
 {
     free_envelop();
+#ifdef DSVIEW_RUST_CORE
+    dsv_dso_free(RS);
+#endif
+}
+
+void DsoSnapshot::rs_sync(const struct dsv_dso_counts *c, bool channels)
+{
+#ifdef DSVIEW_RUST_CORE
+    _sample_count = c->sample_count;
+    _total_sample_count = c->total_sample_count;
+    _channel_num = c->channel_num;
+    _last_ended = c->last_ended;
+    _memory_failed = c->memory_failed;
+    _is_file = c->is_file;
+    _instant = c->instant;
+    _data_out_off_range = c->out_of_range;
+
+    if (channels) {
+        uint16_t ch[2 * DS_MAX_DSO_PROBES_NUM];
+        uint32_t n = dsv_dso_channels(RS, ch, 2 * DS_MAX_DSO_PROBES_NUM);
+        _ch_index.assign(ch, ch + min<uint32_t>(n, 2 * DS_MAX_DSO_PROBES_NUM));
+    }
+#else
+    (void)c;
+    (void)channels;
+#endif
+}
+
+void DsoSnapshot::set_ref_range(uint32_t ref_max, uint32_t ref_min)
+{
+    _ref_max = ref_max;
+    _ref_min = ref_min;
+#ifdef DSVIEW_RUST_CORE
+    if (_rs)
+        dsv_dso_set_ref_range(RS, ref_max, ref_min);
+#endif
+}
+
+void DsoSnapshot::capture_ended()
+{
+#ifdef DSVIEW_RUST_CORE
+    if (_rs) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        struct dsv_dso_counts c;
+        dsv_dso_capture_ended(RS, &c);
+        rs_sync(&c, false);
+        return;
+    }
+#endif
+    Snapshot::capture_ended();
 }
 
 void DsoSnapshot::free_envelop()
@@ -80,7 +141,16 @@ void DsoSnapshot::free_envelop()
 void DsoSnapshot::init()
 {
     std::lock_guard<std::mutex> lock(_mutex);
-    init_all();    
+#ifdef DSVIEW_RUST_CORE
+    if (_rs) {
+        struct dsv_dso_counts c;
+        dsv_dso_init(RS, &c);
+        rs_sync(&c, false);
+        _envelope_done = false;
+        return;
+    }
+#endif
+    init_all();
 }
 
 void DsoSnapshot::init_all()
@@ -103,6 +173,16 @@ void DsoSnapshot::init_all()
 void DsoSnapshot::clear()
 {
     std::lock_guard<std::mutex> lock(_mutex);
+#ifdef DSVIEW_RUST_CORE
+    if (_rs) {
+        struct dsv_dso_counts c;
+        dsv_dso_clear(RS, &c);
+        rs_sync(&c, true);
+        _envelope_done = false;
+        _envelope_en = false;
+        return;
+    }
+#endif
     free_data();
     free_envelop();
     init_all();
@@ -125,7 +205,27 @@ void DsoSnapshot::free_data()
 void DsoSnapshot::first_payload(const sr_datafeed_dso &dso, uint64_t total_sample_count,
                                 GSList *channels, bool instant, bool isFile)
 {
-    assert(channels);  
+    assert(channels);
+
+#ifdef DSVIEW_RUST_CORE
+    if (_rs) {
+        std::vector<uint16_t> idx;
+        std::vector<uint8_t> en;
+        for (const GSList *l = channels; l; l = l->next) {
+            sr_channel *const probe = (sr_channel*)l->data;
+            if (probe->type == SR_CHANNEL_DSO) {
+                idx.push_back(probe->index);
+                en.push_back(probe->enabled ? 1 : 0);
+            }
+        }
+        std::lock_guard<std::mutex> lock(_mutex);
+        struct dsv_dso_counts c;
+        dsv_dso_first_payload(RS, (const uint8_t *)dso.data, dso.num_samples, total_sample_count,
+                              idx.data(), (const bool *)en.data(), idx.size(), instant, isFile, &c);
+        rs_sync(&c, true);
+        return;
+    }
+#endif
 
     bool channel_changed = false;
     uint16_t channel_num = 0;
@@ -222,6 +322,14 @@ void DsoSnapshot::first_payload(const sr_datafeed_dso &dso, uint64_t total_sampl
 void DsoSnapshot::append_payload(const sr_datafeed_dso &dso)
 {
     std::lock_guard<std::mutex> lock(_mutex);
+#ifdef DSVIEW_RUST_CORE
+    if (_rs) {
+        struct dsv_dso_counts c;
+        dsv_dso_append_payload(RS, (const uint8_t *)dso.data, dso.num_samples, &c);
+        rs_sync(&c, false);
+        return;
+    }
+#endif
 
     if (_channel_num > 0 && dso.num_samples > 0) {       
         append_data(dso.data, dso.num_samples, _instant);
@@ -279,7 +387,15 @@ void DsoSnapshot::append_data(void *data, uint64_t samples, bool instant)
 void DsoSnapshot::enable_envelope(bool enable)
 {
     std::lock_guard<std::mutex> lock(_mutex);
-    if (!_envelope_done && enable)
+#ifdef DSVIEW_RUST_CORE
+    if (_rs) {
+        // The Rust store has no DSO envelope (nothing in DSView enables it);
+        // get_envelope_section() keeps answering "none".
+        (void)enable;
+        return;
+    }
+#endif
+if (!_envelope_done && enable)
         append_payload_to_envelope_levels(true);
     _envelope_en = enable;
 }
@@ -294,12 +410,17 @@ const uint8_t *DsoSnapshot::get_samples(int64_t start_sample, int64_t end_sample
     assert(end_sample < (int64_t)_sample_count);
 	assert(start_sample <= end_sample);
 
+#ifdef DSVIEW_RUST_CORE
+    if (_rs)
+        return dsv_dso_get_samples(RS, start_sample, ch_index);
+#endif
+
     int order = get_ch_order(ch_index);
 
     if (order == -1){
         dsv_err("The channel index is not exist:%d", ch_index);
         assert(false);
-    } 
+    }
 
     return (uint8_t*)_ch_data[order] + start_sample;
 }
@@ -441,6 +562,10 @@ void DsoSnapshot::append_payload_to_envelope_levels(bool header)
 double DsoSnapshot::cal_vrms(double zero_off, int index)
 {
     assert(index >= 0);
+#ifdef DSVIEW_RUST_CORE
+    if (_rs)
+        return 0; // not ported: nothing in DSView calls it
+#endif
 
     // root-meam-squart value
     double vrms_pre = 0;
@@ -473,6 +598,10 @@ double DsoSnapshot::cal_vrms(double zero_off, int index)
 double DsoSnapshot::cal_vmean(int index)
 {
     assert(index >= 0);
+#ifdef DSVIEW_RUST_CORE
+    if (_rs)
+        return 0; // not ported: nothing in DSView calls it
+#endif
 
     // mean value
     double vmean_pre = 0;
@@ -524,6 +653,10 @@ uint64_t DsoSnapshot::get_block_size(int block_index)
 bool DsoSnapshot::get_max_min_value(uint8_t &maxv, uint8_t &minv, int chan_index)
 {
     std::lock_guard<std::mutex> lock(_mutex);
+#ifdef DSVIEW_RUST_CORE
+    if (_rs)
+        return dsv_dso_max_min(RS, chan_index, &maxv, &minv);
+#endif
 
     if (_sample_count == 0){
         return false;

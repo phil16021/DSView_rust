@@ -8,7 +8,7 @@ usize_is_size_t = true
 
 [export]
 prefix = ""
-include = ["DsvDslHeader", "DsvDslChannel", "DsvExportChannel", "DsvExportPacket"]
+include = ["DsvDslHeader", "DsvDslChannel", "DsvExportChannel", "DsvExportPacket", "DsvLogicCounts", "DsvDsoCounts", "DsvAnalogCounts", "DsvEnvelopeSection"]
 
 [export.rename]
 "DsvDsl" = "dsv_dsl"
@@ -18,6 +18,13 @@ include = ["DsvDslHeader", "DsvDslChannel", "DsvExportChannel", "DsvExportPacket
 "DsvZipWriter" = "dsv_zip_writer"
 "DsvExportChannel" = "dsv_export_channel"
 "DsvExportPacket" = "dsv_export_packet"
+"DsvLogicStore" = "dsv_logic_store"
+"DsvLogicCounts" = "dsv_logic_counts"
+"DsvDsoStore" = "dsv_dso_store"
+"DsvAnalogStore" = "dsv_analog_store"
+"DsvDsoCounts" = "dsv_dso_counts"
+"DsvAnalogCounts" = "dsv_analog_counts"
+"DsvEnvelopeSection" = "dsv_envelope_section"
 
 [enum]
 prefix_with_name = true

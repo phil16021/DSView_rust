@@ -3,7 +3,7 @@
 | Phase | State | Notes |
 |---|---|---|
 | 0 Infrastructure, oracle, baselines | **done, one item deferred** | Deferred: performance baselines (moved to Phase 1b/2, see DEVIATIONS.md). USB traces recorded 2026-10-17 |
-| 1 Formats + store | **1a done** (reading, saving, CSV/VCD export through Rust behind `DSVIEW_IMPL_FORMATS`); 1b store next | See "Phase 1a" below |
+| 1 Formats + store | **done**: 1a formats behind `DSVIEW_IMPL_FORMATS`, 1b sample stores behind `DSVIEW_IMPL_STORE`; Rust becomes the default after one release of A/B | See "Phase 1a" and "Phase 1b" below |
 | 2 Decoder engine | not started | |
 | 3 Drivers | not started | |
 | 4 Session + control API | not started | |
@@ -101,3 +101,70 @@ sources:
 - `.dsc` profiles (Phase 4/5).
 - srzip export.
 - Making Rust the default after one release of A/B.
+
+## Phase 1b (sample stores): status
+
+**Done and verified:**
+- **`crates/dsview-store`:** ports of the three `pv::data` snapshot classes.
+  - `logic`: `LogicSnapshot`. Same layout, so the pointers handed to C decoders keep their meaning:
+    2^24-sample leaves with three toggle mip-map levels, 64-leaf root nodes, constant leaves freed,
+    loop (ring) mode with root rotation, decoder pins. Also edge search, display edges, pattern
+    search and block access for saving.
+  - `dso`: `DsoSnapshot` (frame copy, out-of-range flag). The envelope, `cal_vrms` and `cal_vmean`
+    are never called in DSView and are not ported.
+  - `analog`: `AnalogSnapshot` (sample ring, unit pitch, 10-level min/max envelope).
+- **Oracle:** `dev/dsview-oracle` compiles the original `logicsnapshot.cpp`, `dsosnapshot.cpp`,
+  `analogsnapshot.cpp` and `snapshot.cpp` unchanged against Qt Core. It reads their private state
+  through the `…SnapshotTest` friend classes the headers already declare.
+- **Differential tests** (`dev/dsview-oracle/tests/store_diff.rs`, `store_ad_diff.rs`): every packet
+  and every query DSView makes, mid-capture and after the end. They compare:
+  - counts;
+  - the complete internal state (fractions, write position, mip-map progress, decoder pins, every
+    root node's bits, every leaf's samples and mip-maps);
+  - samples, decoder runs, block buffers, display edges, next/previous edge, pattern search;
+  - DSO buffers, analog ring and envelopes.
+- **Exit run:**
+  - logic: 10^4 one-leaf scenarios, 10^4 one-leaf loop scenarios, 400 multi-leaf, 400 multi-leaf
+    loop, plus a 1.16G-sample loop run that rotates root nodes;
+  - DSO and analog: 10^4 scenarios each;
+  - result: 0 differences.
+  - Mutation checks: every planted bug was caught.
+  - Under ASan/UBSan the C++ code is clean on the inputs DSView produces; CI job `oracle-asan`.
+- **Robustness:**
+  - `crates/dsview-store/tests/robustness.rs`: packets of any size, captures without `clear()`, and
+    queries outside the C++ preconditions. No panic.
+  - Fuzz target `stores`, 2 × 20 min. The first run found a panic on analog rows wider than 8 bytes,
+    now fixed (F12, regression test). The second run did 438k executions without a finding.
+- **FFI seam:**
+  - `dsv_logic_*`, `dsv_dso_*`, `dsv_analog_*` in `crates/dsview-ffi`.
+  - `LogicSnapshot`, `DsoSnapshot` and `AnalogSnapshot` delegate to Rust when
+    `DSVIEW_IMPL_STORE=rust` (or `DSVIEW_IMPL=rust`). They mirror the counters into the `Snapshot`
+    fields, so the rest of the GUI is unchanged.
+  - The `version` RPC reports the active implementations, and `cargo xtask control ab` checks them.
+- **Live A/B:** all 9 corpus captures give identical answers with `DSVIEW_IMPL=c` and `rust` (Rust
+  formats plus Rust stores).
+- **Hardware:** the 11 DSLogic Plus scenarios captured through the Rust stores give the same results
+  as the C++ baseline in `testdata/usb/dslogic/manifest.json`.
+
+**Performance** (`cargo bench -p dsview-oracle --bench store`, same data through both):
+
+| Benchmark | C++ | Rust | Gate |
+|---|---|---|---|
+| Ingest, 16 channels, 128M samples | 777 MiB/s | 766 MiB/s | ≥ 1 GB/s: **not met by either** (see DEVIATIONS) |
+| Display edges, 256M samples, 1920 px, 6 zoom/signal cases | 6.2 µs – 360 µs | 3.0 µs – 285 µs | ≤ 1.1× C++: met, Rust 1.2–2.4× faster |
+| 20k next-edge steps | 0.77 – 1.24 ms | 0.49 – 0.64 ms | — |
+
+**Findings in the original code** (DEVIATIONS.md):
+- **F9:** packets that are not whole 64-sample groups corrupt the capture.
+- **F10:** a capture into an uncleared snapshot uses stale state; ASan reports heap overflow and
+  use-after-free.
+- **F11:** captures whose length is not a multiple of 64 are shown shifted and lose samples when
+  saved. Confirmed in the shipping DSView with a 1000-sample `.dsl`.
+- **F12:** the analog envelope reads one entry past its ring.
+
+**Left for later:**
+- Making Rust the default (after one release of A/B).
+- Fixing F11 in Rust once Rust is the default.
+- Lock-free readers (`loom`) and the mmap spill, with the Rust capture path in Phase 4.
+- The annotation store, with the decoder engine in Phase 2.
+

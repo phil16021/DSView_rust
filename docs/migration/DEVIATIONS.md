@@ -82,6 +82,78 @@ writes.
 - **Kept byte for byte**: it is cosmetic, and changing it would break the export diff.
 - To be fixed after the Rust export becomes the default.
 
+### F9. Logic packets that are not whole 64-sample groups corrupt the capture
+**Observed (Phase 1b, `store_diff.rs`, ASan):** `LogicSnapshot::append_cross_payload` assumes every
+LA_CROSS packet ends on a 64-sample group boundary (one u64 per channel). When it does not:
+- If the last channel's run does not reach the packet end, the group counter does not advance. The
+  packet's samples are dropped from the count, and the next packet's leftover bytes overwrite earlier
+  data. In loop mode this stalled a 1.1G-sample stream at 0.6G samples.
+- It reads up to 7 bytes past the packet, and after a channel resumes at a saved read position, more
+  than that (ASan heap-buffer-overflow at `logicsnapshot.cpp`, `*write_ptr++ = *read_ptr`).
+
+**Reachability:** none known. The DSLogic driver sizes captures in whole groups
+(`actual_bytes = samples / 64 * channels * 8`), and the `.dsl` loader and demo driver send whole groups.
+
+**Rust behaviour:** identical results for whole-group streams (the differential tests use only those).
+For other streams it reads zeros past the packet and never touches memory outside its leaves
+(`crates/dsview-store/tests/robustness.rs`).
+
+### F10. A capture into an uncleared LogicSnapshot reuses stale state
+`first_payload` has a leaf-reuse path for "same channels, same limit". That path keeps
+`_loop_offset`, `_byte_fraction`/`_ch_fraction` and `_dest_ptr` from the previous capture:
+- a stale `_loop_offset` misaligns the write position, and the leaf write runs off its 2 MB block
+  (ASan heap-buffer-overflow);
+- a stale `_dest_ptr` points into a freed leaf (ASan heap-use-after-free).
+
+**Reachability:** none. `SigSession` clears the store before every capture. After `clear()` the channel
+list is empty, so the reuse path is never taken.
+
+**Rust behaviour:** same logic, but memory-safe. The differential tests clear between captures, as
+DSView does.
+
+### F11. Logic captures whose length is not a multiple of 64 are shifted, and lose data when saved
+**Observed (Phase 1b), in the shipping C++ DSView and in the Rust store (kept for parity):**
+- The last packet carries whole 64-sample groups, so it overruns the sample limit.
+- `append_cross_payload` stores the overrun as `_loop_offset` even outside loop mode. Every read then
+  adds it, so the capture is shown shifted and the zero padding appears at the end.
+- Example: a 1000-sample `.dsl` with a rising edge at sample 500. DSView shows the edge at 476 and a
+  phantom falling edge at 976.
+- Saving that capture writes 960 samples: the first 24 samples are lost, the data is shifted, and the
+  tail is cut. Reopening shows the shifted edges permanently.
+
+**Reachability:** any logic capture with a sample count that is not a multiple of 64. This covers `.dsl`
+files from other tools or edited headers, demo/file sessions with such limits, and possibly some
+hardware limits (the DSLogic rounds its limits to whole groups).
+
+**Rust behaviour:** identical for now; the A/B and the differential tests depend on it.
+**Fix after the Rust store becomes the default:** keep the overrun out of `loop_offset` in single
+mode, and have `capture_ended` trim to `total_sample_count`.
+
+### F12. The analog envelope reads one entry past its ring
+**Observed (Phase 1b, `store_ad_diff.rs`):** `AnalogSnapshot::append_payload_to_envelope_levels` builds
+envelope level *n* from level *n−1*. After taking an entry it advances without the wrap check:
+
+```c
+EnvelopeSample sub_sample = *src_ptr++;
+```
+
+When a 16-entry group starts at the last entry of the lower ring, the next read is one entry past the
+`malloc`ed array. That is a 2-byte heap over-read, folded into the min/max. It happens once the sample
+ring wraps and a level's entry count is not a multiple of 16; the drawn envelope can then show a spike
+from unrelated heap bytes.
+
+Level 0 has the same pattern on the sample ring. One sample row past the ring lands in the 8 spare
+bytes `first_payload` allocates, which `malloc` leaves uninitialised. With rows wider than 8 bytes,
+for example 4 channels of 32-bit samples (found by fuzzing), the read goes past the allocation.
+
+**Rust behaviour:**
+- Levels 1 and up: the out-of-range entry is skipped and the group wraps. The oracle fills the
+  allocator slack after each C++ ring with neutral entries (min 0xff, max 0), which makes the C++
+  result equal the Rust one. Where there is no slack, the C++ result is undefined and the levels
+  above are not compared.
+- Level 0: bytes past the ring read as 0. The Rust spare bytes are zero, and so are the oracle's
+  after `osana_zero`.
+
 ## Planned behaviour deviations (Rust intentionally differs)
 
 | Area | C behaviour | Rust behaviour | Phase |
@@ -104,6 +176,12 @@ writes.
 | CSV export, DSO channel index ≥ enabled count | Reads past the frame | Reads 0 | 1a ✔ |
 | Saving `.dsl` | Write errors ignored; in-place overwrite (F7) | Errors reported; atomic temp file plus rename; previous file kept on cancel | 1a ✔ |
 | Saving `.dsl`, entry names | Any | Only DSView's names; the header must parse | 1a ✔ |
+| Logic store, packets not of whole 64-sample groups (F9) | Mis-assembled; reads/writes out of bounds | Same assembly; past-the-packet bytes read as 0; memory-safe | 1b ✔ |
+| Logic store, capture into an uncleared store (F10) | Stale offsets; heap overflow / use-after-free | Same logic, memory-safe (DSView always clears first) | 1b ✔ |
+| Logic store `_dest_ptr` into a freed leaf | Dangling pointer kept | Write position dropped (only reachable through F9/F10 input) | 1b ✔ |
+| Analog envelope over-read (F12) | One entry past the ring folded into min/max | Entry skipped | 1b ✔ |
+| DSO envelope, `cal_vrms`, `cal_vmean` | Implemented, never called | Not ported; under `DSVIEW_IMPL_STORE=rust`, `enable_envelope` is a no-op and the two return 0 | 1b ✔ |
+| Analog data/DSO frames/envelopes before they are written | `malloc`: uninitialised | Zeroed | 1b ✔ |
 
 ## Departures from PLAN.md
 
@@ -115,4 +193,8 @@ writes.
 | srzip/gnuplot export in Rust | srzip stays C until it is ported; gnuplot is dropped in Phase 6 | csv and vcd cover the export dialog defaults; srzip (sigrok `.sr`) needs a sigrok-compatible writer of its own |
 | Goldens as zstd JSONL | gzip (`.jsonl.gz`, via `flate2`) | Pure Rust, no C build dependency; 60 KB for the protocol.demo decode golden |
 | Phase 0 performance baselines (`get_display_edges`, ingest, decode throughput) | Deferred to the start of Phase 1b / Phase 2 | `get_display_edges` and ingest need `oracle-store` (LogicSnapshot built against Qt Core), which is Phase 1b's oracle. Decode throughput needs large synthetic captures from `dsview-siggen`; the only corpus capture (131k samples) is dominated by Python start-up |
-| USB traces recorded in Phase 0 | Recorder and scenarios done and validated on the DSLogic in dry-run mode; the pcapng recording itself is pending | Needs root once: usbmon module plus dumpcap capture rights (see `tools/usb/README.md`) |
+| Phase 1b gate "ingest ≥ 1 GB/s per core" | Measured 766 MiB/s (Rust) vs 777 MiB/s (C++) on the development VM; the gate is moved to the Phase 4 capture path | Even a bare strided copy into fresh 2 MiB blocks reaches only 0.74–0.98 GiB/s on this VM, and a plain memcpy into fresh memory about 1.4 GiB/s. 1 GB/s needs a different leaf layout (a transposing copy, pooled pre-faulted leaves) that breaks pointer compatibility with the C++ GUI. The fastest DSLogic streams about 0.4 GB/s |
+| Lock-free store readers verified with `loom` (Phase 1b) | The FFI wraps each store in a mutex, like the C++ classes | The C++ GUI locks around every call anyway; lock-free readers matter for the Rust GUI and capture path (Phase 4/5) |
+| Annotation store in `dsview-store` (Phase 1b) | Moved to Phase 2 | Annotations are produced and owned by the decoder engine |
+| Decoder pin identity in the store tests | The differential tests track DecoderStack's pinned leaf by position, not address | DecoderStack compares leaf addresses; glibc may give a new leaf a freed leaf's address, so the C++ behaviour itself depends on the allocator |
+| USB traces in the repository | Recorded 2026-10-17 (11 scenarios plus startup). The pcapng files stay out of git; `testdata/usb/dslogic/manifest.json` pins their sha256 | 16 MB of binary traces; the plan's separate test-data repository is not set up yet |

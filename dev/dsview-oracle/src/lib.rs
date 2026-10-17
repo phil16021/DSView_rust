@@ -4,6 +4,7 @@
 
 pub mod capture;
 pub mod ffi;
+pub mod store;
 
 use std::path::PathBuf;
 

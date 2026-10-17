@@ -12,3 +12,4 @@ crate-type = ["staticlib", "rlib"]
 
 [dependencies]
 dsview-formats = { path = "../dsview-formats" }
+dsview-store = { path = "../dsview-store" }

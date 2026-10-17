@@ -33,6 +33,8 @@ namespace DsoSnapshotTest {
 class Basic;
 }
 
+struct dsv_dso_counts;
+
 namespace pv {
 namespace data {
 
@@ -95,6 +97,7 @@ public:
         uint64_t start, uint64_t end, float min_length, int probe_index);
 
     void enable_envelope(bool enable);
+    void capture_ended();
     double cal_vrms(double zero_off, int index);
     double cal_vmean(int index);
     bool has_data(int sig_index);
@@ -131,10 +134,7 @@ public:
         return _is_file;
     }
 
-    inline void set_ref_range(uint32_t ref_max, uint32_t ref_min){
-        _ref_max = ref_max;
-        _ref_min = ref_min;
-    }
+    void set_ref_range(uint32_t ref_max, uint32_t ref_min);
 
     inline bool data_is_out_off_range(){
         return _data_out_off_range;
@@ -147,6 +147,8 @@ private:
     void append_payload_to_envelope_levels(bool header);
     void free_data();   
     int  get_ch_order(int sig_index);
+    // DSVIEW_IMPL_STORE=rust: mirrors the Rust store's counters.
+    void rs_sync(const struct dsv_dso_counts *c, bool channels);
 
 private:
     struct Envelope _envelope_levels[2*DS_MAX_DSO_PROBES_NUM][ScaleStepCount];
@@ -163,6 +165,7 @@ private:
     uint32_t _ref_min;
     uint32_t _ref_max;
     bool _data_out_off_range;
+    void *_rs; // struct dsv_dso_store *, NULL for the C++ store
  
     friend class DsoSnapshotTest::Basic;
 };

@@ -14,8 +14,9 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  # The oracle compiles the original C sources against these.
-  ORACLE_DEPS: pkg-config libglib2.0-dev python3-dev libusb-1.0-0-dev zlib1g-dev
+  # The oracle compiles the original C/C++ sources against these (Qt Core for
+  # the pv::data snapshot classes).
+  ORACLE_DEPS: pkg-config libglib2.0-dev python3-dev libusb-1.0-0-dev zlib1g-dev qt6-base-dev
 
 jobs:
   lint:
@@ -61,8 +62,29 @@ jobs:
       - name: Fuzz each target for 60 s
         working-directory: fuzz
         run: |
-          for t in header dsl_reader; do
+          for t in header dsl_reader stores; do
             cargo +nightly fuzz run "$t" "corpus/$t" "seeds/$t" -- -max_total_time=60 -rss_limit_mb=2048
+          done
+
+  oracle-asan:
+    # The store differential tests with the C++ oracle under ASan/UBSan: the
+    # original code must stay free of memory errors on the inputs DSView
+    # produces (DEVIATIONS.md F9/F10/F12 cover the ones it does not).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install oracle build dependencies
+        run: sudo apt-get update && sudo apt-get install -y $ORACLE_DEPS
+      - name: Store differential tests, sanitized oracle
+        env:
+          ORACLE_SANITIZE: "1"
+          ASAN_OPTIONS: detect_leaks=0
+          PROPTEST_CASES: "60"
+        run: |
+          rustup show
+          cargo test --locked -p dsview-oracle --test store_diff --test store_ad_diff --no-run 2>&1 | tee build.log
+          for bin in $(grep -o 'target/debug/deps/store[a-z_]*-[0-9a-f]*' build.log | sort -u); do
+            (cd dev/dsview-oracle && LD_PRELOAD="$(gcc -print-file-name=libasan.so)" "../../$bin")
           done
 
   supply-chain:

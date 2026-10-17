@@ -1,0 +1,13 @@
+[package]
+name = "dsview-store"
+version = "0.1.0"
+description = "DSView sample stores: bit-packed logic captures with mip-maps, DSO and analog envelopes"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+proptest = "1"

@@ -34,6 +34,8 @@ namespace AnalogSnapshotTest {
 class Basic;
 }
 
+struct dsv_analog_counts;
+
 namespace pv {
 namespace data {
 
@@ -94,6 +96,8 @@ public:
 
 	void append_payload(const sr_datafeed_analog &analog);
 
+    void capture_ended();
+
     const uint8_t *get_samples(int64_t start_sample);
 
     void get_envelope_section(EnvelopeSection &s,
@@ -117,9 +121,12 @@ private:
 	void reallocate_envelope(Envelope &l);
 	void append_payload_to_envelope_levels();
     void free_data();
+    // DSVIEW_IMPL_STORE=rust: mirrors the Rust store's counters.
+    void rs_sync(const struct dsv_analog_counts *c, bool channels);
 
 private:
     void *_data;
+    void *_rs; // struct dsv_analog_store *, NULL for the C++ store
     struct Envelope _envelope_levels[DS_MAX_ANALOG_PROBES_NUM][ScaleStepCount];
 	friend class AnalogSnapshotTest::Basic;
     std::vector<int>        _enabled_channel_indexs;

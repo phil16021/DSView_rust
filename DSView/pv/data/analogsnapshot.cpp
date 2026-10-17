@@ -31,6 +31,12 @@
 #include "../dsvdef.h"
 #include "../log.h"
 
+#ifdef DSVIEW_RUST_CORE
+#include "dsview_ffi.h"
+// DSVIEW_IMPL_STORE=rust: the data lives in the Rust store.
+#define RS ((struct dsv_analog_store *)_rs)
+#endif
+
 using namespace std;
 
 namespace pv {
@@ -47,12 +53,58 @@ AnalogSnapshot::AnalogSnapshot() :
 {
 	memset(_envelope_levels, 0, sizeof(_envelope_levels));
     _unit_pitch = 0;
-    _data  = NULL; 
+    _data  = NULL;
+    _rs = NULL;
+#ifdef DSVIEW_RUST_CORE
+    if (dsv_use_rust("STORE"))
+        _rs = dsv_analog_new();
+#endif
 }
 
 AnalogSnapshot::~AnalogSnapshot()
 {
     free_envelop();
+#ifdef DSVIEW_RUST_CORE
+    dsv_analog_free(RS);
+#endif
+}
+
+void AnalogSnapshot::rs_sync(const struct dsv_analog_counts *c, bool channels)
+{
+#ifdef DSVIEW_RUST_CORE
+    _sample_count = c->sample_count;
+    _ring_sample_count = c->ring_sample_count;
+    _total_sample_count = c->total_sample_count;
+    _channel_num = c->channel_num;
+    _unit_bytes = c->unit_bytes;
+    _last_ended = c->last_ended;
+    _memory_failed = c->memory_failed;
+
+    if (channels) {
+        uint16_t ch[DS_MAX_ANALOG_PROBES_NUM * 4];
+        uint32_t n = dsv_analog_channels(RS, ch, DS_MAX_ANALOG_PROBES_NUM * 4);
+        _ch_index.assign(ch, ch + min<uint32_t>(n, DS_MAX_ANALOG_PROBES_NUM * 4));
+        n = dsv_analog_enabled_channels(RS, ch, DS_MAX_ANALOG_PROBES_NUM * 4);
+        _enabled_channel_indexs.assign(ch, ch + min<uint32_t>(n, DS_MAX_ANALOG_PROBES_NUM * 4));
+    }
+#else
+    (void)c;
+    (void)channels;
+#endif
+}
+
+void AnalogSnapshot::capture_ended()
+{
+#ifdef DSVIEW_RUST_CORE
+    if (_rs) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        struct dsv_analog_counts c;
+        dsv_analog_capture_ended(RS, &c);
+        rs_sync(&c, false);
+        return;
+    }
+#endif
+    Snapshot::capture_ended();
 }
 
 void AnalogSnapshot::free_envelop()
@@ -69,6 +121,14 @@ void AnalogSnapshot::free_envelop()
 void AnalogSnapshot::init()
 {
     std::lock_guard<std::mutex> lock(_mutex);
+#ifdef DSVIEW_RUST_CORE
+    if (_rs) {
+        struct dsv_analog_counts c;
+        dsv_analog_init(RS, &c);
+        rs_sync(&c, false);
+        return;
+    }
+#endif
     init_all();
 }
 
@@ -103,6 +163,14 @@ void AnalogSnapshot::free_data()
 void AnalogSnapshot::clear()
 {
     std::lock_guard<std::mutex> lock(_mutex);
+#ifdef DSVIEW_RUST_CORE
+    if (_rs) {
+        struct dsv_analog_counts c;
+        dsv_analog_clear(RS, &c);
+        rs_sync(&c, true);
+        return;
+    }
+#endif
     free_data();
     free_envelop();
     init_all();
@@ -110,7 +178,27 @@ void AnalogSnapshot::clear()
 
 void AnalogSnapshot::first_payload(const sr_datafeed_analog &analog, uint64_t total_sample_count, GSList *channels)
 {
-    _total_sample_count = total_sample_count;
+#ifdef DSVIEW_RUST_CORE
+    if (_rs) {
+        std::vector<uint16_t> idx;
+        std::vector<uint8_t> en;
+        for (const GSList *l = channels; l; l = l->next) {
+            sr_channel *const probe = (sr_channel*)l->data;
+            if (probe->type == SR_CHANNEL_ANALOG) {
+                idx.push_back(probe->index);
+                en.push_back(probe->enabled ? 1 : 0);
+            }
+        }
+        std::lock_guard<std::mutex> lock(_mutex);
+        struct dsv_analog_counts c;
+        dsv_analog_first_payload(RS, (const uint8_t *)analog.data, analog.num_samples, analog.unit_bits,
+                                 analog.unit_pitch, total_sample_count, idx.data(),
+                                 (const bool *)en.data(), idx.size(), &c);
+        rs_sync(&c, true);
+        return;
+    }
+#endif
+_total_sample_count = total_sample_count;
     _unit_bytes = (analog.unit_bits + 7) / 8;
     assert(_unit_bytes > 0);
     assert(_unit_bytes <= sizeof(uint64_t));
@@ -203,7 +291,15 @@ void AnalogSnapshot::first_payload(const sr_datafeed_analog &analog, uint64_t to
 void AnalogSnapshot::append_payload(const sr_datafeed_analog &analog)
 {
     std::lock_guard<std::mutex> lock(_mutex);
-    append_data(analog.data, analog.num_samples, analog.unit_pitch);
+#ifdef DSVIEW_RUST_CORE
+    if (_rs) {
+        struct dsv_analog_counts c;
+        dsv_analog_append_payload(RS, (const uint8_t *)analog.data, analog.num_samples, analog.unit_pitch, &c);
+        rs_sync(&c, false);
+        return;
+    }
+#endif
+append_data(analog.data, analog.num_samples, analog.unit_pitch);
 
 	// Generate the first mip-map from the data
     if (analog.num_samples != 0) // guarantee new samples to compute
@@ -253,6 +349,11 @@ const uint8_t* AnalogSnapshot::get_samples(int64_t start_sample)
 	assert(start_sample >= 0);
     assert(start_sample < (int64_t)get_sample_count());
 
+#ifdef DSVIEW_RUST_CORE
+    if (_rs)
+        return dsv_analog_get_samples(RS, start_sample);
+#endif
+
     return (uint8_t*)_data + start_sample * _unit_bytes * _channel_num;
 }
 
@@ -261,6 +362,19 @@ void AnalogSnapshot::get_envelope_section(EnvelopeSection &s,
 {
     assert(count >= 0);
 	assert(min_length > 0);
+
+#ifdef DSVIEW_RUST_CORE
+    if (_rs) {
+        struct dsv_envelope_section e;
+        dsv_analog_envelope_section(RS, start, count, min_length, probe_index, &e);
+        s.start = e.start;
+        s.scale = e.scale;
+        s.length = e.length;
+        s.samples_num = e.samples_num;
+        s.samples = (EnvelopeSample *)e.samples;
+        return;
+    }
+#endif
 
     const unsigned int min_level = max((int)floorf(logf(min_length) /
             LogEnvelopeScaleFactor) - 1, 0);
@@ -431,6 +545,10 @@ uint64_t AnalogSnapshot::get_block_size(int block_index)
 
 void* AnalogSnapshot::get_data()
 {
+#ifdef DSVIEW_RUST_CORE
+    if (_rs)
+        return (void *)dsv_analog_data(RS);
+#endif
     return _data;
 }
 

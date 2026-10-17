@@ -65,10 +65,15 @@ fn launch(bin: &Path, iml: &str) -> Result<Instance> {
     let deadline = Instant::now() + Duration::from_secs(30);
     let mut client = Client::new(&inst.socket);
     while Instant::now() < deadline {
-        if client
-            .call("version", &json!({}), Duration::from_secs(2))
-            .is_ok()
-        {
+        if let Ok(Ok(v)) = client.call("version", &json!({}), Duration::from_secs(2)) {
+            // every migrated subsystem must run the requested implementation
+            let imps = v["implementations"]
+                .as_object()
+                .cloned()
+                .unwrap_or_default();
+            if imps.is_empty() || imps.values().any(|x| x != iml) {
+                bail!("DSView (DSVIEW_IMPL={iml}) reports implementations {imps:?}");
+            }
             return Ok(inst);
         }
         std::thread::sleep(Duration::from_millis(250));

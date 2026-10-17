@@ -48,6 +48,9 @@
 #include "../dock/protocoldock.h"
 #include "../dock/triggerdock.h"
 #include "../log.h"
+#ifdef DSVIEW_RUST_CORE
+#include "dsview_ffi.h"
+#endif
 
 namespace pv {
 namespace mcp {
@@ -1891,6 +1894,17 @@ void ControlApi::version(const QJsonObject &, const Reply &r)
     o["application"] = "DSView";
     o["version"] = QCoreApplication::applicationVersion();
     o["api"] = 1;
+
+    // Which implementation each migrated subsystem runs (DSVIEW_IMPL*).
+    QJsonObject impl;
+    for (const char *sub : {"FORMATS", "STORE"}) {
+        bool rust = false;
+#ifdef DSVIEW_RUST_CORE
+        rust = dsv_use_rust(sub) != 0;
+#endif
+        impl[QString(sub).toLower()] = rust ? "rust" : "c";
+    }
+    o["implementations"] = impl;
     r(o, QString());
 }
 
