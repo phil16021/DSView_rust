@@ -1820,9 +1820,8 @@ namespace pv
 
         if (data != NULL)
         {
-            QByteArray raw_bytes = QByteArray::fromRawData(data->data(), data->size());
-            QString jsonStr(raw_bytes.data());
-            QByteArray qbs = jsonStr.toUtf8();
+            // The buffer is not NUL-terminated, so bound the read by its size.
+            QByteArray qbs(data->data(), qstrnlen(data->data(), data->size()));
             sessionDoc = QJsonDocument::fromJson(qbs, &error);
 
             if (error.error != QJsonParseError::NoError)
@@ -1859,9 +1858,8 @@ namespace pv
 
         if (data != NULL)
         {
-            QByteArray raw_bytes = QByteArray::fromRawData(data->data(), data->size());
-            QString jsonStr(raw_bytes.data());
-            QByteArray qbs = jsonStr.toUtf8();
+            // The buffer is not NUL-terminated, so bound the read by its size.
+            QByteArray qbs(data->data(), qstrnlen(data->data(), data->size()));
             QJsonDocument sessionDoc = QJsonDocument::fromJson(qbs, &error);
 
             if (error.error != QJsonParseError::NoError)

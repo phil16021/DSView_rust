@@ -44,6 +44,9 @@ extern SR_PRIV struct sr_dev_driver session_driver;
 
 static int sr_load_virtual_device_session(struct sr_dev_inst *sdi);
 
+#define MAX_HEADER_SIZE (1024 * 1024)
+#define MAX_FILE_PROBES 64 /* logic data is unpacked through a uint64_t bit mask */
+
 static uint64_t samplerates[1];
 static uint64_t samplecounts[1];
 
@@ -76,7 +79,7 @@ static void get_file_short_name(const char *file, char *buf, int buflen)
     char *wr = buf;
     char c;
 
-    while (pos >= 0)
+    while (pos > 0)
     {
         pos--;
         c = *(file + pos);
@@ -87,7 +90,7 @@ static void get_file_short_name(const char *file, char *buf, int buflen)
         }
     }
 
-    while (pos < len && (wr - buf) <= buflen)
+    while (pos < len && (wr - buf) < buflen)
     {
         *wr = *(file + pos);
         wr++;
@@ -282,8 +285,15 @@ static int receive_data(int fd, int revents, const struct sr_dev_inst *sdi)
             channel = vdev->cur_channel;
             pl = sdi->channels;
 
-            while (channel--){
+            while (pl && channel--){
                 pl = pl->next;
+            }
+
+            if (pl == NULL)
+            {
+                sr_err("%s: Channel %d does not exist!", __func__, vdev->cur_channel);
+                send_error_packet(sdi, vdev, &packet);
+                return FALSE;
             }
 
             probe = (struct sr_channel *)pl->data;
@@ -1127,6 +1137,7 @@ static int config_set(int id, GVariant *data, struct sr_dev_inst *sdi,
         {
             if (sdi->mode == LOGIC)
             {
+                safe_free(vdev->logic_buf);
                 if (!(vdev->logic_buf = g_try_malloc0(CHUNKSIZE / 16 * vdev->num_probes)))
                 {
                     sr_err("%s: vdev->logic_buf malloc failed", __func__);
@@ -1512,13 +1523,30 @@ SR_PRIV int sr_new_virtual_device(const char *filename, struct sr_dev_inst **out
         return SR_ERR;
     }
 
-    if (!(metafile = g_try_malloc0(fileInfo.uncompressed_size)))
+    if (fileInfo.uncompressed_size == 0 || fileInfo.uncompressed_size > MAX_HEADER_SIZE)
+    {
+        sr_err("%s: Invalid 'header' size.", __func__);
+        unzCloseCurrentFile(archive);
+        unzClose(archive);
+        return SR_ERR;
+    }
+
+    if (!(metafile = g_try_malloc0(fileInfo.uncompressed_size + 1)))
     {
         sr_err("%s: metafile malloc failed", __func__);
+        unzCloseCurrentFile(archive);
+        unzClose(archive);
         return SR_ERR_MALLOC;
     }
 
-    unzReadCurrentFile(archive, metafile, fileInfo.uncompressed_size);
+    if (unzReadCurrentFile(archive, metafile, fileInfo.uncompressed_size) != (int)fileInfo.uncompressed_size)
+    {
+        sr_err("%s: Read 'header' error.", __func__);
+        g_free(metafile);
+        unzCloseCurrentFile(archive);
+        unzClose(archive);
+        return SR_ERR;
+    }
     unzCloseCurrentFile(archive);
 
     if (unzClose(archive) != UNZ_OK)
@@ -1581,9 +1609,10 @@ static int sr_load_virtual_device_session(struct sr_dev_inst *sdi)
     struct sr_channel *probe;
     int devcnt, i, j;
     uint16_t probenum;
-    uint64_t tmp_u64, total_probes, enabled_probes;
-    uint16_t p;
+    uint64_t tmp_u64, total_probes = 0, enabled_probes;
+    uint64_t p;
     int64_t tmp_64;
+    int header_found = 0;
     char **sections, **keys, *metafile, *val;
     char probename[SR_MAX_PROBENAME_LEN + 1];
     int mode = LOGIC;
@@ -1629,13 +1658,30 @@ static int sr_load_virtual_device_session(struct sr_dev_inst *sdi)
         return SR_ERR;
     }
 
-    if (!(metafile = g_try_malloc0(fileInfo.uncompressed_size)))
+    if (fileInfo.uncompressed_size == 0 || fileInfo.uncompressed_size > MAX_HEADER_SIZE)
+    {
+        sr_err("%s: Invalid 'header' size.", __func__);
+        unzCloseCurrentFile(archive);
+        unzClose(archive);
+        return SR_ERR;
+    }
+
+    if (!(metafile = g_try_malloc0(fileInfo.uncompressed_size + 1)))
     {
         sr_err("%s: metafile malloc failed", __func__);
+        unzCloseCurrentFile(archive);
+        unzClose(archive);
         return SR_ERR_MALLOC;
     }
 
-    unzReadCurrentFile(archive, metafile, fileInfo.uncompressed_size);
+    if (unzReadCurrentFile(archive, metafile, fileInfo.uncompressed_size) != (int)fileInfo.uncompressed_size)
+    {
+        sr_err("%s: Read 'header' error.", __func__);
+        g_free(metafile);
+        unzCloseCurrentFile(archive);
+        unzClose(archive);
+        return SR_ERR;
+    }
     unzCloseCurrentFile(archive);
 
     if (unzClose(archive) != UNZ_OK)
@@ -1674,6 +1720,12 @@ static int sr_load_virtual_device_session(struct sr_dev_inst *sdi)
         if (!strncmp(sections[i], "header", 6))
         {
             /* device section */
+            if (header_found)
+            {
+                sr_err("%s: More than one header section.", __func__);
+                goto load_error;
+            }
+            header_found = 1;
             enabled_probes = total_probes = 0;
             keys = g_key_file_get_keys(kf, sections[i], NULL, NULL);
 
@@ -1759,6 +1811,12 @@ static int sr_load_virtual_device_session(struct sr_dev_inst *sdi)
                 else if (!strcmp(keys[j], "total probes"))
                 {
                     total_probes = strtoull(val, NULL, 10);
+                    if (total_probes == 0 || total_probes > MAX_FILE_PROBES)
+                    {
+                        sr_err("%s: Invalid probe count: %llu", __func__, (u64_t)total_probes);
+                        g_strfreev(keys);
+                        goto load_error;
+                    }
                     sdi->driver->config_set(SR_CONF_CAPTURE_NUM_PROBES,
                                             g_variant_new_uint64(total_probes), sdi, NULL, NULL);
                     if (version == 1)
@@ -1768,7 +1826,7 @@ static int sr_load_virtual_device_session(struct sr_dev_inst *sdi)
 
                         for (p = 0; p < total_probes; p++)
                         {
-                            snprintf(probename, SR_MAX_PROBENAME_LEN, "%u", p);
+                            snprintf(probename, SR_MAX_PROBENAME_LEN, "%u", (unsigned int)p);
                             if (!(probe = sr_channel_new(p, channel_type, FALSE, probename)))
                             {
                                 sr_err("%s: create channel failed", __func__);
@@ -1784,6 +1842,12 @@ static int sr_load_virtual_device_session(struct sr_dev_inst *sdi)
                 {
                     enabled_probes++;
                     tmp_u64 = strtoul(keys[j] + 5, NULL, 10);
+                    if (tmp_u64 >= MAX_FILE_PROBES)
+                    {
+                        sr_err("%s: Invalid probe index: %llu", __func__, (u64_t)tmp_u64);
+                        g_strfreev(keys);
+                        goto load_error;
+                    }
                     /* sr_session_save() */
                     if (version == 1)
                     {
@@ -2067,11 +2131,24 @@ static int sr_load_virtual_device_session(struct sr_dev_inst *sdi)
         }
         devcnt++;
     }
+
+    if (!header_found || total_probes == 0 || g_slist_length(sdi->channels) < total_probes)
+    {
+        sr_err("%s: Header does not describe the stored channels.", __func__);
+        goto load_error;
+    }
+
     g_strfreev(sections);
     g_key_file_free(kf);
     g_free(metafile);
 
     return SR_OK;
+
+load_error:
+    g_strfreev(sections);
+    g_key_file_free(kf);
+    g_free(metafile);
+    return SR_ERR;
 }
 
 /** @private */

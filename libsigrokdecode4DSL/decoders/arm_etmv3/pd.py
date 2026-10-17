@@ -20,6 +20,10 @@
 import sigrokdecode as srd
 import subprocess
 import re
+import os
+
+# Only run binaries that look like objdump; options can come from untrusted .dsl files.
+OBJDUMP_NAME = re.compile(r'^[\w.+-]*objdump(\.exe)?$')
 
 # See ETMv3 Signal Protocol table 7-11: 'Encoding of Exception[8:0]'.
 exc_names = [
@@ -199,6 +203,10 @@ class Decoder(srd.Decoder):
         source_lookup: Find the source code line from current PC.
         '''
         if not (self.options['objdump'] and self.options['elffile']):
+            return
+        if not OBJDUMP_NAME.match(os.path.basename(self.options['objdump'])):
+            return
+        if self.options['elffile'].startswith('-'):
             return
 
         opts = [self.options['objdump']]

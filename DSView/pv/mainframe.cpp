@@ -1222,7 +1222,7 @@ void MainFrame::show_driver_hint_once()
             "which was not found on this system. Create "
             "/etc/udev/rules.d/60-dreamsourcelab.rules with the following "
             "line, then run 'sudo udevadm control --reload-rules':\n\n"
-            "SUBSYSTEM==\"usb\", ATTRS{idVendor}==\"2a0e\", MODE=\"0666\"");
+            "SUBSYSTEM==\"usb\", ATTRS{idVendor}==\"2a0e\", MODE=\"0660\", TAG+=\"uaccess\"");
     }
 #endif
 

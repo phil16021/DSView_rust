@@ -39,6 +39,7 @@
 ##  2024/6/4 DreamSourceLab : Fixed the fifteenth bit of data being unable to decode when the total bit count is set to 16.
 
 from common.srdhelper import bitpack
+import ast
 import json
 import sigrokdecode as srd
 import struct
@@ -285,10 +286,13 @@ class Decoder(srd.Decoder):
                         maptable[v] = k
                 elif fn.endswith('.py'):
                     # Expect a specific identifier at the Python module
-                    # level, and assume that it's a dictionary.
-                    py_table = {}
-                    exec(maptext, py_table)
-                    maptable.update(py_table['enumtext'])
+                    # level, and assume that it's a dictionary. Only a
+                    # literal is accepted, the file is never executed.
+                    for node in ast.parse(maptext).body:
+                        if isinstance(node, ast.Assign) and any(
+                                isinstance(t, ast.Name) and t.id == 'enumtext'
+                                for t in node.targets):
+                            maptable.update(ast.literal_eval(node.value))
                 self.interp_state['enum_map'].update(maptable)
                 self.interp_state['enum_have_map'] = True
             except:

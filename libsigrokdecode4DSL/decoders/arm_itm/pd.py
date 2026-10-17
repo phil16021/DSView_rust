@@ -21,6 +21,10 @@ import sigrokdecode as srd
 import string
 import subprocess
 import re
+import os
+
+# Only run binaries that look like objdump; options can come from untrusted .dsl files.
+OBJDUMP_NAME = re.compile(r'^[\w.+-]*objdump(\.exe)?$')
 
 ARM_EXCEPTIONS = {
     0: 'Thread',
@@ -100,6 +104,10 @@ class Decoder(srd.Decoder):
     def load_objdump(self):
         '''Parse disassembly obtained from objdump into a lookup tables'''
         if not (self.options['objdump'] and self.options['elffile']):
+            return
+        if not OBJDUMP_NAME.match(os.path.basename(self.options['objdump'])):
+            return
+        if self.options['elffile'].startswith('-'):
             return
 
         opts = [self.options['objdump']]

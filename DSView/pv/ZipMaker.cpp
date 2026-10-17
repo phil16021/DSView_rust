@@ -223,10 +223,21 @@ ZipInnerFileData* ZipReader::GetInnterFileData(const char *innerFile)
         return NULL;
     }
 
+    // Inner files are small JSON documents, refuse anything oversized.
+    if (fileInfo.uncompressed_size > 64 * 1024 * 1024){
+        unzCloseCurrentFile(m_archive);
+        return NULL;
+    }
+
     if (fileInfo.uncompressed_size > 0 && (metafile = (char *)malloc(fileInfo.uncompressed_size)))
     {
-        unzReadCurrentFile(m_archive, metafile, fileInfo.uncompressed_size);
+        int rd = unzReadCurrentFile(m_archive, metafile, fileInfo.uncompressed_size);
         unzCloseCurrentFile(m_archive);
+
+        if (rd != (int)fileInfo.uncompressed_size){
+            free(metafile);
+            return NULL;
+        }
 
          ZipInnerFileData *data = new ZipInnerFileData(metafile, fileInfo.uncompressed_size);
          return data;
