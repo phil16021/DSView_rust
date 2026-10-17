@@ -19,7 +19,7 @@ applies timeouts. Everything the agent does appears live in the DSView window.
 /usr/bin/cmake -S . -B build && /usr/bin/cmake --build build -j
 
 # the MCP server
-cd dsview-mcp && cargo build --release
+cargo build --release -p dsview-mcp      # workspace build; binary in target/release/
 ```
 
 ## Use with Claude Code
@@ -29,7 +29,7 @@ cd dsview-mcp && cargo build --release
 2. Register the server:
 
    ```sh
-   claude mcp add dsview -- /path/to/DSView/dsview-mcp/target/release/dsview-mcp
+   claude mcp add dsview -- /path/to/DSView/target/release/dsview-mcp
    ```
 
 3. Ask for things like "capture 1M samples on the demo device, decode I²C on channels 0/1 and list

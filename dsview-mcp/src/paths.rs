@@ -33,9 +33,11 @@ fn expand_tilde(raw: &str) -> PathBuf {
 impl PathPolicy {
     pub fn from_env() -> Result<Self, String> {
         let roots: Vec<PathBuf> = match std::env::var("DSVIEW_MCP_ALLOWED_DIRS") {
-            Ok(list) if !list.trim().is_empty() => {
-                list.split(':').filter(|s| !s.trim().is_empty()).map(|s| expand_tilde(s.trim())).collect()
-            }
+            Ok(list) if !list.trim().is_empty() => list
+                .split(':')
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| expand_tilde(s.trim()))
+                .collect(),
             _ => vec![home_dir().join("DSView")],
         };
         for root in &roots {
@@ -52,7 +54,10 @@ impl PathPolicy {
                 .canonicalize()
                 .map_err(|e| format!("allowed directory {} is not usable: {e}", root.display()))?;
             if !c.is_dir() {
-                return Err(format!("allowed directory {} is not a directory", root.display()));
+                return Err(format!(
+                    "allowed directory {} is not a directory",
+                    root.display()
+                ));
             }
             canonical.push(c);
         }
@@ -83,29 +88,41 @@ impl PathPolicy {
             path = self.roots[0].join(path);
         }
 
-        let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase);
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_ascii_lowercase);
         if !ext.as_deref().is_some_and(|e| extensions.contains(&e)) {
             return Err(format!("file must end with .{}", extensions.join(" or .")));
         }
 
         let resolved = match access {
             Access::Read => {
-                let c = path.canonicalize().map_err(|e| format!("cannot open {}: {e}", path.display()))?;
+                let c = path
+                    .canonicalize()
+                    .map_err(|e| format!("cannot open {}: {e}", path.display()))?;
                 if !c.is_file() {
                     return Err(format!("{} is not a regular file", path.display()));
                 }
                 c
             }
             Access::Write => {
-                let name = path.file_name().ok_or_else(|| "path has no file name".to_string())?;
-                let parent = path.parent().ok_or_else(|| "path has no parent directory".to_string())?;
+                let name = path
+                    .file_name()
+                    .ok_or_else(|| "path has no file name".to_string())?;
+                let parent = path
+                    .parent()
+                    .ok_or_else(|| "path has no parent directory".to_string())?;
                 let parent = parent
                     .canonicalize()
                     .map_err(|e| format!("directory {} does not exist: {e}", parent.display()))?;
                 let target = parent.join(name);
                 if let Ok(meta) = std::fs::symlink_metadata(&target) {
                     if meta.file_type().is_symlink() {
-                        return Err(format!("refusing to write through symlink {}", target.display()));
+                        return Err(format!(
+                            "refusing to write through symlink {}",
+                            target.display()
+                        ));
                     }
                     if meta.is_dir() {
                         return Err(format!("{} is a directory", target.display()));
@@ -119,7 +136,11 @@ impl PathPolicy {
             return Err(format!(
                 "{} is outside the allowed directories ({}); set DSVIEW_MCP_ALLOWED_DIRS to change them",
                 resolved.display(),
-                self.roots.iter().map(|r| r.display().to_string()).collect::<Vec<_>>().join(", ")
+                self.roots
+                    .iter()
+                    .map(|r| r.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ));
         }
         Ok(resolved)
@@ -135,7 +156,8 @@ mod tests {
 
     impl TempDir {
         fn new(tag: &str) -> Self {
-            let p = std::env::temp_dir().join(format!("dsview-mcp-paths-{tag}-{}", std::process::id()));
+            let p =
+                std::env::temp_dir().join(format!("dsview-mcp-paths-{tag}-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&p);
             std::fs::create_dir_all(&p).unwrap();
             Self(p)
@@ -161,7 +183,9 @@ mod tests {
     #[test]
     fn write_inside_root_is_allowed() {
         let (_tmp, policy, _) = setup("inside");
-        let p = policy.check("capture.dsl", Access::Write, &["dsl"]).unwrap();
+        let p = policy
+            .check("capture.dsl", Access::Write, &["dsl"])
+            .unwrap();
         assert!(p.starts_with(&policy.roots()[0]));
         assert!(p.ends_with("capture.dsl"));
     }
@@ -170,8 +194,16 @@ mod tests {
     fn outside_and_dotdot_are_rejected() {
         let (_tmp, policy, outside) = setup("outside");
         let abs = outside.join("x.dsl");
-        assert!(policy.check(abs.to_str().unwrap(), Access::Write, &["dsl"]).is_err());
-        assert!(policy.check("../outside/x.dsl", Access::Write, &["dsl"]).is_err());
+        assert!(
+            policy
+                .check(abs.to_str().unwrap(), Access::Write, &["dsl"])
+                .is_err()
+        );
+        assert!(
+            policy
+                .check("../outside/x.dsl", Access::Write, &["dsl"])
+                .is_err()
+        );
     }
 
     #[test]
@@ -183,7 +215,11 @@ mod tests {
         std::fs::create_dir_all(&sibling).unwrap();
         let policy = PathPolicy::new(&[root]).unwrap();
         let p = sibling.join("x.csv");
-        assert!(policy.check(p.to_str().unwrap(), Access::Write, &["csv"]).is_err());
+        assert!(
+            policy
+                .check(p.to_str().unwrap(), Access::Write, &["csv"])
+                .is_err()
+        );
     }
 
     #[test]
@@ -209,7 +245,11 @@ mod tests {
     #[test]
     fn extension_is_enforced() {
         let (_tmp, policy, _) = setup("ext");
-        assert!(policy.check("x.txt", Access::Write, &["csv", "vcd"]).is_err());
+        assert!(
+            policy
+                .check("x.txt", Access::Write, &["csv", "vcd"])
+                .is_err()
+        );
         assert!(policy.check("x", Access::Write, &["dsl"]).is_err());
         assert!(policy.check("X.CSV", Access::Write, &["csv"]).is_ok());
     }

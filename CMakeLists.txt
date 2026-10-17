@@ -73,7 +73,7 @@ endif()
 set(DISABLE_WERROR TRUE) #Build without -Werror
 set(ENABLE_SIGNALS TRUE) #Build with UNIX signals
 set(ENABLE_COTIRE FALSE) #Enable cotire
-set(ENABLE_TESTS  FALSE) #Enable unit tests
+option(DSVIEW_RUST_CORE "Link the Rust core (crates/dsview-ffi, built with cargo)" OFF)
 
 if(WIN32)
     # Windows does not support UNIX signals.
@@ -678,6 +678,27 @@ add_executable(${PROJECT_NAME}
 
 target_link_libraries(${PROJECT_NAME} ${DSVIEW_LINK_LIBS})
 
+#===============================================================================
+#= Rust core (migration to Rust, see docs/migration/PLAN.md)
+#-------------------------------------------------------------------------------
+# cargo is incremental, so the target runs on every build and is a no-op when
+# nothing changed. Uses the committed Cargo.lock; downloads nothing at configure time.
+if(DSVIEW_RUST_CORE)
+    find_program(CARGO_EXECUTABLE cargo REQUIRED)
+    set(DSVIEW_CARGO_TARGET_DIR ${CMAKE_BINARY_DIR}/cargo)
+    set(DSVIEW_FFI_LIB ${DSVIEW_CARGO_TARGET_DIR}/release/libdsview_ffi.a)
+    add_custom_target(dsview_ffi ALL
+        COMMAND ${CARGO_EXECUTABLE} build --release --locked -p dsview-ffi --target-dir ${DSVIEW_CARGO_TARGET_DIR}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        BYPRODUCTS ${DSVIEW_FFI_LIB}
+        COMMENT "Building the Rust core (dsview-ffi)"
+        VERBATIM)
+    add_dependencies(${PROJECT_NAME} dsview_ffi)
+    target_include_directories(${PROJECT_NAME} PRIVATE crates/dsview-ffi/include)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE DSVIEW_RUST_CORE=1)
+    target_link_libraries(${PROJECT_NAME} ${DSVIEW_FFI_LIB} dl)
+endif()
+
 if(WIN32)
 # Pass -mwindows so that no "DOS box" will open when PulseView is started.
 set_target_properties(${PROJECT_NAME} PROPERTIES LINK_FLAGS "-mwindows")
@@ -798,12 +819,8 @@ include(CPack)
 #===============================================================================
 #= Tests
 #-------------------------------------------------------------------------------
-
-if(ENABLE_TESTS)
-    add_subdirectory(test)
-    enable_testing()
-    add_test(test ${CMAKE_CURRENT_BINARY_DIR}/DSView/test/DSView-test)
-endif(ENABLE_TESTS)
+# The old C/C++ unit tests were stale and never built; tests now live in the
+# Rust workspace (cargo nextest, cargo xtask golden check).
 
 
 

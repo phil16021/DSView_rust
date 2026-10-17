@@ -301,7 +301,11 @@ pub struct CursorsParams {
 
 impl DsviewServer {
     pub fn new(bridge: Bridge, paths: PathPolicy) -> Self {
-        Self { bridge: Arc::new(bridge), paths: Arc::new(paths), tool_router: Self::tool_router() }
+        Self {
+            bridge: Arc::new(bridge),
+            paths: Arc::new(paths),
+            tool_router: Self::tool_router(),
+        }
     }
 
     async fn call(&self, method: &str, params: Value, timeout: Duration) -> CallToolResult {
@@ -312,7 +316,12 @@ impl DsviewServer {
     }
 
     fn instructions(&self) -> String {
-        let roots: Vec<String> = self.paths.roots().iter().map(|r| r.display().to_string()).collect();
+        let roots: Vec<String> = self
+            .paths
+            .roots()
+            .iter()
+            .map(|r| r.display().to_string())
+            .collect();
         format!(
             "Controls the DSView window the user is looking at (DreamSourceLab logic analyzers and \
              oscilloscopes, or the built-in demo devices).\n\
@@ -330,27 +339,36 @@ impl DsviewServer {
 
 #[tool_router]
 impl DsviewServer {
-    #[tool(description = "List the devices DSView can use (hardware, demo devices, opened files). Use the index with select_device.")]
+    #[tool(
+        description = "List the devices DSView can use (hardware, demo devices, opened files). Use the index with select_device."
+    )]
     async fn list_devices(&self) -> CallToolResult {
         self.call("list_devices", json!({}), DEFAULT_TIMEOUT).await
     }
 
     #[tool(description = "Make another device the active one in DSView.")]
     async fn select_device(&self, Parameters(p): Parameters<IndexParam>) -> CallToolResult {
-        self.call("select_device", params(&p), DEFAULT_TIMEOUT).await
+        self.call("select_device", params(&p), DEFAULT_TIMEOUT)
+            .await
     }
 
-    #[tool(description = "Current device, mode, sample rate, sample count, channels, trigger and the allowed sample rates.")]
+    #[tool(
+        description = "Current device, mode, sample rate, sample count, channels, trigger and the allowed sample rates."
+    )]
     async fn get_config(&self) -> CallToolResult {
         self.call("get_config", json!({}), DEFAULT_TIMEOUT).await
     }
 
-    #[tool(description = "Switch the work mode: logic analyzer, oscilloscope (dso) or data acquisition (analog).")]
+    #[tool(
+        description = "Switch the work mode: logic analyzer, oscilloscope (dso) or data acquisition (analog)."
+    )]
     async fn set_mode(&self, Parameters(p): Parameters<ModeParams>) -> CallToolResult {
         self.call("set_mode", params(&p), DEFAULT_TIMEOUT).await
     }
 
-    #[tool(description = "Set the sample rate and/or sample count. Returns the values actually applied.")]
+    #[tool(
+        description = "Set the sample rate and/or sample count. Returns the values actually applied."
+    )]
     async fn set_sampling(&self, Parameters(p): Parameters<SamplingParams>) -> CallToolResult {
         self.call("set_sampling", params(&p), DEFAULT_TIMEOUT).await
     }
@@ -360,14 +378,19 @@ impl DsviewServer {
         self.call("set_channels", params(&p), DEFAULT_TIMEOUT).await
     }
 
-    #[tool(description = "Set a simple logic trigger on one channel (or clear it with type none) and the trigger position.")]
+    #[tool(
+        description = "Set a simple logic trigger on one channel (or clear it with type none) and the trigger position."
+    )]
     async fn set_trigger(&self, Parameters(p): Parameters<TriggerParams>) -> CallToolResult {
         self.call("set_trigger", params(&p), DEFAULT_TIMEOUT).await
     }
 
-    #[tool(description = "Set the logic input threshold voltage (devices with adjustable threshold only).")]
+    #[tool(
+        description = "Set the logic input threshold voltage (devices with adjustable threshold only)."
+    )]
     async fn set_threshold(&self, Parameters(p): Parameters<ThresholdParams>) -> CallToolResult {
-        self.call("set_threshold", params(&p), DEFAULT_TIMEOUT).await
+        self.call("set_threshold", params(&p), DEFAULT_TIMEOUT)
+            .await
     }
 
     #[tool(description = "Oscilloscope settings: timebase, and per-channel V/div and coupling.")]
@@ -375,7 +398,9 @@ impl DsviewServer {
         self.call("set_dso", params(&p), DEFAULT_TIMEOUT).await
     }
 
-    #[tool(description = "Start a capture with the current settings. By default waits until it is complete (including automatic protocol decoding) and returns a summary.")]
+    #[tool(
+        description = "Start a capture with the current settings. By default waits until it is complete (including automatic protocol decoding) and returns a summary."
+    )]
     async fn start_capture(&self, Parameters(p): Parameters<CaptureParams>) -> CallToolResult {
         let timeout = wait_timeout(p.timeout_s, 60);
         self.call("start_capture", params(&p), timeout).await
@@ -386,74 +411,110 @@ impl DsviewServer {
         self.call("stop_capture", json!({}), DEFAULT_TIMEOUT).await
     }
 
-    #[tool(description = "Whether DSView is capturing, decoding or saving, any open dialog, and a summary of the current data.")]
+    #[tool(
+        description = "Whether DSView is capturing, decoding or saving, any open dialog, and a summary of the current data."
+    )]
     async fn status(&self) -> CallToolResult {
-        self.call("capture_status", json!({}), DEFAULT_TIMEOUT).await
+        self.call("capture_status", json!({}), DEFAULT_TIMEOUT)
+            .await
     }
 
-    #[tool(description = "Summary of the captured data: sample count, sample rate, duration, trigger position, channels.")]
+    #[tool(
+        description = "Summary of the captured data: sample count, sample rate, duration, trigger position, channels."
+    )]
     async fn capture_info(&self) -> CallToolResult {
         self.call("capture_info", json!({}), DEFAULT_TIMEOUT).await
     }
 
-    #[tool(description = "Edges (rising/falling) of one logic channel with sample index and time, paged.")]
+    #[tool(
+        description = "Edges (rising/falling) of one logic channel with sample index and time, paged."
+    )]
     async fn get_edges(&self, Parameters(p): Parameters<EdgesParams>) -> CallToolResult {
         self.call("get_edges", params(&p), DEFAULT_TIMEOUT).await
     }
 
-    #[tool(description = "Several logic channels as run-length transitions: initial level plus the sample indexes where each channel toggles.")]
+    #[tool(
+        description = "Several logic channels as run-length transitions: initial level plus the sample indexes where each channel toggles."
+    )]
     async fn read_logic(&self, Parameters(p): Parameters<ReadLogicParams>) -> CallToolResult {
         self.call("read_logic", params(&p), DEFAULT_TIMEOUT).await
     }
 
-    #[tool(description = "Oscilloscope waveform of one channel in millivolts, decimated to max_points (min/max per point).")]
+    #[tool(
+        description = "Oscilloscope waveform of one channel in millivolts, decimated to max_points (min/max per point)."
+    )]
     async fn read_waveform(&self, Parameters(p): Parameters<WaveformParams>) -> CallToolResult {
-        self.call("read_waveform", params(&p), DEFAULT_TIMEOUT).await
+        self.call("read_waveform", params(&p), DEFAULT_TIMEOUT)
+            .await
     }
 
-    #[tool(description = "Available protocol decoders (I2C, SPI, UART, CAN, ...), optionally filtered.")]
+    #[tool(
+        description = "Available protocol decoders (I2C, SPI, UART, CAN, ...), optionally filtered."
+    )]
     async fn list_decoders(&self, Parameters(p): Parameters<FilterParams>) -> CallToolResult {
-        self.call("list_decoders", params(&p), DEFAULT_TIMEOUT).await
+        self.call("list_decoders", params(&p), DEFAULT_TIMEOUT)
+            .await
     }
 
-    #[tool(description = "Channels, options (with defaults and allowed values) and annotation rows of a decoder.")]
+    #[tool(
+        description = "Channels, options (with defaults and allowed values) and annotation rows of a decoder."
+    )]
     async fn describe_decoder(&self, Parameters(p): Parameters<DecoderIdParams>) -> CallToolResult {
-        self.call("describe_decoder", params(&p), DEFAULT_TIMEOUT).await
+        self.call("describe_decoder", params(&p), DEFAULT_TIMEOUT)
+            .await
     }
 
-    #[tool(description = "Add a protocol decoder (logic mode) with channel mapping, options and optional stacked decoders; by default decodes the current capture and waits.")]
+    #[tool(
+        description = "Add a protocol decoder (logic mode) with channel mapping, options and optional stacked decoders; by default decodes the current capture and waits."
+    )]
     async fn add_decoder(&self, Parameters(p): Parameters<AddDecoderParams>) -> CallToolResult {
-        self.call("add_decoder", params(&p), wait_timeout(None, 120)).await
+        self.call("add_decoder", params(&p), wait_timeout(None, 120))
+            .await
     }
 
-    #[tool(description = "Decoders currently configured in DSView, with progress, annotation counts and rows.")]
+    #[tool(
+        description = "Decoders currently configured in DSView, with progress, annotation counts and rows."
+    )]
     async fn list_active_decoders(&self) -> CallToolResult {
-        self.call("list_active_decoders", json!({}), DEFAULT_TIMEOUT).await
+        self.call("list_active_decoders", json!({}), DEFAULT_TIMEOUT)
+            .await
     }
 
     #[tool(description = "Remove a configured decoder by index.")]
     async fn remove_decoder(&self, Parameters(p): Parameters<IndexParam>) -> CallToolResult {
-        self.call("remove_decoder", params(&p), DEFAULT_TIMEOUT).await
+        self.call("remove_decoder", params(&p), DEFAULT_TIMEOUT)
+            .await
     }
 
-    #[tool(description = "Decode the current capture again (all decoders or one) and wait for the result.")]
+    #[tool(
+        description = "Decode the current capture again (all decoders or one) and wait for the result."
+    )]
     async fn run_decoders(&self, Parameters(p): Parameters<RunDecodersParams>) -> CallToolResult {
         let timeout = wait_timeout(p.timeout_s, 120);
         self.call("run_decoders", params(&p), timeout).await
     }
 
-    #[tool(description = "Decoded annotations (e.g. I2C addresses and data bytes) of one decoder, sorted by time and paged.")]
-    async fn get_annotations(&self, Parameters(p): Parameters<AnnotationsParams>) -> CallToolResult {
-        self.call("get_annotations", params(&p), DEFAULT_TIMEOUT).await
+    #[tool(
+        description = "Decoded annotations (e.g. I2C addresses and data bytes) of one decoder, sorted by time and paged."
+    )]
+    async fn get_annotations(
+        &self,
+        Parameters(p): Parameters<AnnotationsParams>,
+    ) -> CallToolResult {
+        self.call("get_annotations", params(&p), DEFAULT_TIMEOUT)
+            .await
     }
 
-    #[tool(description = "Open a saved .dsl capture in DSView (from the allowed directories) and wait until it is loaded.")]
+    #[tool(
+        description = "Open a saved .dsl capture in DSView (from the allowed directories) and wait until it is loaded."
+    )]
     async fn open_file(&self, Parameters(p): Parameters<PathParams>) -> CallToolResult {
         let path = match self.paths.check(&p.path, Access::Read, &["dsl"]) {
             Ok(path) => path,
             Err(e) => return fail(e),
         };
-        self.call("open_file", json!({"path": path}), wait_timeout(None, 120)).await
+        self.call("open_file", json!({"path": path}), wait_timeout(None, 120))
+            .await
     }
 
     #[tool(description = "Save the current capture as a .dsl file (in the allowed directories).")]
@@ -462,7 +523,12 @@ impl DsviewServer {
             Ok(path) => path,
             Err(e) => return fail(e),
         };
-        self.call("save_session", json!({"path": path}), wait_timeout(None, 300)).await
+        self.call(
+            "save_session",
+            json!({"path": path}),
+            wait_timeout(None, 300),
+        )
+        .await
     }
 
     #[tool(description = "Export the current capture as CSV or VCD (in the allowed directories).")]
@@ -475,25 +541,35 @@ impl DsviewServer {
         if let Some(format) = p.format {
             args["format"] = json!(format);
         }
-        self.call("export_data", args, wait_timeout(None, 300)).await
+        self.call("export_data", args, wait_timeout(None, 300))
+            .await
     }
 
-    #[tool(description = "Frequency, period, duty cycle, pulse widths and edge counts of a logic channel over a sample range.")]
+    #[tool(
+        description = "Frequency, period, duty cycle, pulse widths and edge counts of a logic channel over a sample range."
+    )]
     async fn measure_logic(&self, Parameters(p): Parameters<MeasureLogicParams>) -> CallToolResult {
-        self.call("measure_logic", params(&p), DEFAULT_TIMEOUT).await
+        self.call("measure_logic", params(&p), DEFAULT_TIMEOUT)
+            .await
     }
 
-    #[tool(description = "DSView's oscilloscope measurements for a channel (frequency, Vpp, RMS, rise time, ...).")]
+    #[tool(
+        description = "DSView's oscilloscope measurements for a channel (frequency, Vpp, RMS, rise time, ...)."
+    )]
     async fn measure_dso(&self, Parameters(p): Parameters<ChannelParam>) -> CallToolResult {
         self.call("measure_dso", params(&p), DEFAULT_TIMEOUT).await
     }
 
-    #[tool(description = "Zoom the DSView window to a sample range, e.g. to show the user a finding.")]
+    #[tool(
+        description = "Zoom the DSView window to a sample range, e.g. to show the user a finding."
+    )]
     async fn show_region(&self, Parameters(p): Parameters<RegionParams>) -> CallToolResult {
         self.call("show_region", params(&p), DEFAULT_TIMEOUT).await
     }
 
-    #[tool(description = "Place cursors in the DSView window at sample indexes (empty list clears them).")]
+    #[tool(
+        description = "Place cursors in the DSView window at sample indexes (empty list clears them)."
+    )]
     async fn set_cursors(&self, Parameters(p): Parameters<CursorsParams>) -> CallToolResult {
         self.call("set_cursors", params(&p), DEFAULT_TIMEOUT).await
     }

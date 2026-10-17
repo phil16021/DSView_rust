@@ -33,6 +33,9 @@
 #include "pv/mainframe.h"
 #include "pv/mainwindow.h"
 #include "pv/mcp/controlserver.h"
+#ifdef DSVIEW_RUST_CORE
+#include "dsview_ffi.h"
+#endif
 #include "pv/config/appconfig.h"
 #include "DSView/config.h"
 #include "pv/appcontrol.h"
@@ -228,6 +231,9 @@ bool bHighScale = true;
 
 	//----------------------run
 	dsv_info("----------------- version: %s-----------------", DS_VERSION_STRING);
+#ifdef DSVIEW_RUST_CORE
+	dsv_info("Rust core: %s", dsv_version());
+#endif
 	dsv_info("Qt:%s", QT_VERSION_STR);
 
 	// The themes draw every checkbox, radio button, combobox arrow and window

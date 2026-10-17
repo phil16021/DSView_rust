@@ -50,7 +50,9 @@ async fn main() -> anyhow::Result<()> {
         paths.roots()
     );
 
-    let server = tools::DsviewServer::new(bridge, paths).serve(rmcp::transport::stdio()).await?;
+    let server = tools::DsviewServer::new(bridge, paths)
+        .serve(rmcp::transport::stdio())
+        .await?;
     server.waiting().await?;
     Ok(())
 }

@@ -1,0 +1,90 @@
+# Rust workspace: lint, tests, supply-chain check and the C-oracle golden check.
+# See docs/migration/PLAN.md. Tools are installed with `cargo install --locked`
+# rather than third-party actions; the toolchain comes from rust-toolchain.toml.
+
+name: Rust
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # The oracle compiles the original C sources against these.
+  ORACLE_DEPS: pkg-config libglib2.0-dev python3-dev libusb-1.0-0-dev zlib1g-dev
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install oracle build dependencies
+        run: sudo apt-get update && sudo apt-get install -y $ORACLE_DEPS
+      - name: Toolchain
+        run: rustup show
+      - name: rustfmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install oracle build dependencies
+        run: sudo apt-get update && sudo apt-get install -y $ORACLE_DEPS
+      - name: Toolchain and nextest
+        run: |
+          rustup show
+          cargo install --locked cargo-nextest
+      - name: Unit tests
+        run: cargo nextest run --workspace --locked --profile ci
+      - name: Corpus hashes
+        run: cargo xtask corpus verify
+      - name: Golden check (C oracle reproduces the stored goldens)
+        run: cargo xtask golden check
+
+  supply-chain:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: cargo-deny (licenses, advisories, sources)
+        run: |
+          rustup show
+          cargo install --locked cargo-deny
+          cargo deny check
+
+  portability:
+    # The core crates must keep building on Windows and macOS (Linux first, portable design).
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: cargo check
+        run: |
+          rustup show
+          cargo check --locked -p dsview-ffi
+
+  cpp-with-rust-core:
+    # The Qt application linking the Rust core (DSVIEW_RUST_CORE=ON).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config libglib2.0-dev libusb-1.0-0-dev \
+            libfftw3-dev zlib1g-dev libboost-dev python3-dev qt6-base-dev qt6-svg-dev libqt6core5compat6-dev
+      - name: Build
+        run: |
+          rustup show
+          cmake -S . -B build -DDSVIEW_RUST_CORE=ON
+          cmake --build build -j"$(nproc)"
+      - name: Rust core is linked
+        run: nm build/DSView | grep -q ' T dsv_version'

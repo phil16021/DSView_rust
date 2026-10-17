@@ -65,5 +65,5 @@ win32x
 qrc_*
 install_manifest.txt
 
-# dsview-mcp build output
-dsview-mcp/target/
+# Rust workspace build output
+/target/

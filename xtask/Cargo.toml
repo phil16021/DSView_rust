@@ -1,0 +1,13 @@
+[package]
+name = "xtask"
+version = "0.1.0"
+description = "Developer tasks: goldens, corpus, oracle"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+dsview-testkit = { path = "../dev/dsview-testkit" }
+serde_json.workspace = true

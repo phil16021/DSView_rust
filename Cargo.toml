@@ -1,0 +1,26 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/dsview-ffi",
+    "dev/dsview-oracle",
+    "dev/dsview-testkit",
+    "dsview-mcp",
+    "xtask",
+]
+# The oracle compiles the original C sources; it is a dev tool, never shipped.
+default-members = ["crates/dsview-ffi", "dev/dsview-testkit", "dsview-mcp", "xtask"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.88"
+license = "GPL-3.0-or-later"
+publish = false
+
+[workspace.dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+[profile.release]
+strip = true
