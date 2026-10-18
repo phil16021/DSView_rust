@@ -274,3 +274,51 @@ mod badge_tests {
         assert_eq!(yscale_badge_text(1.5), "Y-scale 1.50x");
     }
 }
+
+/// `Viewport::gestureEvent`: pinch zoom. Each `ZoomNativeGesture` adds twice
+/// its value (the scale change, factor − 1) to a total that is tried as zoom
+/// steps; the total restarts once a zoom took effect or the gesture ends.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Pinch {
+    total: f64,
+}
+
+impl Pinch {
+    /// One frame's zoom factors: the steps to try, if there were any.
+    pub fn feed(&mut self, factors: &[f32]) -> Option<f64> {
+        if factors.is_empty() {
+            // no gesture this frame: it ended
+            self.total = 0.0;
+            return None;
+        }
+        for &f in factors {
+            self.total += (f as f64 - 1.0) * 2.0;
+        }
+        Some(self.total)
+    }
+
+    /// The zoom took effect.
+    pub fn applied(&mut self) {
+        self.total = 0.0;
+    }
+}
+
+#[cfg(test)]
+mod pinch_tests {
+    use super::*;
+
+    #[test]
+    fn pinch_accumulates() {
+        let mut p = Pinch::default();
+        assert_eq!(p.feed(&[]), None);
+        let a = p.feed(&[1.05]).unwrap();
+        assert!((a - 0.1).abs() < 1e-6);
+        let b = p.feed(&[1.05]).unwrap();
+        assert!((b - 0.2).abs() < 1e-6);
+        p.applied();
+        let c = p.feed(&[0.9]).unwrap();
+        assert!((c + 0.2).abs() < 1e-6);
+        assert_eq!(p.feed(&[]), None);
+        assert!((p.feed(&[1.1]).unwrap() - 0.2).abs() < 1e-6);
+    }
+}

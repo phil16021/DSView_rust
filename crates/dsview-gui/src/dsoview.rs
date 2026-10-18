@@ -457,6 +457,13 @@ impl TimeView {
         });
         let hover = resp.hover_pos();
         self.dso_mouse = hover;
+        if let Some(steps) = self.pinch.feed(&ui.input(crate::timeview::zoom_factors))
+            && let Some(p) = hover
+            && self.dso_zoom(s, steps, (p.x - area.left()) as i32, now)
+        {
+            self.pinch.applied();
+            changed = true;
+        }
         let local = |p: Pos2| (p.x - area.left(), p.y - area.top());
 
         if let Some(p) = hover

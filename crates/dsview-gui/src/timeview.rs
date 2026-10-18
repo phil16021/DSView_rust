@@ -120,6 +120,7 @@ pub struct TimeView {
     selected: Vec<TraceRef>,
     /// The logic view's traces and their centres on screen, as last drawn.
     shown_rows: Vec<(TraceRef, f32)>,
+    pub(crate) pinch: input::Pinch,
     /// The capture the view was fitted to.
     fitted_capture: u64,
     pub vertical_scroll_is_zoom: bool,
@@ -198,6 +199,7 @@ impl Default for TimeView {
             header_drag: None,
             selected: Vec::new(),
             shown_rows: Vec::new(),
+            pinch: input::Pinch::default(),
             fitted_capture: u64::MAX,
             vertical_scroll_is_zoom: true,
             quick_scroll: true,
@@ -217,6 +219,18 @@ impl Default for TimeView {
 /// This frame's wheel events in Qt's `angleDelta` units (120 per notch):
 /// a line is a notch, 50 points (a trackpad's pixels) are one too. Read from
 /// the events, as egui's smoothed delta spreads a notch over frames.
+/// The pinch gestures' zoom factors of this frame (`Event::Zoom`, from a
+/// touchpad; Ctrl+wheel arrives as wheel events).
+pub(crate) fn zoom_factors(i: &egui::InputState) -> Vec<f32> {
+    i.events
+        .iter()
+        .filter_map(|e| match e {
+            egui::Event::Zoom(f) => Some(*f),
+            _ => None,
+        })
+        .collect()
+}
+
 pub(crate) fn wheel_angle(i: &egui::InputState) -> (i32, i32) {
     let (mut x, mut y) = (0.0f32, 0.0f32);
     for e in &i.events {
@@ -895,6 +909,14 @@ impl TimeView {
         let spp = self.vp.samples_per_pixel(tb);
         let rate = tb.snap_samplerate as u64;
         let hover = resp.hover_pos();
+        // pinch zoom around the pointer
+        if let Some(steps) = self.pinch.feed(&ui.input(zoom_factors))
+            && let Some(p) = hover
+            && self.vp.zoom(steps, (p.x - area.left()) as i32, tb)
+        {
+            self.pinch.applied();
+            changed = true;
+        }
 
         // the wheel (egui gives points; Qt's notch is 120 eighths of a degree)
         if let Some(p) = hover

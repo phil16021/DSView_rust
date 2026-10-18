@@ -189,6 +189,13 @@ impl TimeView {
                 wheel_angle(i),
             )
         });
+        if let Some(steps) = self.pinch.feed(&ui.input(crate::timeview::zoom_factors))
+            && let Some(p) = resp.hover_pos()
+            && self.vp.zoom(steps, (p.x - area.left()) as i32, tb)
+        {
+            self.pinch.applied();
+            changed = true;
+        }
         if let Some(p) = resp.hover_pos()
             && (angle.0 != 0 || angle.1 != 0)
         {

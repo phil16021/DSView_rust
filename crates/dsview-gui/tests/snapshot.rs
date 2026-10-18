@@ -987,3 +987,31 @@ fn header_drag_and_multi_select() {
     assert_eq!(&third[n - 2..], &[second[0], second[1]], "{third:?}");
     s.exit();
 }
+
+/// A touchpad pinch zooms the logic view around the pointer.
+#[test]
+fn pinch_zoom() {
+    let s = demo_session();
+    let view = Arc::new(std::sync::Mutex::new(TimeView::default()));
+    let (s2, v2) = (s.clone(), view.clone());
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1100.0, 640.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            v2.lock().unwrap().show(ui, &s2);
+        });
+    harness.run();
+    let before = view.lock().unwrap().vp.scale;
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::PointerMoved(egui::pos2(600.0, 300.0)));
+    harness.run();
+    for _ in 0..3 {
+        harness.input_mut().events.push(egui::Event::Zoom(1.3));
+        harness.run();
+    }
+    let after = view.lock().unwrap().vp.scale;
+    assert!(after < before, "zoomed in: {after} < {before}");
+    s.exit();
+}
