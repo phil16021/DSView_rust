@@ -6,8 +6,8 @@
 | 1 Formats + store | **done**: 1a formats behind `DSVIEW_IMPL_FORMATS`, 1b sample stores behind `DSVIEW_IMPL_STORE`; Rust becomes the default after one release of A/B | See "Phase 1a" and "Phase 1b" below |
 | 2 Decoder engine | **done**: Rust/PyO3 engine behind `DSVIEW_IMPL_DECODE`; Rust becomes the default after one release of A/B | See "Phase 2" below |
 | 3 Drivers | **done except hardware steps**: 3a demo, 3b file, 3c USB layer, 3d DSLogic (replug tests passed 2026-10-18), 3e DSCope/MSO-E8 (`DSVIEW_IMPL_DRV_DEMO` / `_FILE` / `_DSLOGIC` / `_DSCOPE`). Open: a firmware upload from the host, the nightly runs, one DSCope/E8 hardware confirmation | See "Phase 3" below |
-| 4 Session + control API | **in progress**: 4a acquisition library (lib_main.c, session.c) in Rust behind `DSVIEW_IMPL_ACQ`; next 4b capture session, control server, `dsview-cli serve` | See "Phase 4" below |
-| 5 Rust GUI | not started | Parity checklist: PARITY.md |
+| 4 Session + control API | **done**: 4a acquisition library in Rust behind `DSVIEW_IMPL_ACQ`; 4b capture session, control server, `dsview-cli serve --mcp` (transcript identical to the Qt GUI, 1 h soaks passed) | See "Phase 4" below |
+| 5 Rust GUI | **in progress**: M6.0 prerequisites | Plan revised 2026-10-18 (PLAN.md §5) |
 | 6 Removal + packaging | not started | |
 
 ## Phase 0 deliverables
@@ -657,6 +657,13 @@ It uses the Rust drivers for every kind of device.
 - **DSO by hand:** a continuous capture until `stop_capture`, V/div stepping, coupling, saving as
   `.dsl`, CSV export, and reopening the saved file.
 - **Analog by hand:** a capture stopped after 3 s, then its CSV export (1,000,448 rows).
-- **Soak:**
-  - SOAK_LOOP
-  - SOAK_REPEAT
+- **Soak** (`dsview-cli soak`; RSS sampled every 5 s after a 5-minute warm-up; the gate is the
+  least-squares trend over the run):
+  - **1 h loop mode** on the demo's random pattern: one capture into the ring for the whole hour.
+    - RSS mean 78 MB, trend **−3.1 %** over 55 minutes (661 samples).
+    - The RSS alternates between two levels 32 MiB apart, one row of 2 MiB leaves for 16
+      channels, depending on where the ring stands.
+  - **1 h repeat mode** with the four protocol.demo decoders: 36,832 captures, each decoded.
+    - RSS mean 101 MB, single samples 66-195 MB, trend **−6.4 %**.
+  - **15 min loop mode on the DSLogic Plus** (stream mode, 1 MHz, 16 channels): RSS 61.5 MB at
+    the start, +0.12 % at the end.
