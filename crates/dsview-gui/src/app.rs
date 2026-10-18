@@ -64,14 +64,50 @@ pub struct App {
     after_save: Option<AfterSave>,
     /// The window title set last (`update_title_bar_text`).
     title: String,
+    /// Close the window this frame.
+    close_now: bool,
+    /// The restored window was checked against the screen.
+    window_checked: bool,
     pub bench: Option<Bench>,
     pub soak: Option<crate::soak::Soak>,
+}
+
+/// The directory a file dialog for `job` starts in: the one used last
+/// for that kind of file (`UserHistory`), if it still exists.
+fn history_dir(h: &crate::options::UserHistory, job: &FileJob) -> Option<PathBuf> {
+    let dir = match job {
+        FileJob::Open(_) => PathBuf::from(&h.open_dir),
+        FileJob::Save(_) => PathBuf::from(&h.save_dir),
+        FileJob::Export(_) => PathBuf::from(&h.export_dir),
+        FileJob::LoadProfile(_) | FileJob::StoreProfile(_) => PathBuf::from(&h.session_dir),
+        FileJob::Screenshot(_) => PathBuf::from(&h.screenshot_path).parent()?.to_owned(),
+    };
+    dir.is_dir().then_some(dir)
+}
+
+/// Remembers where the chosen file is (`userHistory.* = ...`); for
+/// screenshots the file itself, as Qt.
+fn remember_dir(h: &mut crate::options::UserHistory, job: &FileJob) {
+    let dir = |p: &PathBuf| {
+        p.parent()
+            .map(|d| d.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    };
+    match job {
+        FileJob::Open(p) => h.open_dir = dir(p),
+        FileJob::Save(p) => h.save_dir = dir(p),
+        FileJob::Export(p) => h.export_dir = dir(p),
+        FileJob::LoadProfile(p) | FileJob::StoreProfile(p) => h.session_dir = dir(p),
+        FileJob::Screenshot(p) => h.screenshot_path = p.to_string_lossy().into_owned(),
+    }
 }
 
 /// What happens once the captured data was saved or not.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum AfterSave {
-    Nothing,
+    /// The window was being closed: "No" closes it (`able_to_close`); after
+    /// a save it stays open, as in Qt.
+    Close,
     /// `set_default_device`
     DefaultDevice,
     Device(u64),
@@ -92,9 +128,55 @@ impl App {
         false
     }
 
+    /// Records the window state while it is normal (Qt keeps the normal
+    /// rectangle while maximised).
+    fn track_window(&mut self, ctx: &egui::Context) {
+        let (max, outer, inner, monitor) = ctx.input(|i| {
+            let v = i.viewport();
+            (v.maximized, v.outer_rect, v.inner_rect, v.monitor_size)
+        });
+        // once, at start: a window left on a screen that is gone comes back
+        if !self.window_checked
+            && let (Some(o), Some(m)) = (outer, monitor)
+        {
+            self.window_checked = true;
+            if max == Some(false)
+                && let Some((x, y)) = dsview_viewmodel::qsettings::onto_screen(
+                    (o.left(), o.top(), o.width(), o.height()),
+                    m.x,
+                    m.y,
+                )
+            {
+                ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(x, y)));
+                return;
+            }
+        }
+        if let Some(m) = max {
+            self.options.frame.is_max = m;
+        }
+        if max == Some(false)
+            && let (Some(o), Some(r)) = (outer, inner)
+        {
+            self.options.frame.window = Some([
+                o.left() as i64,
+                o.top() as i64,
+                r.width() as i64,
+                r.height() as i64,
+            ]);
+        }
+    }
+
+    /// `MainFrame::writeSettings` and the view state Qt keeps in
+    /// `appOptions` (trace heights, DSO split).
+    pub fn save_settings(&mut self) {
+        self.options.trace_height_factor = self.view.height_factor;
+        self.options.dso_split_channels = self.view.dso.split;
+        self.options.save();
+    }
+
     fn after_save_action(&mut self, a: AfterSave) {
         match a {
-            AfterSave::Nothing => {}
+            AfterSave::Close => self.close_now = true,
             AfterSave::DefaultDevice => {
                 if self.session.is_working() {
                     self.session.stop_capture();
@@ -142,7 +224,8 @@ impl App {
                 if self.session.is_working() {
                     self.session.stop_capture();
                 }
-                self.after_save = Some(then);
+                // Qt saves and keeps the window open
+                self.after_save = (then != AfterSave::Close).then_some(then);
                 self.pick(
                     ctx,
                     "Save File",
@@ -203,6 +286,8 @@ impl App {
             store_confirm: None,
             after_save: None,
             title: String::new(),
+            close_now: false,
+            window_checked: false,
             bench: None,
             soak: None,
         }
@@ -222,8 +307,13 @@ impl App {
         let (tx, rx) = channel();
         self.shared.lock().dialog = Some(title.into());
         let c = ctx.clone();
+        // the directory this kind of dialog used last (`UserHistory`)
+        let start = history_dir(&self.options.history, &make(PathBuf::new()));
         std::thread::spawn(move || {
-            let d = rfd::FileDialog::new().set_title(title);
+            let mut d = rfd::FileDialog::new().set_title(title);
+            if let Some(dir) = start {
+                d = d.set_directory(dir);
+            }
             let d = d.add_filter(filter.0, filter.1);
             let path = match save {
                 true => d.save_file(),
@@ -240,6 +330,10 @@ impl App {
         let Ok(job) = rx.try_recv() else { return };
         self.files = None;
         self.shared.lock().dialog = None;
+        if let Some(j) = &job {
+            remember_dir(&mut self.options.history, j);
+            self.options.save();
+        }
         let result = match job {
             None => {
                 if self.after_save.is_some() {
@@ -633,13 +727,24 @@ impl App {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.title = title;
         }
-        // `MainFrame::closeEvent` / `able_to_close`
-        if ctx.input(|i| i.viewport().close_requested())
-            && self.confirm_store(AfterSave::Nothing, true)
-        {
-            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+        // the normal window's place and size (`saveNormalRegion`)
+        self.track_window(&ctx);
+        // `MainFrame::closeEvent` / `able_to_close`; `writeSettings`
+        if ctx.input(|i| i.viewport().close_requested()) {
+            if self.confirm_store(AfterSave::Close, true) {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            } else if self.bench.is_none() && self.soak.is_none() {
+                self.save_settings();
+            }
         }
         self.store_confirm_window(&ctx);
+        // "No" to the store question while closing
+        if std::mem::take(&mut self.close_now) {
+            if self.bench.is_none() && self.soak.is_none() {
+                self.save_settings();
+            }
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
         let dso_mode = self.session.mode() == dsview_core::Mode::Dso as i32;
         let logic_mode = self.session.mode() == dsview_core::Mode::Logic as i32;
         if logic_mode && self.search.open {
@@ -730,6 +835,14 @@ impl App {
             self.message = Some(m);
         }
         self.view.map_zoom_fixed = self.protocol.map_zoom_fixed;
+        // the protocol export's directory (`protocolExportPath`)
+        self.protocol.export_dir = Some(self.options.history.protocol_export_path.clone());
+        if let Some(p) = self.protocol.exported_to.take()
+            && let Some(d) = p.parent()
+        {
+            self.options.history.protocol_export_path = d.to_string_lossy().into_owned();
+            self.options.save();
+        }
         if let Some((a, b)) = self.protocol.jump.take() {
             self.view.show_region(&self.session, a, b.max(a + 1));
         }

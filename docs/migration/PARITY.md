@@ -48,7 +48,7 @@ Milestones: **a** viewer, **b** logic capture, **c** decoders, **d** DSO/analog,
 
 ## Cross-cutting
 - [ ] (f) Shortcuts: S, I, T, D, M, R, O, PgUp/PgDn, ←/→ zoom, 0/1 select DSO channel, ↑/↓ V/div, Esc; 200 ms debounce
-- [ ] (f) Settings (app options, window state, user history, fonts, per-decoder format); first-run import of the Qt `DSView.conf`
+- [x] (f) Settings (app options, window state, user history, fonts, per-decoder format); first-run import of the Qt `DSView.conf`
 - [x] (a/f) `.dsl` open/save; `.dsc` profiles, including automatic `<driver><mode>.ses.dsc` and the shipped defaults
 - [ ] (f) i18n: cn/en/de from `lang/*.json`, runtime switching, CJK font
 - [ ] (f) Themes: dark, light, frappé, latte; about 250 SVG icons

@@ -150,20 +150,32 @@ fn main() -> eframe::Result {
         Ok("wgpu") => eframe::Renderer::Wgpu,
         _ => eframe::Renderer::Glow,
     };
-    let size = std::env::var("DSVIEW_BENCH_SIZE")
-        .ok()
-        .and_then(|v| {
-            let (w, h) = v.split_once('x')?;
-            Some([w.parse().ok()?, h.parse().ok()?])
-        })
-        .unwrap_or([1280.0, 800.0]);
+    // the saved settings; benchmarks and soaks run on the defaults
+    let saved = (bench.is_none() && soak.is_none()).then(dsview_gui::options::AppOptions::load);
+    let bench_size = std::env::var("DSVIEW_BENCH_SIZE").ok().and_then(|v| {
+        let (w, h) = v.split_once('x')?;
+        Some([w.parse().ok()?, h.parse().ok()?])
+    });
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title(format!("DSView v{DSVIEW_VERSION}"))
+        // the desktop entry's StartupWMClass
+        .with_app_id("DSView")
+        .with_inner_size(bench_size.unwrap_or([1280.0, 800.0]));
+    // `MainFrame::ReadSettings`: the last normal window, maximised again if
+    // it was
+    if bench_size.is_none()
+        && let Some(o) = &saved
+    {
+        if let Some([x, y, w, h]) = o.frame.window {
+            viewport = viewport
+                .with_position([x as f32, y as f32])
+                .with_inner_size([w as f32, h as f32]);
+        }
+        viewport = viewport.with_maximized(o.frame.is_max);
+    }
     let options = eframe::NativeOptions {
         renderer,
-        viewport: egui::ViewportBuilder::default()
-            .with_title(format!("DSView v{DSVIEW_VERSION}"))
-            // the desktop entry's StartupWMClass
-            .with_app_id("DSView")
-            .with_inner_size(size),
+        viewport,
         ..Default::default()
     };
     let s2 = session.clone();
@@ -176,14 +188,12 @@ fn main() -> eframe::Result {
             cc.egui_ctx
                 .tessellation_options_mut(|o| o.feathering = false);
             let mut app = app::App::new(s2, shared, DSVIEW_VERSION, &cc.egui_ctx);
-            // the saved options; benchmarks and soaks run on the defaults,
-            // without anti-aliasing as measured in PLAN.md §5.1 (trace
-            // meshes are never feathered, so the option touches lines and
-            // text only)
-            if bench.is_none() && soak.is_none() {
-                app.options = dsview_gui::options::AppOptions::load();
-            } else {
-                app.options.antialias = false;
+            // benchmarks and soaks run without anti-aliasing as measured in
+            // PLAN.md §5.1 (trace meshes are never feathered, so the option
+            // touches lines and text only)
+            match saved {
+                Some(o) => app.options = o,
+                None => app.options.antialias = false,
             }
             app.options.apply(&mut app.view, &cc.egui_ctx);
             app.session.state().swap_back_buffer_always = app.options.swap_back_buffer_always;

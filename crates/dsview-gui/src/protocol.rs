@@ -280,6 +280,10 @@ pub struct ProtocolDock {
     list_opts: bool,
     /// Map Zoom "Fixed": a jump keeps the scale (`get_map_zoom() == 1`).
     pub map_zoom_fixed: bool,
+    /// Where the export dialog starts (`protocolExportPath`), and the file
+    /// an export went to, for the app to remember.
+    pub export_dir: Option<String>,
+    pub exported_to: Option<PathBuf>,
 }
 
 const EXPORT_FORMATS: [&str; 2] = ["Comma-Separated Values (*.csv)", "Text files (*.txt)"];
@@ -348,6 +352,8 @@ impl Default for ProtocolDock {
             formats_changed: false,
             list_opts: false,
             map_zoom_fixed: false,
+            export_dir: None,
+            exported_to: None,
             filter: String::new(),
             matches: Vec::new(),
             cur_match: 0,
@@ -967,10 +973,19 @@ impl ProtocolDock {
                             .take(20) // EXPORT_DEC_ROW_COUNT_MAX
                             .collect();
                         let (tx, rx) = channel();
+                        let start = self
+                            .export_dir
+                            .as_ref()
+                            .map(PathBuf::from)
+                            .filter(|d| d.is_dir());
                         std::thread::spawn(move || {
                             // the chosen format first
                             let (a, b) = if txt { ("txt", "csv") } else { ("csv", "txt") };
-                            let p = rfd::FileDialog::new()
+                            let mut d = rfd::FileDialog::new();
+                            if let Some(dir) = start {
+                                d = d.set_directory(dir);
+                            }
+                            let p = d
                                 .set_title("Export Data")
                                 .add_filter(a.to_uppercase(), &[a])
                                 .add_filter(b.to_uppercase(), &[b])
@@ -1002,6 +1017,7 @@ impl ProtocolDock {
                         );
                         None
                     } else {
+                        self.exported_to = Some(path.clone());
                         Some(start_export(s, t, rows, path))
                     }
                 }

@@ -114,7 +114,18 @@ fn close_offers_to_save_once() {
     };
     close(&mut h);
     h.get_by_label("Save captured data?");
+    // "No" closes the window (`able_to_close` returns true)
     h.get_by_label("No").click();
+    let mut closed = false;
+    for _ in 0..4 {
+        h.step();
+        closed |= h
+            .output()
+            .viewport_output
+            .values()
+            .any(|v| v.commands.contains(&egui::ViewportCommand::Close));
+    }
+    assert!(closed, "no Close command after No");
     h.run();
     close(&mut h);
     assert!(h.query_by_label("Save captured data?").is_none());

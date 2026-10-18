@@ -920,3 +920,42 @@ the demo transcript is unchanged.
   theme choice), shortcuts O, 0/1, ↑/↓, Esc and the debounce, settings import and window state,
   `-s`, AccessKit in the binary (needs `accesskit_winit`, not in the offline registry), dock
   layout per mode, log options.
+
+### M6f polish: in progress
+**Step 1, settings and the `DSView.conf` import (done 2026-10-18):**
+- **Model:** `AppOptions` (in `crates/dsview-gui/src/options.rs`) now holds all of Qt's `AppConfig`:
+  - every `[Application]` key;
+  - `frame`: style, language, maximised, the normal window rectangle, docks per work mode;
+  - `history`: the directories per file dialog, `showDocuments`, `showDriverHint`.
+  - It is stored as JSON in `dsview-rs.json`.
+- **First-run import:**
+  - Without `dsview-rs.json`, the Qt `DSView.conf` next to it is read once and saved as JSON.
+  - The reader is `dsview_viewmodel::qsettings`, a QSettings-INI reader: groups, `a\b` keys,
+    `%XX`, quoted values with escapes.
+  - `_loadApp`'s clamping is applied: font size 8-16 (and the middle for version-1 files), trace
+    height 0.1-20, line widths 1-4, persistence 0-10000.
+  - The language comes from the locale when none is stored.
+  - Checked on the real `DSView.conf` of this machine, in a copy.
+- **Window:** the last normal rectangle and the maximised state are restored. A window that shows
+  less than 70 × 70 px of the screen moves to its middle (Qt's check). The rectangle is saved when
+  the window closes.
+- **Persisted view state:** trace height factor and DSO split.
+- **File dialogs:** each starts in the directory its kind used last: open, save, export, sessions,
+  screenshot and protocol export, as Qt's `UserHistory`.
+- **Saving is opt-in.** Only settings that were loaded are written, so tests and benchmarks never
+  touch the user's files.
+- **Bug fixed from M6e:** "No" to "Save captured data?" while closing now closes the window, as Qt's
+  `able_to_close` does.
+- **Found while testing:**
+  - `XDG_CONFIG_HOME` is set in this environment, so a HOME override does not isolate a DSView
+    instance.
+  - This session's MCP suite runs had written the real `DSView.conf` (Qt) and the DSLogic profile
+    (on a device switch).
+  - `cargo xtask mcp suite` now gives the instance its own `XDG_CONFIG_HOME`/`XDG_DATA_HOME` with a
+    seeded `DSView.conf`. A suite run leaves the real directories unchanged (checked).
+- **Tests:**
+  - the QSettings reader (4 tests);
+  - the import with clamping, the locale language and the JSON round trip;
+  - option application;
+  - `app_flow`: "No" sends the window's Close.
+

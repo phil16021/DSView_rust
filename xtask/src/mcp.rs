@@ -13,10 +13,22 @@ use serde_json::{Value, json};
 
 /// DSView itself, started by the suite (so it can be stopped after it):
 /// `dsview-cli serve --mcp`, else `BIN --mcp`, plus `DSVIEW_ARGS`.
+///
+/// It runs with its own config and data directories under `dir`, so the
+/// user's settings and device profiles stay untouched (a device switch
+/// saves the previous device's profile); Qt finds a `DSView.conf` there
+/// without its start-up dialogs.
 struct DsView(Child);
 
 impl DsView {
-    fn start(bin: &str, socket: &Path) -> Result<DsView> {
+    fn start(bin: &str, socket: &Path, dir: &Path) -> Result<DsView> {
+        let (config, data) = (dir.join("config"), dir.join("data"));
+        std::fs::create_dir_all(config.join("DreamSourceLab"))?;
+        std::fs::create_dir_all(&data)?;
+        std::fs::write(
+            config.join("DreamSourceLab/DSView.conf"),
+            "[Application]\nversion=3\n[UserHistory]\nshowDocuments=false\nshowDriverHint=false\n",
+        )?;
         let headless = Path::new(bin)
             .file_name()
             .is_some_and(|n| n == "dsview-cli");
@@ -31,6 +43,8 @@ impl DsView {
         let child = Command::new(bin)
             .args(&args)
             .env("DSVIEW_MCP_SOCKET", socket)
+            .env("XDG_CONFIG_HOME", &config)
+            .env("XDG_DATA_HOME", &data)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -222,7 +236,7 @@ pub fn suite(root: &Path, bin: &str, out: Option<&Path>) -> Result<()> {
     let dir = std::env::temp_dir().join(format!("dsview-mcp-suite-{}", std::process::id()));
     std::fs::create_dir_all(&dir)?;
     let socket = dir.join("mcp.sock");
-    let dsview = DsView::start(bin, &socket)?;
+    let dsview = DsView::start(bin, &socket, &dir)?;
     let mut m = Mcp::start(root, &dir, &socket)?;
     let tools = m.request("tools/list", json!({}))?;
     let names: Vec<String> = tools["tools"]

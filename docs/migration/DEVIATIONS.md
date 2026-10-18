@@ -455,6 +455,14 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
   first limit update clamps to the whole capture. The Rust view started at 10 ns per pixel, so
   a first DSLogic capture opened zoomed far in (found on the DSLogic Plus); fixed.
 
+### F30. Settings findings (M6f)
+- **The protocol-format cap never applies.** `AppConfig::SetProtocolFormat` trims the list only
+  `while (size < 15)` inside `if (size > 15)`, which never runs. The list grows without limit.
+  Rust keeps a map without a cap, which is the same in effect.
+- **The window position can be off every screen.** The saved `x`/`left` comes from whichever
+  monitor the window was last on; `ReadSettings` moves it back when it shows less than 70 × 70 px
+  of the screen. Ported.
+
 ## Planned behaviour deviations (Rust intentionally differs)
 
 | Area | C behaviour | Rust behaviour | Phase |
@@ -527,6 +535,8 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
 | Analog data/DSO frames/envelopes before they are written | `malloc`: uninitialised | Zeroed | 1b ✔ |
 | Ranged `.dsl` save (F29) | Full capture length; first block starts mid-block | Whole blocks of the range, its length, trigger position moved by the start | M6e ✔ |
 | Region dialog (F29) | Built, never opened | Not ported | M6e ✔ |
+| Settings storage | `QSettings` INI (`DSView.conf`); `windowState` as Qt's dock blob | JSON (`dsview-rs.json`), the Qt file imported once on the first start; `windowState` is not imported (egui has no equivalent) | M6f ✔ |
+| Screen check of the restored window | All screens' geometry | The current monitor's size (egui knows no others before the window exists) | M6f ✔ |
 | Decoder dynamic font width | `QFont::setStretch` between the minimum and maximum percent | A smaller font down to the minimum percent; never wider than the font (egui has no stretch, and a larger font would not fit the row) | M6e ✔ |
 | Y-scale badge | Reset glyph U+27F2 | A painted arrow (no egui font has the glyph) | M6e ✔ |
 | Older per-language profile `<driver><mode>.ses<N>.dsc` | The file of the configured language | The first such file by name (the Rust GUI has no language setting before M6f) | M6e |
