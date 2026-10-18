@@ -156,6 +156,29 @@ fn dso_trigger_dock() {
     s.exit();
 }
 
+#[test]
+fn dso_measure_bar() {
+    let s = demo_in_mode(dsview_core::Mode::Dso);
+    let mut view = TimeView::default();
+    // Freq and PK-PK of channel 0, RMS of channel 1
+    view.dso.measures[0] = (0, 1);
+    view.dso.measures[1] = (0, 16);
+    view.dso.measures[2] = (1, 14);
+    let s2 = s.clone();
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1100.0, 60.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            view.dso_measure_bar(ui, &s2);
+        });
+    harness.run();
+    harness.snapshot("dso_measure_bar");
+    // the values the control API reports
+    let m = dsview_control::api::dso_measurements(&s, 0).unwrap();
+    assert_ne!(m["frequency"], "--");
+    s.exit();
+}
+
 fn click(h: &mut Harness<'_>, x: f32, y: f32) {
     let pos = egui::pos2(x, y);
     let ev = &mut h.input_mut().events;

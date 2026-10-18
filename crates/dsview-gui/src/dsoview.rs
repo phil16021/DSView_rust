@@ -62,6 +62,13 @@ pub struct DsoState {
     started_seq: u64,
     /// `get_dso_split_channels()`: one band per channel.
     pub split: bool,
+    /// The measurement bar's ten slots (`ViewStatus::_mrects`): channel
+    /// (-1: none) and `DSO_MEASURE_TYPE` (0: none).
+    pub measures: [(i32, usize); 10],
+    /// Which slot's chooser is open.
+    measure_pick: Option<usize>,
+    /// Measurements per channel, for the data sequence they were made for.
+    measure_cache: Vec<(i32, u64, serde_json::Value)>,
     /// The value under the mouse: channel, sample, code, text.
     pub hover: Option<(u16, u64, u8, String)>,
 }
@@ -71,6 +78,7 @@ impl DsoState {
         DsoState {
             zoom: WheelAccumulator::new(1.0),
             started_seq: u64::MAX,
+            measures: [(-1, 0); 10],
             ..DsoState::default()
         }
     }
@@ -984,5 +992,142 @@ impl ChanView {
     fn dial_pos(&self) -> (usize, usize) {
         let sel = self.vdivs.iter().position(|&v| v == self.vdiv).unwrap_or(0);
         (sel, self.vdivs.len().max(1))
+    }
+}
+
+/// `DsoMeasure::get_ms_text` and the control API's key, by
+/// `DSO_MEASURE_TYPE` (1..=20).
+pub const MEASURES: [(&str, &str); 21] = [
+    ("NULL", ""),
+    ("Freq", "frequency"),
+    ("Period", "period"),
+    ("+Duty", "positive_duty"),
+    ("-Duty", "negative_duty"),
+    ("+Count", "pulse_count"),
+    ("Rise", "rise_time"),
+    ("Fall", "fall_time"),
+    ("+Width", "positive_width"),
+    ("-Width", "negative_width"),
+    ("BrstW", "burst_width"),
+    ("Ampl", "amplitude"),
+    ("High", "high"),
+    ("Low", "low"),
+    ("RMS", "rms"),
+    ("Mean", "mean"),
+    ("PK-PK", "peak_to_peak"),
+    ("Max", "max"),
+    ("Min", "min"),
+    ("+Over", "positive_overshoot"),
+    ("-Over", "negative_overshoot"),
+];
+
+impl TimeView {
+    /// The DSO measurement bar (`ViewStatus` in DSO mode): five columns,
+    /// two rows; a click picks the channel and the measurement.
+    pub fn dso_measure_bar(&mut self, ui: &mut Ui, s: &Session) {
+        let seq = {
+            let st = s.state();
+            st.dso_seq.wrapping_add(st.started_seq << 32)
+        };
+        let signals: Vec<Signal> = s
+            .state()
+            .signals
+            .iter()
+            .filter(|x| x.ty == channel_type::DSO)
+            .cloned()
+            .collect();
+        let enabled = |i: i32| {
+            s.channels()
+                .iter()
+                .any(|c| c.ty == channel_type::DSO && c.index as i32 == i && c.enabled)
+        };
+        let width = ui.available_width() / 5.0 - 3.0;
+        for row in 0..2 {
+            ui.horizontal(|ui| {
+                for col in 0..5 {
+                    let i = row * 5 + col;
+                    let (ch, ty) = self.dso.measures[i];
+                    let sig = signals.iter().find(|x| x.index as i32 == ch);
+                    let active = sig.is_some() && enabled(ch);
+                    let text = if active && ty != 0 {
+                        let v = self.measurement(s, ch, seq, MEASURES[ty].1);
+                        format!("{}:{v}", MEASURES[ty].0)
+                    } else {
+                        format!("Measure{i}")
+                    };
+                    let colour = sig
+                        .filter(|_| active)
+                        .map_or(Color32::from_gray(160), colour);
+                    let b = egui::Button::new(egui::RichText::new(text).color(colour))
+                        .min_size(vec2(width, 18.0))
+                        .stroke(Stroke::new(1.0, colour));
+                    if ui.add(b).clicked() {
+                        self.dso.measure_pick = Some(i);
+                    }
+                }
+            });
+        }
+        // the chooser (`DsoMeasure`): a tab per channel, the twenty types
+        if let Some(i) = self.dso.measure_pick {
+            let mut open = true;
+            let mut done = false;
+            egui::Window::new(format!("Measure{i}"))
+                .collapsible(false)
+                .resizable(false)
+                .open(&mut open)
+                .show(ui.ctx(), |ui| {
+                    let (mut ch, _) = self.dso.measures[i];
+                    if !signals.iter().any(|x| x.index as i32 == ch) {
+                        ch = signals.first().map_or(0, |x| x.index as i32);
+                    }
+                    ui.horizontal(|ui| {
+                        for x in &signals {
+                            if ui.selectable_label(x.index as i32 == ch, &x.name).clicked() {
+                                ch = x.index as i32;
+                            }
+                        }
+                    });
+                    self.dso.measures[i].0 = ch;
+                    egui::Grid::new("measure-types").show(ui, |ui| {
+                        for (k, (name, _)) in MEASURES.iter().enumerate().skip(1) {
+                            if ui.button(*name).clicked() {
+                                self.dso.measures[i] = (ch, k);
+                                done = true;
+                            }
+                            if k % 5 == 0 {
+                                ui.end_row();
+                            }
+                        }
+                    });
+                    if ui.button("Reset").clicked() {
+                        self.dso.measures[i] = (-1, 0);
+                        done = true;
+                    }
+                });
+            if !open || done {
+                self.dso.measure_pick = None;
+            }
+        }
+    }
+
+    /// One measurement of channel `ch`, computed once per capture frame.
+    fn measurement(&mut self, s: &Session, ch: i32, seq: u64, key: &str) -> String {
+        let cache = &mut self.dso.measure_cache;
+        let hit = cache.iter().position(|c| c.0 == ch && c.1 == seq);
+        let i = match hit {
+            Some(i) => i,
+            None => {
+                cache.retain(|c| c.0 != ch);
+                let m = dsview_control::api::dso_measurements(s, ch).unwrap_or_default();
+                cache.push((ch, seq, m));
+                cache.len() - 1
+            }
+        };
+        cache[i]
+            .2
+            .get(key)
+            .and_then(|v| v.as_str())
+            .unwrap_or("--")
+            .to_owned()
     }
 }

@@ -259,7 +259,12 @@ impl eframe::App for App {
         egui::Panel::top("sampling").show(ui, |ui| {
             self.bar.show(ui, &self.session);
         });
+        let dso_mode = self.session.mode() == dsview_core::Mode::Dso as i32;
         egui::Panel::bottom("status").show(ui, |ui| {
+            if dso_mode {
+                self.view.dso_measure_bar(ui, &self.session);
+                return;
+            }
             ui.horizontal(|ui| {
                 if let Some(m) = &self.view.measure {
                     ui.label(format!(

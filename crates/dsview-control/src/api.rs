@@ -971,22 +971,7 @@ impl Api {
 
     /// Millivolts per sample code (the on-screen trace's calibration).
     fn mv_per_code(&self, pos: usize, c: &dsview_core::Channel) -> f64 {
-        let ref_min = self
-            .s
-            .config(key::REF_MIN, None)
-            .map_or(1.0, |v| v.get_u32() as f64);
-        let ref_max = self
-            .s
-            .config(key::REF_MAX, None)
-            .map_or(((1u32 << c.bits.clamp(1, 16)) - 1) as f64, |v| {
-                v.get_u32() as f64
-            });
-        let factor = self
-            .s
-            .config(key::PROBE_FACTOR, Some(pos))
-            .map_or(1, |v| v.get_u64()) as f64;
-        let range = (ref_max - ref_min).max(1.0);
-        c.vdiv as f64 * factor * dsview_session::session::DSO_VDIVS as f64 / range
+        mv_per_code(&self.s, pos, c)
     }
 
     fn read_waveform(&self, p: &Params) -> Reply {
@@ -1527,37 +1512,9 @@ impl Api {
         let Some(channel) = req_int(p, "channel") else {
             return Err("parameter 'channel' is required".into());
         };
-        let Some((pos, c)) = self.dso_channel(channel) else {
+        let Some(m) = dso_measurements(&self.s, channel) else {
             return Err(format!("dso channel {channel} is not enabled"));
         };
-        let mv_per_code = self.mv_per_code(pos, &c);
-        let rate = self.snap_rate();
-        let store = self.s.data().dso.lock().unwrap_or_else(|e| e.into_inner());
-        let data = store
-            .get_samples(0, channel)
-            .map(|d| &d[..(store.sample_count() as usize).min(d.len())]);
-        let chans = self.s.channels();
-        let hw = self
-            .s
-            .state()
-            .dso_status
-            .map(|status| dsview_dsp::measure::HwStatus {
-                status,
-                index: chans
-                    .iter()
-                    .filter(|x| x.ty == channel_type::DSO)
-                    .position(|x| x.index as i32 == channel)
-                    .unwrap_or(0),
-                total_channels: chans.len() as u64,
-                enabled_channels: chans
-                    .iter()
-                    .filter(|x| x.ty == channel_type::DSO && x.enabled)
-                    .count() as u64,
-                is_file: store.is_file(),
-            });
-        let m =
-            dsview_dsp::measure::measure(data, c.hw_offset as f64, mv_per_code, rate, hw.as_ref());
-        drop(store);
         Ok(json!({
             "channel": channel,
             "measurements": m,
@@ -1677,4 +1634,63 @@ impl ControlBackend for Api {
             }
         }
     }
+}
+
+/// Millivolts per sample code of DSO channel `c` at list position `pos`
+/// (the on-screen trace's calibration).
+pub fn mv_per_code(s: &Session, pos: usize, c: &dsview_core::Channel) -> f64 {
+    let ref_min = s
+        .config(key::REF_MIN, None)
+        .map_or(1.0, |v| v.get_u32() as f64);
+    let ref_max = s
+        .config(key::REF_MAX, None)
+        .map_or(((1u32 << c.bits.clamp(1, 16)) - 1) as f64, |v| {
+            v.get_u32() as f64
+        });
+    let factor = s
+        .config(key::PROBE_FACTOR, Some(pos))
+        .map_or(1, |v| v.get_u64()) as f64;
+    let range = (ref_max - ref_min).max(1.0);
+    c.vdiv as f64 * factor * dsview_session::session::DSO_VDIVS as f64 / range
+}
+
+/// The twenty measurements of enabled DSO channel `channel` as DSView
+/// shows them (`DsoSignal::get_measure`), keyed by name; None if the
+/// channel is not an enabled DSO channel.
+pub fn dso_measurements(s: &Session, channel: i32) -> Option<Value> {
+    let chans = s.channels();
+    let pos = chans
+        .iter()
+        .position(|c| c.ty == channel_type::DSO && c.index as i32 == channel && c.enabled)?;
+    let c = &chans[pos];
+    let mv_per_code = mv_per_code(s, pos, c);
+    let rate = s.state().cur_snap_samplerate as f64;
+    let store = s.data().dso.lock().unwrap_or_else(|e| e.into_inner());
+    let data = store
+        .get_samples(0, channel)
+        .map(|d| &d[..(store.sample_count() as usize).min(d.len())]);
+    let hw = s
+        .state()
+        .dso_status
+        .map(|status| dsview_dsp::measure::HwStatus {
+            status,
+            index: chans
+                .iter()
+                .filter(|x| x.ty == channel_type::DSO)
+                .position(|x| x.index as i32 == channel)
+                .unwrap_or(0),
+            total_channels: chans.len() as u64,
+            enabled_channels: chans
+                .iter()
+                .filter(|x| x.ty == channel_type::DSO && x.enabled)
+                .count() as u64,
+            is_file: store.is_file(),
+        });
+    Some(dsview_dsp::measure::measure(
+        data,
+        c.hw_offset as f64,
+        mv_per_code,
+        rate,
+        hw.as_ref(),
+    ))
 }
