@@ -174,6 +174,16 @@ fn main() -> eframe::Result {
             cc.egui_ctx
                 .tessellation_options_mut(|o| o.feathering = false);
             let mut app = app::App::new(s2, shared, DSVIEW_VERSION, &cc.egui_ctx);
+            // the saved options; benchmarks and soaks run on the defaults,
+            // without anti-aliasing as measured in PLAN.md §5.1 (trace
+            // meshes are never feathered, so the option touches lines and
+            // text only)
+            if bench.is_none() && soak.is_none() {
+                app.options = dsview_gui::options::AppOptions::load();
+            } else {
+                app.options.antialias = false;
+            }
+            app.options.apply(&mut app.view, &cc.egui_ctx);
             app.soak = soak.map(dsview_gui::soak::Soak::new);
             app.bench = bench.map(|secs| app::Bench {
                 until: Instant::now() + Duration::from_secs_f64(secs),

@@ -14,6 +14,7 @@ pub mod hooks;
 pub mod lissajousview;
 pub mod mathview;
 pub mod measuredock;
+pub mod options;
 pub mod protocol;
 pub mod refview;
 pub mod searchdock;

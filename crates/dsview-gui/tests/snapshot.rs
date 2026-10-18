@@ -598,6 +598,19 @@ fn store_dialog() {
 }
 
 #[test]
+fn options_dialog() {
+    let mut o = dsview_gui::options::AppOptions::default();
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(480.0, 620.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            o.dialog(ui);
+        });
+    harness.run();
+    harness.snapshot("options_dialog");
+}
+
+#[test]
 fn protocol_dock() {
     let s = demo_session();
     let mut dock = dsview_gui::protocol::ProtocolDock::default();

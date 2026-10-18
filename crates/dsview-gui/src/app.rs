@@ -39,8 +39,9 @@ pub struct App {
     pub search: crate::searchdock::SearchDock,
     pub calibration: Option<crate::calibration::Calibration>,
     pub store: Option<crate::storedlg::StoreDialog>,
-    /// Export: original data (`appOptions.originalData`).
-    pub original_data: bool,
+    /// The application options and their dialog's working copy.
+    pub options: crate::options::AppOptions,
+    options_edit: Option<crate::options::AppOptions>,
     pub fft: crate::fftview::FftState,
     pub shared: Shared,
     pub version: String,
@@ -82,7 +83,8 @@ impl App {
             search: crate::searchdock::SearchDock::default(),
             calibration: None,
             store: None,
-            original_data: false,
+            options: crate::options::AppOptions::default(),
+            options_edit: None,
             fft: crate::fftview::FftState::default(),
             shared,
             version: version.into(),
@@ -140,7 +142,7 @@ impl App {
                     self.store = Some(crate::storedlg::StoreDialog::new(
                         p,
                         false,
-                        self.original_data,
+                        self.options.original_data,
                     ));
                     Ok(())
                 } else {
@@ -152,7 +154,7 @@ impl App {
                     self.store = Some(crate::storedlg::StoreDialog::new(
                         p,
                         true,
-                        self.original_data,
+                        self.options.original_data,
                     ));
                     Ok(())
                 } else {
@@ -211,7 +213,7 @@ impl eframe::App for App {
             }
         }
         // the view follows a stream or loop capture (`set_receive_len`)
-        if data && self.session.is_realtime_refresh() {
+        if data && self.session.is_realtime_refresh() && self.options.auto_scroll_latest_data {
             let tb = crate::timeview::timebase(&self.session);
             let ring = self
                 .session
@@ -284,6 +286,12 @@ impl eframe::App for App {
                             FileJob::Export,
                             Some(("CSV or VCD", &["csv", "vcd"])),
                         );
+                        ui.close();
+                    }
+                });
+                ui.menu_button("Options", |ui| {
+                    if ui.button("Application options…").clicked() {
+                        self.options_edit = Some(self.options.clone());
                         ui.close();
                     }
                 });
@@ -471,8 +479,27 @@ impl eframe::App for App {
             if let Some(m) = d.message.take() {
                 self.message = Some(m);
             }
+            if d.busy() && d.original() != self.options.original_data {
+                self.options.original_data = d.original();
+                self.options.save();
+            }
             if matches!(out, crate::storedlg::Outcome::Done) {
                 self.store = None;
+            }
+        }
+        if let Some(mut o) = self.options_edit.take() {
+            let mut done = None;
+            egui::Window::new("Application Options")
+                .collapsible(false)
+                .show(&ctx, |ui| done = o.dialog(ui));
+            match done {
+                Some(true) => {
+                    o.apply(&mut self.view, &ctx);
+                    o.save();
+                    self.options = o;
+                }
+                Some(false) => {}
+                None => self.options_edit = Some(o),
             }
         }
         self.fft.dialog(&ctx, &self.session);

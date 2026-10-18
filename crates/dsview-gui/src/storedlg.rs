@@ -39,6 +39,11 @@ impl StoreDialog {
         }
     }
 
+    /// "Original data" as chosen (kept in the options on export, as Qt).
+    pub fn original(&self) -> bool {
+        self.original
+    }
+
     /// The work runs: the views wait (it holds the stores).
     pub fn busy(&self) -> bool {
         self.running.is_some()
