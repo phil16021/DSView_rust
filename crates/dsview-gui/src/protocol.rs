@@ -236,6 +236,10 @@ pub struct ProtocolDock {
     /// new stack of that protocol starts in it.
     pub formats: std::collections::BTreeMap<String, String>,
     pub formats_changed: bool,
+    /// The protocol list options window (`ProtocolList`) is open.
+    list_opts: bool,
+    /// Map Zoom "Fixed": a jump keeps the scale (`get_map_zoom() == 1`).
+    pub map_zoom_fixed: bool,
 }
 
 impl Default for ProtocolDock {
@@ -249,6 +253,8 @@ impl Default for ProtocolDock {
             cursors: Vec::new(),
             formats: Default::default(),
             formats_changed: false,
+            list_opts: false,
+            map_zoom_fixed: false,
             filter: String::new(),
             matches: Vec::new(),
             cur_match: 0,
@@ -379,7 +385,66 @@ impl ProtocolDock {
             self.table_ui(ui, s, t);
         }
         self.add_dialog(ui.ctx(), s);
+        self.list_options(ui.ctx(), &traces);
         self.export_job(s, &traces);
+    }
+
+    /// `ProtocolList`: the map zoom, the protocol the table shows and which
+    /// of its rows are listed.
+    fn list_options(&mut self, ctx: &egui::Context, traces: &[Arc<DecodeTrace>]) {
+        if !self.list_opts {
+            return;
+        }
+        let mut open = true;
+        egui::Window::new("Protocol List Viewer")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                egui::Grid::new("list_opts").num_columns(2).show(ui, |ui| {
+                    let l = ui.label("Map Zoom: ");
+                    egui::ComboBox::from_id_salt("map_zoom")
+                        .selected_text(if self.map_zoom_fixed {
+                            "Fixed"
+                        } else {
+                            "Fit to Window"
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.map_zoom_fixed, false, "Fit to Window");
+                            ui.selectable_value(&mut self.map_zoom_fixed, true, "Fixed");
+                        })
+                        .response
+                        .labelled_by(l.id);
+                    ui.end_row();
+                    let l = ui.label("Decoded Protocols: ");
+                    egui::ComboBox::from_id_salt("list_protocol")
+                        .selected_text(traces.get(self.table).map(|t| t.name()).unwrap_or_default())
+                        .show_ui(ui, |ui| {
+                            for (i, t) in traces.iter().enumerate() {
+                                ui.selectable_value(&mut self.table, i, t.name());
+                            }
+                        })
+                        .response
+                        .labelled_by(l.id);
+                    ui.end_row();
+                    if let Some(t) = traces.get(self.table) {
+                        for (i, r) in t.stack.rows().iter().enumerate() {
+                            let l = ui.label(r.title());
+                            let mut on = t.stack.row_list_shown(i);
+                            if ui.checkbox(&mut on, "").labelled_by(l.id).changed() {
+                                t.stack.set_row_list_shown(i, on);
+                            }
+                            ui.end_row();
+                        }
+                    }
+                });
+                if ui.button("OK").clicked() {
+                    self.list_opts = false;
+                }
+            });
+        if !open {
+            self.list_opts = false;
+        }
     }
 
     fn add_dialog(&mut self, ctx: &egui::Context, s: &Session) {
@@ -577,7 +642,7 @@ impl ProtocolDock {
             .rows()
             .iter()
             .enumerate()
-            .filter(|(_, r)| r.list_shown)
+            .filter(|(i, _)| t.stack.row_list_shown(*i))
             .map(|(i, r)| (i, r.title()))
             .collect();
         if rows.is_empty() {
@@ -634,6 +699,13 @@ impl ProtocolDock {
                     self.cur_match = (self.cur_match + 1) % self.matches.len();
                     jump(self, self.cur_match);
                 }
+            }
+            if ui
+                .button("List…")
+                .on_hover_text("Protocol list options")
+                .clicked()
+            {
+                self.list_opts = true;
             }
             if ui.button("Export…").clicked() && self.export.is_none() {
                 let (tx, rx) = channel();
@@ -719,7 +791,7 @@ impl ProtocolDock {
             .rows()
             .iter()
             .enumerate()
-            .filter(|(_, r)| r.list_shown)
+            .filter(|(i, _)| t.stack.row_list_shown(*i))
             .map(|(i, _)| i)
             .take(1)
             .collect();

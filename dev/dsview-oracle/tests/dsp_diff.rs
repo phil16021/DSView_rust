@@ -285,9 +285,16 @@ fn number_formats_match() {
             let c_hex = std::ffi::CString::new(hex.clone()).unwrap();
             let mut out = vec![0 as std::ffi::c_char; 2048];
             unsafe {
-                dsview_oracle::ffi::osann_format_numberic(c_hex.as_ptr(), f as i32, out.as_mut_ptr(), 2048)
+                dsview_oracle::ffi::osann_format_numberic(
+                    c_hex.as_ptr(),
+                    f as i32,
+                    out.as_mut_ptr(),
+                    2048,
+                )
             };
-            let c = unsafe { std::ffi::CStr::from_ptr(out.as_ptr()) }.to_string_lossy().into_owned();
+            let c = unsafe { std::ffi::CStr::from_ptr(out.as_ptr()) }
+                .to_string_lossy()
+                .into_owned();
             assert_eq!(format_numberic(&hex, f), c, "{hex:?} as {f:?}");
             cases += 1;
         }

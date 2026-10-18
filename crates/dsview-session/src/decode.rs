@@ -288,6 +288,9 @@ pub struct DecoderStack {
     region: Mutex<(u64, u64)>,
     /// The protocol list's number format (`DecoderStatus::m_format`).
     format: std::sync::atomic::AtomicU8,
+    /// `set_rows_lshow`: rows the protocol list shows, changed by the user
+    /// (else `Row::list_shown`).
+    list_shown: Mutex<HashMap<usize, bool>>,
 }
 
 fn load_index(info: &DecoderInfo) -> usize {
@@ -352,7 +355,19 @@ impl DecoderStack {
             stop: Arc::new(AtomicBool::new(false)),
             region: Mutex::new((0, u64::MAX)),
             format: std::sync::atomic::AtomicU8::new(0),
+            list_shown: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// `get_rows_lshow()`: whether row `i` is a column of the protocol list.
+    pub fn row_list_shown(&self, i: usize) -> bool {
+        let over = lock(&self.list_shown).get(&i).copied();
+        over.unwrap_or_else(|| self.rows.get(i).is_some_and(|r| r.list_shown))
+    }
+
+    /// `set_rows_lshow` (the protocol list options' row checkboxes).
+    pub fn set_row_list_shown(&self, i: usize, shown: bool) {
+        lock(&self.list_shown).insert(i, shown);
     }
 
     /// The number format annotations show in.

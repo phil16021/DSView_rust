@@ -97,6 +97,8 @@ fn decoder_rows(t: &DecodeTrace) -> Vec<DecRow> {
 
 pub struct TimeView {
     pub vp: Viewport,
+    /// Map Zoom "Fixed": `show_region` keeps the scale.
+    pub map_zoom_fixed: bool,
     pub cursors: Cursors,
     kinetic: Kinetic,
     kinetic_last: Option<Instant>,
@@ -139,6 +141,7 @@ impl Default for TimeView {
     fn default() -> Self {
         TimeView {
             vp: Viewport::default(),
+            map_zoom_fixed: false,
             cursors: Cursors::default(),
             kinetic: Kinetic::default(),
             kinetic_last: None,
@@ -1371,7 +1374,7 @@ impl TimeView {
     /// `show_region` from the control API.
     pub fn show_region(&mut self, s: &Session, start: u64, end: u64) {
         let tb = timebase(s);
-        self.vp.show_region(start, end, false, &tb);
+        self.vp.show_region(start, end, self.map_zoom_fixed, &tb);
     }
 
     /// `set_cursor_middle`: sample `index` in the middle, the scale kept.

@@ -652,3 +652,31 @@ fn protocol_dock() {
     harness.snapshot("protocol_dock");
     s.exit();
 }
+
+#[test]
+fn protocol_list_options() {
+    use egui_kittest::kittest::Queryable;
+    let s = demo_session();
+    let mut dock = dsview_gui::protocol::ProtocolDock::default();
+    let s2 = s.clone();
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(520.0, 640.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            dock.show(ui, &s2);
+        });
+    harness.run();
+    harness.get_by_label("List…").click();
+    harness.run();
+    let t = s.state().decoders[0].clone();
+    // the first row listed by default (bit and warning rows are not)
+    let k = (0..t.stack.rows().len())
+        .find(|&i| t.stack.row_list_shown(i))
+        .unwrap();
+    let title = t.stack.rows()[k].title();
+    harness.get_by_label(&title).click();
+    harness.run();
+    assert!(!t.stack.row_list_shown(k), "{title} still listed");
+    harness.snapshot("protocol_list_options");
+    s.exit();
+}

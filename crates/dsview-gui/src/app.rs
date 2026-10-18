@@ -558,6 +558,7 @@ impl eframe::App for App {
         if let Some(m) = self.dso_trigger.message.take() {
             self.message = Some(m);
         }
+        self.view.map_zoom_fixed = self.protocol.map_zoom_fixed;
         if let Some((a, b)) = self.protocol.jump.take() {
             self.view.show_region(&self.session, a, b.max(a + 1));
         }
