@@ -5,12 +5,14 @@
 //! * [`replay`]: a device that plays back a usbmon capture of the C driver
 //!   and checks every command the driver sends against it.
 //! * [`trace`]: usbmon captures (pcapng) as URB events.
+//! * [`sim`]: a simulated DSL device the C and the Rust drivers can share.
 //!
 //! Every call has a timeout; bulk IN is a queue of submitted transfers that
 //! complete in order, which can be cancelled as a whole.
 
 pub mod nusb_backend;
 pub mod replay;
+pub mod sim;
 pub mod trace;
 
 use std::time::Duration;

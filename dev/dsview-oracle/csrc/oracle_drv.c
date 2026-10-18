@@ -22,6 +22,14 @@ static int g_stop_after;
 static oracle_drv_packet_cb g_pcb;
 static void *g_puser;
 
+static guint enabled_count(GSList *probes)
+{
+    guint n = 0;
+    for (GSList *l = probes; l; l = l->next)
+        n += ((const struct sr_channel *)l->data)->enabled != 0;
+    return n;
+}
+
 static void on_datafeed(const struct sr_dev_inst *sdi, const struct sr_datafeed_packet *packet)
 {
     struct oracle_drv_packet p;
@@ -53,7 +61,8 @@ static void on_datafeed(const struct sr_dev_inst *sdi, const struct sr_datafeed_
         const struct sr_datafeed_dso *d = packet->payload;
         p.data = d->data;
         p.num_samples = d->num_samples;
-        p.len = (uint64_t)d->num_samples * g_slist_length(d->probes);
+        /* DsoSnapshot reads num_samples per enabled channel */
+        p.len = (uint64_t)d->num_samples * enabled_count(d->probes);
         p.mq = d->mq;
         p.unit = d->unit;
         p.mqflags = d->mqflags;
@@ -103,6 +112,12 @@ int oracle_drv_init(const char *user_dir, int log_level)
 {
     ds_log_level(log_level);
     ds_set_user_data_dir(user_dir);
+    {
+        /* firmware and FPGA bitstreams: DSView/res next to the demo files */
+        char *res = g_build_filename(user_dir, "res", NULL);
+        ds_set_firmware_resource_dir(res);
+        g_free(res);
+    }
     ds_set_datafeed_callback(on_datafeed);
     ds_set_event_callback(on_event);
     return ds_lib_init();
@@ -226,12 +241,17 @@ char *oracle_drv_state(void)
         g_string_append_printf(s,
             "\n ch index=%u type=%d en=%d name=%s trig=%s bits=%u vdiv=%llu vfactor=%llu "
             "offset=%u zero=%u hw=%u vpos=%u coupling=%u trig_value=%u map_default=%d "
-            "map_unit=%s map=%g..%g",
+            "map_unit=%s map=%g..%g comb=%d/%d/%d digi=%u fgain=%.17g,%.17g,%.17g,%.17g "
+            "comb_fgain=%.17g,%.17g,%.17g,%.17g",
             c->index, c->type, c->enabled, c->name ? c->name : "(null)",
             c->trigger ? c->trigger : "(null)", c->bits, (unsigned long long)c->vdiv,
             (unsigned long long)c->vfactor, c->offset, c->zero_offset, c->hw_offset,
             c->vpos_trans, c->coupling, c->trig_value, c->map_default,
-            c->map_unit ? c->map_unit : "(null)", c->map_min, c->map_max);
+            c->map_unit ? c->map_unit : "(null)", c->map_min, c->map_max,
+            c->comb_diff_top, c->comb_diff_bom, c->comb_comp, c->digi_fgain,
+            c->cali_fgain0, c->cali_fgain1, c->cali_fgain2, c->cali_fgain3,
+            c->cali_comb_fgain0, c->cali_comb_fgain1, c->cali_comb_fgain2,
+            c->cali_comb_fgain3);
     }
     {
         const GSList *modes = ds_get_actived_device_mode_list();
@@ -282,8 +302,9 @@ int oracle_drv_capture(int stop_after, oracle_drv_packet_cb cb, void *user)
         return ret;
 
     g_mutex_lock(&g_lock);
-    /* captures that send nothing (F19) end here; the rest take well under a second */
-    deadline = g_get_monotonic_time() + 10 * G_TIME_SPAN_SECOND;
+    /* captures that send nothing (F19) end here; the rest take well under a second
+     * (simulated USB captures are stopped by their transfer budget) */
+    deadline = g_get_monotonic_time() + 60 * G_TIME_SPAN_SECOND;
     while (!g_ended) {
         if (!g_cond_wait_until(&g_cond, &g_lock, deadline))
             break;

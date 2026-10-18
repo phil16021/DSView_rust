@@ -267,6 +267,22 @@ SR_PRIV int sr_session_stop(void)
 }
 
 /**
+ * Whether the session was told to stop and has not acted on it yet (the
+ * Rust drivers' shim, rs_driver.c, acts like a real-fd source with it).
+ */
+SR_PRIV int sr_session_stop_requested(void)
+{
+	int ret;
+
+	if (!session)
+		return 0;
+	g_mutex_lock(&session->stop_mutex);
+	ret = session->abort_session;
+	g_mutex_unlock(&session->stop_mutex);
+	return ret;
+}
+
+/**
  * Debug helper.
  *
  * @param packet The packet to show debugging information for.

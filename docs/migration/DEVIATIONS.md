@@ -309,11 +309,56 @@ offset.
   for every DSLogic profile. The GUI asks only for DSO and DAQ channels, so this does not happen in
   practice.
 
+### F24. Defects of the DSCope driver (also serves the MSO-E8)
+Found while porting `dscope.c` and the DSO paths of `dsl.c` (Phase 3e). Most were confirmed by
+running the C driver against the simulated device.
+- **Calibration block overflow.** `dso_load_eep()` and `SR_CONF_ZERO_SET` treat the 30-byte
+  `struct cmd_zero_info` as 32 bytes: the layout has a 2-byte `digi_fgain` that the struct lacks.
+  - Loading reads the last two combined fine gains from the stack behind the struct.
+  - Saving writes those two bytes past it (stack corruption). It still sends only 30 bytes, so
+    those two gains are never stored.
+- **NULL dereferences.**
+  - `config_get(SR_CONF_PROBE_VGAIN_RANGE)` reads `ch->vdiv` without checking `ch`; the dump in
+    `drv-diff` crashed C on it.
+  - Selecting a device mode the profile does not offer (e.g. DAQ on an MSO-E8): C stores the mode,
+    finds no channel mode for it and deletes every channel. The next mode change dereferences the
+    empty list (`sdi->channels->data`). For DSO it also divides by zero (`dso_depth / num_probes`).
+  - An MSO-E8 has no firmware or bitstream names (NULL). If it ever reports its FPGA unconfigured
+    or comes up without firmware, C builds the path with `strlen(NULL)`.
+- **MSO-E8 range mismatch.** `vdivs_dso_e8[]` offers 218 mV/div; its `vga_defaults[]` entry says
+  182. No lookup by V/div finds that entry. The default gain and offset are 0, and
+  `PROBE_VGAIN_DEFAULT` returns SR_OK without a value.
+- **Calibration state shared between devices.** `dso_zero()` keeps its progress in function statics
+  (`warm_done`, `trans_fix_done`, `mid_zero_done`, the margins, the saved V/div). Two DSCopes
+  calibrating at once share one state, and a calibration left unfinished carries into the next
+  device's.
+- **Wrong channel in the calibration.** When the offset scale is fixed (non-PREOFF devices), C
+  sends channel 0's offset command whichever channel's `vpos_trans` changed.
+- **Undefined shifts.** Each are `int` shifts that x86 happens to mask.
+  - Channels that appear in the MSO-E8's logic mode have `bits = 0`, and the DSO offset command
+    computes `1 << (bits - 1)`.
+  - The DSO trigger-value command shifts each channel's value by `8 * (index + 1)` bits: 32 and more
+    for the E8's eight logic channels.
+  - Values of 128 and above at channel 2 sign-extend into the command's upper half.
+- **Uninitialised reads.** In DSO and DAQ mode `receive_transfer()` adds the uninitialised
+  `logic.length` to `num_bytes`. Nothing reads `num_bytes` in those modes.
+- **Dead code.**
+  - `dso_tune()`: nothing sets `devc->tune`.
+  - The DSO and DAQ branches of `dslogic.c`: no DSLogic profile offers those modes.
+- **Re-opening an open device** claims the interface again and repeats the FPGA and security checks.
+  Ported as is.
+
 ## Planned behaviour deviations (Rust intentionally differs)
 
 | Area | C behaviour | Rust behaviour | Phase |
 |---|---|---|---|
-| DSCope EEPROM calibration | Reads and writes bytes 30-31 past the 30-byte `cmd_zero_info` struct (stack overflow) | Bounded 32-byte layout; calibration values for gain levels 2/3 are persisted | 3e |
+| DSCope EEPROM calibration (F24) | Reads and writes 2 bytes past the 30-byte `cmd_zero_info` struct; the last two combined fine gains come from the stack and are never stored | Same 30 bytes on the wire; the two gains that do not fit read as 1.0 (code 0) | 3e ✔ |
+| DSCope calibration progress (F24) | Function statics shared by all devices | Per device (`ZeroCal`) | 3e ✔ |
+| DSCope `PROBE_VGAIN_RANGE` without a channel | NULL dereference | SR_ERR | 3e ✔ |
+| DSCope device mode the profile does not offer | All channels deleted, later NULL dereference or division by zero | Same state (no channels), no crash; a mode value outside 0-2 is SR_ERR_ARG | 3e ✔ |
+| MSO-E8 without firmware/bitstream name | `strlen(NULL)` crash | Error: firmware missing | 3e ✔ |
+| DSCope `dso_tune()` | Dead code | Not ported | 3e ✔ |
+| DSCope channel values during a capture (`hw_offset`, calibration V/div and offsets) | Written into `sdi->channels` by the driver | Copied into the C channel list before each packet is forwarded and after each poll | 3e ✔ |
 | Decoder `wait()` pin tuple | One tuple object, mutated in place | A fresh tuple per call | 2 |
 | Decoder options from files | Applied as stored | Path/exec options (`objdump`, `elffile`, `mapping`) reset to defaults until the user confirms | 2 |
 | USB stop/abort | No transfer cancellation, infinite timeouts, unbounded busy-polls | FORCE_RDY → grace period → cancel all transfers; every wait has a deadline | 3 |
@@ -351,7 +396,8 @@ offset.
 | DSLogic stop | Waits for the device to drain, without a time limit | Waits 3 s, then cancels the transfers and ends the capture | 3d ✔ |
 | DSLogic `PROBE_VDIV` list without a range table | NULL dereference | Empty list | 3d ✔ |
 | DSLogic profile check | Reads manufacturer/product over USB (GET_DESCRIPTOR) | Takes them from the OS device list (sysfs on Linux), so no USB traffic while scanning | 3d ✔ |
-| Original DSLogic (PID 0x0001), DSO and DAQ modes | Supported | Not yet: they share their code with the DSCope and arrive with it (3e); setting the mode fails | 3d |
+| DSLogic DSO and DAQ modes | Code in `dslogic.c`, unreachable: no DSLogic profile offers them (F24) | Not ported; setting such a mode fails | 3e ✔ |
+| DSLogic/DSCope common key without its channel (`PROBE_VDIV` etc. with `ch` NULL) | SR_ERR_NA (the driver's own switch is tried after `dsl_config_get()` fails) | Same (3d answered SR_ERR) | 3e ✔ |
 | DSO envelope, `cal_vrms`, `cal_vmean` | Implemented, never called | Not ported; under `DSVIEW_IMPL_STORE=rust`, `enable_envelope` is a no-op and the two return 0 | 1b ✔ |
 | Analog data/DSO frames/envelopes before they are written | `malloc`: uninitialised | Zeroed | 1b ✔ |
 
@@ -383,4 +429,8 @@ offset.
 | Phase 3c: `dsview-usb-fake` (a libusb with simulated devices for C and Rust) | Replay of the Phase 0 C captures against the Rust driver, plus usbmon recordings of both drivers on the real DSLogic compared with `usb-diff` | The captures pin the C driver's real traffic, including the device's answers and data; the hardware is here. The fake (and the simulator) come with the DSCope, which is not |
 | Phase 3c: recording backend (`DSVIEW_USB_RECORD`) | usbmon (`dumpcap`) records any driver; `usb-dump` and `usb-diff` read the files | usbmon needs no driver support and records C and Rust alike |
 | Phase 3: Rust USB through the C library's hotplug | The Rust driver enumerates with nusb; the shim keys each device by lib_main's `libusb_device`, so the C hotplug, reconnect and duplicate checks keep working | lib_main's hotplug thread stays until the session moves to Rust (Phase 4) |
-
+| Phase 3e: `dsview-usb-fake` as a cdylib exporting `libusb_*` | `dev/dsview-oracle/csrc/fake_libusb.c`, linked into the oracle instead of libusb, over `dsview_usb::sim` | The oracle already runs the C library through its `ds_*` API; linking the fake there needs no `LD_PRELOAD` and gives C and Rust one simulated device |
+| Phase 3e: separate `DsLogicSim`, `DsCopeSim`, `E8Sim` | One `DslSim`, configured from the profile (USB identity, header size, FPGA state, NVM, front-end bias) | The firmware protocol is the same for all three; what differs is the data, and the DSO status block covers the DSCope and the E8 |
+| Phase 3e: EEPROM layout "deliberately fixed" to 32 bytes | The 30 bytes C reads and writes; the two gains that do not fit are 1.0 | Writing 32 bytes would change the NVM layout under C, which still reads 30; the wire format stays compatible both ways |
+| Phase 3e: `ZeroCalState`/`TuneState` | `ZeroCal` per device; no tune state | `dso_tune()` is dead code (F24) |
+| Phase 3: DSCope Rust default | Still opt-in (`DSVIEW_IMPL_DRV_DSCOPE=rust`) | As planned: the default flips after a hardware confirmation |

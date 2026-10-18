@@ -126,7 +126,7 @@ fn open_matches_c() {
         r,
         Arc::clone(&remaining),
     ))))));
-    let mut d = DsLogic::new(plus(), backend, 1, 1);
+    let mut d = DsLogic::dslogic(plus(), backend, 1, 1);
     d.open().expect("open");
     // DSView then applies the stored threshold (1.0 V)
     d.config_set(key::VTH, &ConfValue::F64(1.0), None).unwrap();
@@ -212,7 +212,7 @@ fn run_capture(scenario: &Value) {
     let expected = capture_data(&urbs, bus, dev);
     let remaining = Arc::new(Mutex::new(None::<usize>));
     let backend: Arc<dyn UsbBackend> = Arc::new(OneDevice(Mutex::new(None)));
-    let mut d = DsLogic::new(plus(), backend, 1, 1);
+    let mut d = DsLogic::dslogic(plus(), backend, 1, 1);
     d.attach(Box::new(Watch(r, Arc::clone(&remaining))));
 
     let n = scenario["channels"].as_u64().unwrap() as usize;

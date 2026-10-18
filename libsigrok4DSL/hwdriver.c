@@ -99,6 +99,7 @@ extern SR_PRIV struct sr_dev_driver DSCope_driver_info;
 #include "dsview_ffi.h"
 extern SR_PRIV struct sr_dev_driver rs_demo_driver_info;
 extern SR_PRIV struct sr_dev_driver rs_dslogic_driver_info;
+extern SR_PRIV struct sr_dev_driver rs_dscope_driver_info;
 #endif
 /** @endcond */
 
@@ -133,6 +134,8 @@ SR_PRIV struct sr_dev_driver **sr_driver_list(void)
 #ifdef HAVE_DSL_DEVICE
 			if (drivers_list[i] == &DSLogic_driver_info && dsv_use_rust("DRV_DSLOGIC"))
 				drivers_list[i] = &rs_dslogic_driver_info;
+			if (drivers_list[i] == &DSCope_driver_info && dsv_use_rust("DRV_DSCOPE"))
+				drivers_list[i] = &rs_dscope_driver_info;
 #endif
 		}
 	}

@@ -3,9 +3,14 @@
 //! uploads, the `DSL_setting` block that arms a capture, the security check
 //! and the trigger masks.
 //!
-//! * [`dslogic`]: the DSLogic driver (`dslogic.c` + the logic parts of `dsl.c`)
+//! * [`device`]: the device both drivers share (`dsl.c`): open, arm,
+//!   transfers, the data path of every mode, stop
+//! * [`dslogic`]: the DSLogic driver (`dslogic.c`)
+//! * [`dscope`]: the DSCope driver (`dscope.c`, also the Hermelin MSO-E8)
 //! * [`tables`]: profiles, channel modes and lists, generated from `dsl.h`
 
+pub mod device;
+pub mod dscope;
 pub mod dslogic;
 pub mod tables;
 
@@ -73,7 +78,21 @@ pub mod dest {
     pub const I2C_DSO: u8 = 13;
     pub const I2C_REG: u8 = 14;
     pub const I2C_STATUS: u8 = 15;
+    pub const DSO_EN0: u8 = 16;
+    pub const DSO_DC0: u8 = 17;
+    pub const DSO_ATT0: u8 = 18;
+    pub const DSO_EN1: u8 = 19;
+    pub const DSO_DC1: u8 = 20;
+    pub const DSO_ATT1: u8 = 21;
+    pub const AWG_WR: u8 = 22;
+    pub const I2C_PROBE: u8 = 23;
+    pub const I2C_EXT: u8 = 24;
 }
+
+// DSO channel enable bits (write only)
+pub const BM_CH_CH0: u8 = 1 << 7;
+pub const BM_CH_COM: u8 = 1 << 6;
+pub const BM_CH_CH1: u8 = 1 << 5;
 
 // HW_STATUS bits
 pub const BM_GPIF_DONE: u8 = 1 << 7;
@@ -91,7 +110,11 @@ pub const BM_WR_WORDWIDE: u8 = 1 << 0;
 pub const VTH_ADDR: u8 = 0x78;
 pub const SEC_DATA_ADDR: u8 = 0x75;
 pub const SEC_CTRL_ADDR: u8 = 0x73;
+pub const CTR1_ADDR: u8 = 0x71;
 pub const CTR0_ADDR: u8 = 0x70;
+pub const COMB_ADDR: u8 = 0x68;
+pub const EI2C_ADDR: u8 = 0x60;
+pub const ADCC_ADDR: u8 = 0x48;
 pub const HW_STATUS_ADDR: u8 = 0x05;
 pub const HDL_VERSION_ADDR: u8 = 0x04;
 pub const BM_SECU_READY: u8 = 1 << 3;
@@ -108,6 +131,9 @@ pub const BM_FORCE_RDY: u8 = 1 << 1;
 pub const BM_FORCE_STOP: u8 = 1 << 2;
 pub const BM_SCOPE_SET: u8 = 1 << 3;
 pub const BM_SCOPE_CLR: u8 = 1 << 4;
+pub const BM_EEWP: u8 = 1 << 0;
+pub const BM_BW20M_SET: u8 = 1 << 5;
+pub const BM_BW20M_CLR: u8 = 1 << 6;
 
 // DSL_setting.mode bits
 pub const TRIG_EN_BIT: u32 = 0;
@@ -695,4 +721,294 @@ pub fn ezusb_upload(usb: &mut dyn UsbDevice, path: &std::path::Path) -> Result<(
     }
     sr_info!("Firmware upload done");
     reset(usb, false)
+}
+
+// ------------------------------------------------------------------ DSO
+
+/// `DSO_PKTID`: the id of a DSO status block.
+pub const DSO_PKTID: u16 = 0xa500;
+/// NVM pages per channel on devices with a flash (`DSO_ZERO_PAGE`).
+pub const DSO_ZERO_PAGE: u16 = 8;
+pub const MAX_ACC_VARIANCE: f64 = 0.0005;
+pub const DSCOPE_CONSTANT_BIAS: i32 = 160;
+pub const DSCOPE_TRANS_CMULTI: i32 = 10;
+pub const DSCOPE_TRANS_FMULTI: f64 = 100.0;
+pub const CALI_VGAIN_RANGE: u16 = 600;
+/// `DS_CONF_DSO_VDIVS`: vertical divisions on screen.
+pub const DS_CONF_DSO_VDIVS: u64 = 10;
+/// `MAX_EMPTY_POLL_E8`
+pub const MAX_EMPTY_POLL_E8: u32 = 2;
+/// DSO_E8-1 (Hermelin MSO-E8): its VGA table id, zero code and logic depth.
+pub const DSL_VGA_ID_E8: u8 = 0xE8;
+pub const DSL_E8_ZERO_CODE: u16 = 128;
+pub const DSL_E8_LOGIC_DEPTH: u64 = 8 * 1024 * 1024;
+
+/// `dsl_wr_dso()`: one 64-bit DSO command, little endian.
+pub fn wr_dso(usb: &mut dyn UsbDevice, cmd: u64) -> CmdResult<()> {
+    ctl_wr(usb, dest::I2C_DSO, 0, &cmd.to_le_bytes()).inspect_err(|_| {
+        sr_err!("Sent DSL_CTL_I2C_DSO command failed.");
+    })
+}
+
+/// `dsl_wr_nvm()`
+pub fn wr_nvm(usb: &mut dyn UsbDevice, data: &[u8], addr: u16) -> CmdResult<()> {
+    ctl_wr(usb, dest::NVM, addr, data).inspect_err(|_| {
+        sr_err!("Sent DSL_CTL_NVM write command failed.");
+    })
+}
+
+/// `struct DSL_adc_config`: `cnt` bytes to register `dest`, after `delay` ms.
+#[derive(Clone, Copy, Debug)]
+pub struct AdcConfig {
+    pub dest: u8,
+    pub cnt: u8,
+    pub delay: u8,
+    pub bytes: [u8; 4],
+}
+
+const fn adc(dest: u8, cnt: u8, delay: u8, bytes: [u8; 4]) -> AdcConfig {
+    AdcConfig {
+        dest,
+        cnt,
+        delay,
+        bytes,
+    }
+}
+
+/// The HMCAD1511 ADC set-ups of `dsl.h`.
+pub mod adc {
+    use super::{ADCC_ADDR as A, AdcConfig, adc};
+
+    pub static SINGLE_CH0: [AdcConfig; 12] = [
+        adc(A + 1, 3, 0, [0x03, 0x01, 0x00, 0x00]),
+        adc(A, 4, 0, [0x00, 0x01, 0x00, 0x31]),
+        adc(A + 1, 1, 0, [0x01, 0x00, 0x00, 0x00]),
+        adc(A, 4, 0, [0x00, 0x02, 0x02, 0x3A]),
+        adc(A, 4, 0, [0x00, 0x02, 0x02, 0x3B]),
+        adc(A, 4, 0, [0x00, 0x00, 0x00, 0x42]),
+        adc(A, 4, 0, [0x00, 0x34, 0x00, 0x50]),
+        adc(A, 4, 0, [0x00, 0x22, 0x02, 0x11]),
+        adc(A, 4, 0, [0x00, 0x7F, 0x00, 0x24]),
+        adc(A, 4, 0, [0x00, 0x00, 0x00, 0x55]),
+        adc(A, 4, 0, [0x00, 0x02, 0x00, 0x33]),
+        adc(A, 4, 0, [0x00, 0x00, 0x03, 0x2B]),
+    ];
+    pub static SINGLE_CH3: [AdcConfig; 12] = [
+        adc(A + 1, 3, 0, [0x03, 0x01, 0x00, 0x00]),
+        adc(A, 4, 0, [0x00, 0x01, 0x00, 0x31]),
+        adc(A + 1, 1, 0, [0x01, 0x00, 0x00, 0x00]),
+        adc(A, 4, 0, [0x00, 0x10, 0x10, 0x3A]),
+        adc(A, 4, 0, [0x00, 0x10, 0x10, 0x3B]),
+        adc(A, 4, 0, [0x00, 0x00, 0x00, 0x42]),
+        adc(A, 4, 0, [0x00, 0x34, 0x00, 0x50]),
+        adc(A, 4, 0, [0x00, 0x22, 0x02, 0x11]),
+        adc(A, 4, 0, [0x00, 0x00, 0x00, 0x24]),
+        adc(A, 4, 0, [0x00, 0x00, 0x00, 0x55]),
+        adc(A, 4, 0, [0x00, 0x02, 0x00, 0x33]),
+        adc(A, 4, 0, [0x00, 0x00, 0x03, 0x2B]),
+    ];
+    pub static DUAL_CH03: [AdcConfig; 12] = [
+        adc(A + 1, 3, 0, [0x03, 0x01, 0x00, 0x00]),
+        adc(A, 4, 0, [0x00, 0x02, 0x01, 0x31]),
+        adc(A + 1, 1, 0, [0x01, 0x00, 0x00, 0x00]),
+        adc(A, 4, 0, [0x00, 0x02, 0x02, 0x3A]),
+        adc(A, 4, 0, [0x00, 0x10, 0x10, 0x3B]),
+        adc(A, 4, 0, [0x00, 0x00, 0x00, 0x42]),
+        adc(A, 4, 0, [0x00, 0x34, 0x00, 0x50]),
+        adc(A, 4, 0, [0x00, 0x22, 0x02, 0x11]),
+        adc(A, 4, 0, [0x00, 0x11, 0x00, 0x24]),
+        adc(A, 4, 0, [0x00, 0x00, 0x00, 0x55]),
+        adc(A, 4, 0, [0x00, 0x02, 0x00, 0x33]),
+        adc(A, 4, 0, [0x00, 0x33, 0x00, 0x2B]),
+    ];
+    pub static INIT_FIX: [AdcConfig; 10] = [
+        adc(A + 1, 3, 0, [0x03, 0x01, 0x00, 0x00]),
+        adc(A, 4, 0, [0x00, 0x02, 0x01, 0x31]),
+        adc(A + 1, 1, 0, [0x01, 0x00, 0x00, 0x00]),
+        adc(A, 4, 0, [0x00, 0x02, 0x02, 0x3A]),
+        adc(A, 4, 0, [0x00, 0x10, 0x10, 0x3B]),
+        adc(A, 4, 0, [0x00, 0x00, 0x00, 0x42]),
+        adc(A, 4, 0, [0x00, 0x34, 0x00, 0x50]),
+        adc(A, 4, 0, [0x00, 0x22, 0x02, 0x11]),
+        adc(A, 4, 0, [0x00, 0x10, 0x00, 0x25]),
+        adc(A, 4, 0, [0x00, 0x00, 0x55, 0x26]),
+    ];
+    pub static CLK_INIT_1G: [AdcConfig; 4] = [
+        adc(A + 2, 1, 0, [0x01, 0x00, 0x00, 0x00]),
+        adc(A, 4, 0, [0x01, 0x61, 0x00, 0x30]),
+        adc(A, 4, 0, [0x01, 0x40, 0xF1, 0x46]),
+        adc(A, 4, 10, [0x01, 0x62, 0x3D, 0x00]),
+    ];
+    pub static CLK_INIT_500M: [AdcConfig; 4] = [
+        adc(A + 2, 1, 0, [0x01, 0x00, 0x00, 0x00]),
+        adc(A, 4, 0, [0x01, 0x61, 0x00, 0x30]),
+        adc(A, 4, 0, [0x01, 0x40, 0xF1, 0x46]),
+        adc(A, 4, 10, [0x01, 0x62, 0x3D, 0x40]),
+    ];
+    pub static POWER_DOWN: [AdcConfig; 1] = [adc(A + 1, 1, 0, [0x00, 0x00, 0x00, 0x00])];
+    pub static POWER_UP: [AdcConfig; 1] = [adc(A + 1, 1, 0, [0x01, 0x00, 0x00, 0x00])];
+}
+
+/// `dsl_config_adc()`: register writes whose results C ignores.
+pub fn config_adc(usb: &mut dyn UsbDevice, config: &[AdcConfig]) {
+    for c in config {
+        if c.delay > 0 {
+            sys::clock().sleep_us(u64::from(c.delay) * 1000);
+        }
+        for &b in &c.bytes[..c.cnt as usize] {
+            let _ = wr_reg(usb, c.dest, b);
+        }
+    }
+}
+
+/// `dsl_adc_code2fgain()`
+pub fn adc_code2fgain(code: u8) -> f64 {
+    let xcode = if code & 0x40 != 0 {
+        -f64::from(!code & 0x3F)
+    } else {
+        f64::from(code & 0x3F)
+    };
+    1.0 + xcode / f64::from(1 << 13)
+}
+
+/// `dsl_adc_fgain2code()`
+pub fn adc_fgain2code(gain: f64) -> u8 {
+    let xratio = c_i32((gain - 1.0) * f64::from(1 << 13));
+    if xratio > 63 {
+        63
+    } else if xratio > 0 {
+        xratio as u8
+    } else if xratio < -63 {
+        64
+    } else {
+        !(xratio.wrapping_neg() as u8) & 0x7F
+    }
+}
+
+/// `dsl_config_adc_fgain()`: fine gains of one ADC branch.
+pub fn config_adc_fgain(usb: &mut dyn UsbDevice, branch: u8, gain0: f64, gain1: f64) {
+    let _ = wr_reg(usb, ADCC_ADDR, 0x00);
+    let _ = wr_reg(usb, ADCC_ADDR, adc_fgain2code(gain0));
+    let _ = wr_reg(usb, ADCC_ADDR, adc_fgain2code(gain1));
+    let _ = wr_reg(usb, ADCC_ADDR, 0x34u8.wrapping_add(branch));
+}
+
+/// `struct DSL_vga`: gain and offset calibration of one V/div step.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Vga {
+    pub id: u8,
+    pub key: u64,
+    pub vgain: u64,
+    pub preoff: u16,
+    pub preoff_comp: u16,
+}
+
+const fn vga(id: u8, key: u64, vgain: u64, preoff: u16, preoff_comp: u16) -> Vga {
+    Vga {
+        id,
+        key,
+        vgain,
+        preoff,
+        preoff_comp,
+    }
+}
+
+/// `vga_defaults[]` (without the terminator).
+pub static VGA_DEFAULTS: [Vga; 41] = [
+    vga(1, 10, 0x162400, (32 << 10) + 558, (32 << 10) + 558),
+    vga(1, 20, 0x14C000, (32 << 10) + 558, (32 << 10) + 558),
+    vga(1, 50, 0x12E800, (32 << 10) + 558, (32 << 10) + 558),
+    vga(1, 100, 0x118000, (32 << 10) + 558, (32 << 10) + 558),
+    vga(1, 200, 0x102400, (32 << 10) + 558, (32 << 10) + 558),
+    vga(1, 500, 0x2E800, (32 << 10) + 558, (32 << 10) + 558),
+    vga(1, 1000, 0x18000, (32 << 10) + 558, (32 << 10) + 558),
+    vga(1, 2000, 0x02400, (32 << 10) + 558, (32 << 10) + 558),
+    vga(2, 10, 0x1DA800, 45, 1024 - 920 - 45),
+    vga(2, 20, 0x1A7200, 45, 1024 - 920 - 45),
+    vga(2, 50, 0x164200, 45, 1024 - 920 - 45),
+    vga(2, 100, 0x131800, 45, 1024 - 920 - 45),
+    vga(2, 200, 0xBD000, 45, 1024 - 920 - 45),
+    vga(2, 500, 0x7AD00, 45, 1024 - 920 - 45),
+    vga(2, 1000, 0x48800, 45, 1024 - 920 - 45),
+    vga(2, 2000, 0x12000, 45, 1024 - 920 - 45),
+    vga(3, 10, 0x1C5C00, 45, 1024 - 920 - 45),
+    vga(3, 20, 0x19EB00, 45, 1024 - 920 - 45),
+    vga(3, 50, 0x16AE00, 45, 1024 - 920 - 45),
+    vga(3, 100, 0x143D00, 45, 1024 - 920 - 45),
+    vga(3, 200, 0xB1000, 45, 1024 - 920 - 45),
+    vga(3, 500, 0x7F000, 45, 1024 - 920 - 45),
+    vga(3, 1000, 0x57200, 45, 1024 - 920 - 45),
+    vga(3, 2000, 0x2DD00, 45, 1024 - 920 - 45),
+    vga(4, 10, 0x1C6C00, 60, 1024 - 900 - 60),
+    vga(4, 20, 0x19E000, 60, 1024 - 900 - 60),
+    vga(4, 50, 0x16A800, 60, 1024 - 900 - 60),
+    vga(4, 100, 0x142800, 60, 1024 - 900 - 60),
+    vga(4, 200, 0xC7F00, 60, 1024 - 900 - 60),
+    vga(4, 500, 0x94000, 60, 1024 - 900 - 60),
+    vga(4, 1000, 0x6CF00, 60, 1024 - 900 - 60),
+    vga(4, 2000, 0x44F00, 60, 1024 - 900 - 60),
+    vga(5, 10, 0x1C3400, 60, 1024 - 900 - 60),
+    vga(5, 20, 0x19BD00, 60, 1024 - 900 - 60),
+    vga(5, 50, 0x167400, 60, 1024 - 900 - 60),
+    vga(5, 100, 0x13F300, 60, 1024 - 900 - 60),
+    vga(5, 200, 0xC4F00, 60, 1024 - 900 - 60),
+    vga(5, 500, 0x91B00, 60, 1024 - 900 - 60),
+    vga(5, 1000, 0x69D00, 60, 1024 - 900 - 60),
+    vga(5, 2000, 0x41D00, 60, 1024 - 900 - 60),
+    // DSO_E8-1: its only range. vdivs_dso_e8[] says 218, so no lookup by
+    // V/div finds this entry (C has the same mismatch, F24).
+    vga(DSL_VGA_ID_E8, 182, 0, 0, 0),
+];
+
+/// The `vga_defaults[]` entry for this VGA id and V/div.
+pub fn vga_default(id: u8, key: u64) -> Option<&'static Vga> {
+    VGA_DEFAULTS.iter().find(|v| v.id == id && v.key == key)
+}
+
+// ------------------------------------------- C conversions (x86-64, gcc)
+
+/// `(int)x`: truncation; out of range and NaN give INT_MIN (cvttsd2si).
+pub fn c_i32(x: f64) -> i32 {
+    if x.is_nan() || x >= 2147483648.0 || x <= -2147483649.0 {
+        i32::MIN
+    } else {
+        x as i32
+    }
+}
+
+/// `(int64_t)x`, same rule.
+pub fn c_i64(x: f64) -> i64 {
+    const TWO63: f64 = (1u64 << 63) as f64;
+    if x.is_nan() || x >= TWO63 || x < -TWO63 {
+        i64::MIN
+    } else {
+        x as i64
+    }
+}
+
+/// `(uint64_t)x` as gcc compiles it: below 2^63 through int64, above by
+/// subtracting 2^63 first.
+pub fn c_u64(x: f64) -> u64 {
+    const TWO63: f64 = (1u64 << 63) as f64;
+    if x < TWO63 || x.is_nan() {
+        c_i64(x) as u64
+    } else {
+        (c_i64(x - TWO63) as u64) ^ (1 << 63)
+    }
+}
+
+/// `(uint32_t)x`: through int64.
+pub fn c_u32(x: f64) -> u32 {
+    c_i64(x) as u32
+}
+
+/// `(uint16_t)x` / `(uint8_t)x` / `(int8_t)x`: through int.
+pub fn c_u16(x: f64) -> u16 {
+    c_i32(x) as u16
+}
+pub fn c_u8(x: f64) -> u8 {
+    c_i32(x) as u8
+}
+pub fn c_i8(x: f64) -> i8 {
+    c_i32(x) as i8
 }

@@ -449,6 +449,7 @@ dependencies = [
  "dsview-ffi",
  "dsview-formats",
  "dsview-store",
+ "dsview-usb",
  "pkg-config",
  "proptest",
  "serde_json",

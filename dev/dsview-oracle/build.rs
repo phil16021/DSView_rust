@@ -8,7 +8,6 @@ const LIBSIGROK: &[&str] = &[
     "version.c",
     "strutil.c",
     "std.c",
-    "session.c",
     "log.c",
     "hwdriver.c",
     "error.c",
@@ -22,14 +21,10 @@ const LIBSIGROK: &[&str] = &[
     "output/gnuplot.c",
     "output/srzip.c",
     "output/vcd.c",
-    "hardware/DSL/dslogic.c",
     "hardware/common/usb.c",
     "hardware/common/ezusb.c",
     "trigger.c",
     "dsdevice.c",
-    "hardware/DSL/dscope.c",
-    "hardware/DSL/command.c",
-    "hardware/DSL/dsl.c",
     "lib_main.c",
     "hardware/rust/rs_driver.c",
     "output/rs_output.c",
@@ -63,7 +58,9 @@ fn main() {
     let mut includes = Vec::new();
     includes.extend(python_embed());
     for lib in ["glib-2.0", "libusb-1.0", "zlib"] {
+        // libusb: headers only, csrc/fake_libusb.c stands in for the library
         let found = pkg_config::Config::new()
+            .cargo_metadata(lib != "libusb-1.0")
             .probe(lib)
             .unwrap_or_else(|e| panic!("pkg-config {lib}: {e}"));
         includes.extend(found.include_paths);
@@ -109,6 +106,7 @@ fn main() {
     sources.push(manifest.join("csrc/oracle_dsl.c"));
     sources.push(manifest.join("csrc/oracle_export.c"));
     sources.push(manifest.join("csrc/oracle_drv.c"));
+    sources.push(manifest.join("csrc/fake_libusb.c"));
 
     for src in &sources {
         println!("cargo:rerun-if-changed={}", src.display());
@@ -140,9 +138,40 @@ fn main() {
         .file(&session_driver)
         .compile_intermediates();
 
+    // The DSL drivers run against the simulated device of src/usbsim.rs on
+    // the virtual clock; their uninitialized command headers (F22) are
+    // zeroed as Rust sends them. session.c waits in the fake libusb's poll.
+    let dsl: Vec<PathBuf> = [
+        "hardware/DSL/dsl.c",
+        "hardware/DSL/dscope.c",
+        "hardware/DSL/dslogic.c",
+        "hardware/DSL/command.c",
+    ]
+    .iter()
+    .map(|f| root.join("libsigrok4DSL").join(f))
+    .collect();
+    for f in &dsl {
+        println!("cargo:rerun-if-changed={}", f.display());
+    }
+    let dsl_objs = build
+        .clone()
+        .define("g_usleep", "oracle_usleep")
+        .flag("-ftrivial-auto-var-init=zero")
+        .files(&dsl)
+        .compile_intermediates();
+    let session = root.join("libsigrok4DSL/session.c");
+    println!("cargo:rerun-if-changed={}", session.display());
+    let session_objs = build
+        .clone()
+        .define("g_poll", "oracle_poll")
+        .file(&session)
+        .compile_intermediates();
+
     build
         .files(&sources)
         .objects(demo_objs)
+        .objects(dsl_objs)
+        .objects(session_objs)
         .compile("dsview_oracle_c");
     build_store(&root, &manifest, &includes, sanitize);
     println!("cargo:rustc-link-lib=m");

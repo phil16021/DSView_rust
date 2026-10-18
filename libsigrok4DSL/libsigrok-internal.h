@@ -393,6 +393,7 @@ SR_PRIV int sr_driver_init(struct sr_context *ctx,
 /*----- Session ------*/ 
 SR_PRIV int sr_session_run(void);
 SR_PRIV int sr_session_stop(void); 
+SR_PRIV int sr_session_stop_requested(void);
 SR_PRIV struct sr_session *sr_session_new(void);
 SR_PRIV int sr_session_destroy(void);
 

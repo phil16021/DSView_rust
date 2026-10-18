@@ -213,7 +213,7 @@ typedef struct dsv_conf {
 } dsv_conf;
 
 /**
- * A DSLogic found on the bus (bus number and device address).
+ * A DSLogic or DSCope found on the bus (bus number and device address).
  */
 typedef struct dsv_usb_location {
   uint8_t bus;
@@ -669,6 +669,22 @@ uint32_t dsv_drv_dslogic_scan(struct dsv_usb_location *out, uint32_t cap, int32_
  * `out` writable.
  */
 int32_t dsv_drv_dslogic_probe(uint8_t bus, uint8_t address, struct dsv_device **out);
+
+/**
+ * DSCope devices (also the Hermelin MSO-E8), as [`dsv_drv_dslogic_scan`].
+ *
+ * # Safety
+ * `out` must have room for `cap` entries, `slow` writable or NULL.
+ */
+uint32_t dsv_drv_dscope_scan(struct dsv_usb_location *out, uint32_t cap, int32_t *slow);
+
+/**
+ * Probes a DSCope, as [`dsv_drv_dslogic_probe`].
+ *
+ * # Safety
+ * `out` writable.
+ */
+int32_t dsv_drv_dscope_probe(uint8_t bus, uint8_t address, struct dsv_device **out);
 
 /**
  * A USB device's bus and address after it reconnected (`sdi->conn`).

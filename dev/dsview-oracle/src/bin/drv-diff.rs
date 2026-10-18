@@ -1,9 +1,14 @@
 //! Driver differential test (Phase 3): runs seeded scenarios through
-//! libsigrok4DSL's public ds_* API, once with the C demo driver and once with
-//! the Rust one behind rs_driver.c (DSVIEW_IMPL_DRV_DEMO=rust), both on the
+//! libsigrok4DSL's public ds_* API, once with the C drivers and once with
+//! the Rust ones behind rs_driver.c (DSVIEW_IMPL_DRV_*=rust), both on the
 //! same virtual clock and random sequence (src/drv.rs), and compares every
 //! answer: config get/list values with their GVariant types, the channel
 //! list, mode list, status block, and every datafeed packet.
+//!
+//! Scenarios use the demo driver, the file driver, or a DSCope/MSO-E8 on
+//! the simulated USB device of src/usbsim.rs (C through a fake libusb, Rust
+//! through dsview-usb's SimBackend); for those every USB request either
+//! side sent is compared as well.
 //!
 //! usage: drv-diff [--runs N] [--seed S] [--jobs J] [--keep DIR]
 //!        drv-diff run --impl c|rust <scenario.json>   (one side, JSONL on stdout)
@@ -133,11 +138,43 @@ fn one(seed: u64, dir: &Path, files: &[PathBuf]) -> Result<(usize, usize)> {
     let path = dir.join(format!("scenario-{seed}.json"));
     std::fs::write(&path, serde_json::to_string_pretty(&scenario)?)?;
     let exe = std::env::current_exe()?;
-    let spawn = |imp: &str| {
-        Command::new(&exe)
+    // A side that does not finish within the limit is killed: the C demo
+    // driver can hang where it reads past its buffers (F18), like it crashes.
+    let limit = std::time::Duration::from_secs(
+        std::env::var("DRV_DIFF_TIMEOUT")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(180),
+    );
+    let spawn = |imp: &str| -> std::io::Result<std::process::Output> {
+        let out_path = dir.join(format!("out-{seed}-{imp}"));
+        let err_path = dir.join(format!("err-{seed}-{imp}"));
+        let mut child = Command::new(&exe)
             .args(["run", "--impl", imp])
             .arg(&path)
-            .output()
+            .stdout(std::fs::File::create(&out_path)?)
+            .stderr(std::fs::File::create(&err_path)?)
+            .spawn()?;
+        let t0 = std::time::Instant::now();
+        let status = loop {
+            if let Some(st) = child.try_wait()? {
+                break st;
+            }
+            if t0.elapsed() > limit {
+                let _ = child.kill();
+                break child.wait()?;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        };
+        let stdout = std::fs::read(&out_path)?;
+        let stderr = std::fs::read(&err_path)?;
+        let _ = std::fs::remove_file(&out_path);
+        let _ = std::fs::remove_file(&err_path);
+        Ok(std::process::Output {
+            status,
+            stdout,
+            stderr,
+        })
     };
     let (c, r) = std::thread::scope(|s| {
         let c = s.spawn(|| spawn("c"));
@@ -145,8 +182,9 @@ fn one(seed: u64, dir: &Path, files: &[PathBuf]) -> Result<(usize, usize)> {
         (c.join().unwrap(), r.join().unwrap())
     });
     let (c, r) = (c?, r?);
-    // The C driver crashes on some inputs (DEVIATIONS.md, F18): then Rust must
-    // match everything C printed before the crash and finish cleanly.
+    // The C driver crashes (or hangs, killed above) on some inputs
+    // (DEVIATIONS.md, F18): then Rust must match everything C printed before
+    // and finish cleanly.
     let c_crashed = !c.status.success() && c.status.code().is_none() && r.status.success();
     for (name, out) in [("c", &c), ("rust", &r)] {
         if !out.status.success() && !(name == "c" && c_crashed) {
@@ -359,6 +397,9 @@ fn generate(seed: u64, files: &[PathBuf]) -> Value {
     for _ in 0..4 {
         r.next();
     }
+    if r.chance(35) {
+        return generate_usb(&mut r, seed);
+    }
     if r.chance(30) {
         return generate_file(&mut r, seed, files);
     }
@@ -421,6 +462,200 @@ fn generate(seed: u64, files: &[PathBuf]) -> Value {
     ops.push(json!({"op": "capture", "stop_after": 1 + r.below(30)}));
     ops.push(json!({"op": "dump"}));
     json!({"seed": seed, "rng": r.next(), "step_us": step_us, "ops": ops})
+}
+
+/// A DSCope (or MSO-E8) scenario on the simulated device: open it, set
+/// up DSO/DAQ/logic captures, calibrate, capture.
+fn generate_usb(r: &mut Rand, seed: u64) -> Value {
+    use dsview_drivers::dsl::tables::DSCOPE_PROFILES;
+    let pi = r.below(DSCOPE_PROFILES.len() as u64) as usize;
+    let p = &DSCOPE_PROFILES[pi];
+    let bias = |r: &mut Rand| *r.pick(&[0.0f64, 0.0, 0.4, -1.3, 3.25, 40.0]);
+    let sim = json!({
+        "profile": pi,
+        "fpga_done": r.chance(80),
+        "eeprom": r.chance(70),
+        "bias": [bias(r), bias(r)],
+        "seed": r.next(),
+    });
+    // CAPS_MODE_LOGIC/ANALOG/DSO bits; the mode values are LOGIC 0, DSO 1, ANALOG 2
+    let modes: Vec<u64> = [(0, 0u64), (1, 2), (2, 1)]
+        .iter()
+        .filter(|(bit, _)| p.caps.mode_caps & (1 << bit) != 0)
+        .map(|&(_, m)| m)
+        .collect();
+    let ch = |r: &mut Rand| r.below(2) as i64;
+    let set = |k: i32, ch: i64, v: String| json!({"op": "set", "key": k, "ch": ch, "value": v});
+    let small_limit = |r: &mut Rand| format!("uint64 {}", r.pick(&[1000u64, 2048, 5000, 20_000]));
+    let mut ops = vec![
+        json!({"op": "activate", "name": p.model}),
+        json!({"op": "dump"}),
+    ];
+    for _ in 0..4 + r.below(10) {
+        let op = match r.below(30) {
+            0..=1 => set(key::DEVICE_MODE, -1, format!("int16 {}", r.pick(&modes))),
+            2 => set(key::PROBE_VDIV, ch(r), format!("uint64 {}", r.pick(VDIVS))),
+            3 => set(key::PROBE_COUPLING, ch(r), format!("byte {}", r.below(3))),
+            4 => set(key::PROBE_OFFSET, ch(r), format!("uint16 {}", r.below(270))),
+            5 => set(key::PROBE_EN, ch(r), format!("{}", r.chance(70))),
+            6 => set(
+                key::SAMPLERATE,
+                -1,
+                format!(
+                    "uint64 {}",
+                    r.pick(&[
+                        10_000u64,
+                        100_000,
+                        1_000_000,
+                        10_000_000,
+                        50_000_000,
+                        100_000_000,
+                        200_000_000,
+                        1_000_000_000
+                    ])
+                ),
+            ),
+            7 => set(key::LIMIT_SAMPLES, -1, small_limit(r)),
+            8 => set(key::TRIGGER_SLOPE, -1, format!("byte {}", r.below(2))),
+            9 => set(key::TRIGGER_SOURCE, -1, format!("byte {}", r.below(5))),
+            10 => set(key::TRIGGER_CHANNEL, -1, format!("byte {}", r.below(3))),
+            11 => set(key::TRIGGER_VALUE, ch(r), format!("byte {}", r.below(256))),
+            12 => set(key::HORIZ_TRIGGERPOS, -1, format!("byte {}", r.below(101))),
+            13 => set(
+                key::TRIGGER_HOLDOFF,
+                -1,
+                format!("uint64 {}", r.below(100_000)),
+            ),
+            14 => set(key::TRIGGER_MARGIN, -1, format!("byte {}", r.below(20))),
+            15 => set(key::INSTANT, -1, format!("{}", r.chance(30))),
+            16 => set(key::OPERATION_MODE, -1, format!("int16 {}", r.below(3))),
+            17 => set(key::BANDWIDTH_LIMIT, -1, format!("int16 {}", r.below(3))),
+            18 => set(
+                key::PROBE_FACTOR,
+                ch(r),
+                format!("uint64 {}", r.pick(&[1u64, 10, 100])),
+            ),
+            19 => set(
+                key::PROBE_VGAIN,
+                ch(r),
+                format!("uint64 {}", r.below(0x2000)),
+            ),
+            20 => set(
+                key::PROBE_PREOFF,
+                ch(r),
+                format!("uint16 {}", r.below(1200)),
+            ),
+            21 => set(
+                key::PROBE_COMB_COMP,
+                ch(r),
+                format!("int16 {}", r.below(60) as i64 - 30),
+            ),
+            22 => set(key::VOCM, -1, format!("byte {}", r.below(256))),
+            23 => set(key::ZERO_DEFAULT, -1, "true".into()),
+            24 => set(key::ZERO_LOAD, -1, "true".into()),
+            25 => set(key::ZERO_SET, -1, "true".into()),
+            26 => set(key::VTH, -1, format!("{:.2}", r.below(500) as f64 / 100.0)),
+            27 => json!({"op": "dump"}),
+            // auto calibration: long enough to get through (or stuck in) it
+            // auto calibration, in DSO mode as the GUI runs it
+            28 => {
+                if modes.contains(&1) {
+                    ops.push(set(key::DEVICE_MODE, -1, "int16 1".into()));
+                }
+                ops.push(set(key::LIMIT_SAMPLES, -1, small_limit(r)));
+                ops.push(set(key::ZERO, -1, "true".into()));
+                let n = 50 + r.below(900);
+                json!({"op": "capture", "stop_after": n, "usb_budget": n + 20})
+            }
+            _ => {
+                let n = 1 + r.below(12);
+                json!({"op": "capture", "stop_after": n, "usb_budget": 4 * n + 20})
+            }
+        };
+        ops.push(op);
+        if r.chance(25) {
+            ops.push(set(key::LIMIT_SAMPLES, -1, small_limit(r)));
+            let n = 1 + r.below(8);
+            ops.push(json!({"op": "capture", "stop_after": n, "usb_budget": 4 * n + 20}));
+        }
+    }
+    ops.push(set(key::LIMIT_SAMPLES, -1, small_limit(r)));
+    let n = 1 + r.below(10);
+    ops.push(json!({"op": "capture", "stop_after": n, "usb_budget": 4 * n + 20}));
+    ops.push(json!({"op": "dump"}));
+    json!({"seed": seed, "rng": r.next(), "step_us": 1, "sim": sim, "ops": ops})
+}
+
+/// The simulated device of a USB scenario: the profile's identity, and
+/// with `eeprom` a calibration stored where the driver looks for it.
+fn sim_config(sim: &Value) -> dsview_usb::sim::SimConfig {
+    use dsview_drivers::dsl::{feature, tables::DSCOPE_PROFILES, vga_default};
+    let p = &DSCOPE_PROFILES[sim["profile"].as_u64().unwrap_or(0) as usize];
+    let mut cfg = dsview_usb::sim::SimConfig::new(p.vid, p.pid, p.speed);
+    // a device without a bitstream (the MSO-E8) always reports it configured
+    cfg.fpga_done = sim["fpga_done"].as_bool().unwrap_or(true) || p.fpga_bit33.is_none();
+    cfg.seed = sim["seed"].as_u64().unwrap_or(1);
+    for (i, b) in sim["bias"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .take(2)
+        .enumerate()
+    {
+        cfg.bias[i] = b.as_f64().unwrap_or(0.0);
+    }
+    if sim["eeprom"].as_bool().unwrap_or(false) {
+        let mut r = Rand(cfg.seed | 1);
+        let caps = &p.caps;
+        let n = caps.vdivs.len();
+        for idx in 0..2u16 {
+            let zero_addr = (0x40 + idx * 47) as u8;
+            let vga_addr = zero_addr.wrapping_add(30);
+            let at = |addr: u8, page: u16| {
+                if caps.feature_caps & feature::SEEP != 0 {
+                    u16::from(addr)
+                } else if caps.feature_caps & feature::FLASH != 0 {
+                    idx * 8 + page
+                } else {
+                    0x2000 + u16::from(addr)
+                }
+            };
+            let mut z = vec![zero_addr];
+            for &vd in caps.vdivs {
+                let d = vga_default(caps.vga_id, vd).map_or(0, |v| v.preoff);
+                let v = d.wrapping_add(r.below(9) as u16).wrapping_sub(4);
+                z.extend_from_slice(&v.to_le_bytes());
+            }
+            let trans = caps
+                .default_pwmtrans
+                .wrapping_add(r.below(7) as u16)
+                .wrapping_sub(3);
+            z.push(r.below(40) as u8);
+            z.push(r.below(40) as u8);
+            z.extend_from_slice(&trans.to_le_bytes());
+            z.push(r.below(30) as u8);
+            z.extend_from_slice(&(r.below(0x300) as u16).to_le_bytes());
+            for _ in 0..8 {
+                z.push(r.below(128) as u8);
+            }
+            z.resize(30, 0);
+            let mut v = vec![vga_addr];
+            for &vd in caps.vdivs {
+                let g = vga_default(caps.vga_id, vd).map_or(0, |v| (v.vgain >> 8) as u16);
+                v.extend_from_slice(
+                    &g.wrapping_add(r.below(31) as u16)
+                        .wrapping_sub(15)
+                        .to_le_bytes(),
+                );
+            }
+            v.resize(17, 0);
+            if n > 0 {
+                cfg.nvm.insert(at(zero_addr, 0), z);
+                cfg.nvm.insert(at(vga_addr, 1), v);
+            }
+        }
+    }
+    cfg
 }
 
 /// A file-driver scenario: open a capture, query, change, replay it.
@@ -612,6 +847,11 @@ fn dump() {
     let n = channel_count();
     for &(name, k) in key::ALL {
         for ch in -1..n {
+            if ch == -1 && k == key::PROBE_VGAIN_RANGE {
+                // dscope.c dereferences the missing channel (DEVIATIONS.md);
+                // the GUI always names one
+                continue;
+            }
             let v = unsafe { take_string(drv::oracle_drv_get(k, ch as i32)) };
             if !v.starts_with("6 ") {
                 // SR_ERR_NA answers are the same for every key; keep the rest
@@ -638,7 +878,21 @@ fn run_side(args: &[String]) -> Result<()> {
     unsafe {
         std::env::set_var("DSVIEW_IMPL_DRV_DEMO", &imp);
         std::env::set_var("DSVIEW_IMPL_DRV_FILE", &imp);
+        std::env::set_var("DSVIEW_IMPL_DRV_DSCOPE", &imp);
+        std::env::set_var("DSVIEW_IMPL_DRV_DSLOGIC", &imp);
     }
+    // the simulated device is plugged in before ds_lib_init scans
+    let usb = !scenario["sim"].is_null();
+    if usb {
+        dsview_oracle::usbsim::install(sim_config(&scenario["sim"]));
+    }
+    let flush_usb = || {
+        if usb {
+            for l in dsview_oracle::usbsim::take_log() {
+                emit(json!({"usb": l}).to_string());
+            }
+        }
+    };
     drv::install(
         scenario["rng"].as_u64().unwrap_or(1),
         scenario["step_us"].as_i64().unwrap_or(1),
@@ -658,6 +912,7 @@ fn run_side(args: &[String]) -> Result<()> {
         bail!("ds_lib_init: {rc}");
     }
 
+    flush_usb();
     for op in scenario["ops"].as_array().context("ops")? {
         emit(json!({"op": op}).to_string());
         match op["op"].as_str().unwrap_or("") {
@@ -703,6 +958,9 @@ fn run_side(args: &[String]) -> Result<()> {
                     let v = unsafe { take_string(drv::oracle_drv_get(k, -1)) };
                     emit(json!({"ctx": k, "v": v}).to_string());
                 }
+                if let Some(b) = op["usb_budget"].as_i64() {
+                    dsview_oracle::usbsim::set_in_budget(b);
+                }
                 let rc = unsafe {
                     drv::oracle_drv_capture(
                         op["stop_after"].as_i64().unwrap_or(1) as i32,
@@ -718,7 +976,9 @@ fn run_side(args: &[String]) -> Result<()> {
             }
             other => bail!("unknown op {other}"),
         }
+        flush_usb();
     }
     unsafe { drv::oracle_drv_exit() };
+    flush_usb();
     Ok(())
 }

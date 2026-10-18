@@ -11,7 +11,7 @@ use std::ffi::{CStr, CString, c_char, c_void};
 use std::sync::Mutex;
 
 use dsview_core::{Body, Channel, ConfValue, ListItem, Packet, SrError};
-use dsview_drivers::dsl::dslogic;
+use dsview_drivers::dsl::device::{self, Family};
 use dsview_drivers::{Device, Step, demo, file, sys};
 use dsview_usb::UsbBackend;
 
@@ -340,13 +340,32 @@ pub unsafe extern "C" fn dsv_drv_set_res_dir(dir: *const c_char) {
     }
 }
 
+fn backend_cell() -> &'static std::sync::RwLock<Option<std::sync::Arc<dyn UsbBackend>>> {
+    static B: std::sync::OnceLock<std::sync::RwLock<Option<std::sync::Arc<dyn UsbBackend>>>> =
+        std::sync::OnceLock::new();
+    B.get_or_init(|| std::sync::RwLock::new(None))
+}
+
+/// The USB backend the hardware drivers use: the real devices (nusb)
+/// unless [`set_usb_backend`] chose another one.
 fn usb_backend() -> std::sync::Arc<dyn UsbBackend> {
-    static B: std::sync::OnceLock<std::sync::Arc<dyn UsbBackend>> = std::sync::OnceLock::new();
-    B.get_or_init(|| std::sync::Arc::new(dsview_usb::nusb_backend::NusbBackend))
+    let cell = backend_cell();
+    if let Some(b) = cell.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        return b.clone();
+    }
+    cell.write()
+        .unwrap_or_else(|e| e.into_inner())
+        .get_or_insert_with(|| std::sync::Arc::new(dsview_usb::nusb_backend::NusbBackend))
         .clone()
 }
 
-/// A DSLogic found on the bus (bus number and device address).
+/// Replaces the USB backend (simulated devices in tests and the oracle);
+/// devices opened before keep theirs.
+pub fn set_usb_backend(b: std::sync::Arc<dyn UsbBackend>) {
+    *backend_cell().write().unwrap_or_else(|e| e.into_inner()) = Some(b);
+}
+
+/// A DSLogic or DSCope found on the bus (bus number and device address).
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct DsvUsbLocation {
@@ -354,19 +373,9 @@ pub struct DsvUsbLocation {
     pub address: u8,
 }
 
-/// DSLogic devices on the bus whose profile matches, up to `cap`; `*slow`
-/// is set when a DreamSourceLab device runs below high speed.
-///
-/// # Safety
-/// `out` must have room for `cap` entries, `slow` writable or NULL.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn dsv_drv_dslogic_scan(
-    out: *mut DsvUsbLocation,
-    cap: u32,
-    slow: *mut i32,
-) -> u32 {
+fn family_scan(family: Family, out: *mut DsvUsbLocation, cap: u32, slow: *mut i32) -> u32 {
     guard_or(0, || {
-        let (list, too_slow) = dslogic::scan(usb_backend().as_ref());
+        let (list, too_slow) = device::scan(family, usb_backend().as_ref());
         if !slow.is_null() {
             unsafe { *slow = too_slow as i32 };
         }
@@ -383,6 +392,41 @@ pub unsafe extern "C" fn dsv_drv_dslogic_scan(
     })
 }
 
+fn family_probe(family: Family, bus: u8, address: u8, out: *mut *mut DsvDevice) -> i32 {
+    guard(|| {
+        let backend = usb_backend();
+        let (list, _) = device::scan(family, backend.as_ref());
+        let Some(c) = list
+            .iter()
+            .find(|c| c.info.bus == bus && c.info.address == address)
+        else {
+            return -1;
+        };
+        match device::probe(family, backend.clone(), c) {
+            device::Probed::Device(d) => {
+                unsafe { *out = handle(d) };
+                1
+            }
+            device::Probed::FirmwareUploaded => 0,
+            device::Probed::NotReady => -1,
+        }
+    })
+}
+
+/// DSLogic devices on the bus whose profile matches, up to `cap`; `*slow`
+/// is set when a DreamSourceLab device runs below high speed.
+///
+/// # Safety
+/// `out` must have room for `cap` entries, `slow` writable or NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dsv_drv_dslogic_scan(
+    out: *mut DsvUsbLocation,
+    cap: u32,
+    slow: *mut i32,
+) -> u32 {
+    family_scan(Family::DsLogic, out, cap, slow)
+}
+
 /// Probes the DSLogic at `bus`.`address`: 1 and `*out` when it runs the
 /// DSL firmware, 0 after uploading the firmware (it re-enumerates), -1 when
 /// it is gone or does not answer.
@@ -395,24 +439,33 @@ pub unsafe extern "C" fn dsv_drv_dslogic_probe(
     address: u8,
     out: *mut *mut DsvDevice,
 ) -> i32 {
-    guard(|| {
-        let backend = usb_backend();
-        let (list, _) = dslogic::scan(backend.as_ref());
-        let Some(c) = list
-            .iter()
-            .find(|c| c.info.bus == bus && c.info.address == address)
-        else {
-            return -1;
-        };
-        match dslogic::probe(backend.clone(), c) {
-            dslogic::Probed::Device(d) => {
-                unsafe { *out = handle(d) };
-                1
-            }
-            dslogic::Probed::FirmwareUploaded => 0,
-            dslogic::Probed::NotReady => -1,
-        }
-    })
+    family_probe(Family::DsLogic, bus, address, out)
+}
+
+/// DSCope devices (also the Hermelin MSO-E8), as [`dsv_drv_dslogic_scan`].
+///
+/// # Safety
+/// `out` must have room for `cap` entries, `slow` writable or NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dsv_drv_dscope_scan(
+    out: *mut DsvUsbLocation,
+    cap: u32,
+    slow: *mut i32,
+) -> u32 {
+    family_scan(Family::DsCope, out, cap, slow)
+}
+
+/// Probes a DSCope, as [`dsv_drv_dslogic_probe`].
+///
+/// # Safety
+/// `out` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dsv_drv_dscope_probe(
+    bus: u8,
+    address: u8,
+    out: *mut *mut DsvDevice,
+) -> i32 {
+    family_probe(Family::DsCope, bus, address, out)
 }
 
 /// A USB device's bus and address after it reconnected (`sdi->conn`).

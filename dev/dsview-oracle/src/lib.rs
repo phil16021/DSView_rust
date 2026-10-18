@@ -7,6 +7,7 @@ pub mod drv;
 pub mod ffi;
 pub mod rust_run;
 pub mod store;
+pub mod usbsim;
 pub mod watchdog;
 
 use std::path::PathBuf;

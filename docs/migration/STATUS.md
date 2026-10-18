@@ -5,7 +5,7 @@
 | 0 Infrastructure, oracle, baselines | **done, one item deferred** | Deferred: performance baselines (moved to Phase 1b/2, see DEVIATIONS.md). USB traces recorded 2026-10-17 |
 | 1 Formats + store | **done**: 1a formats behind `DSVIEW_IMPL_FORMATS`, 1b sample stores behind `DSVIEW_IMPL_STORE`; Rust becomes the default after one release of A/B | See "Phase 1a" and "Phase 1b" below |
 | 2 Decoder engine | **done**: Rust/PyO3 engine behind `DSVIEW_IMPL_DECODE`; Rust becomes the default after one release of A/B | See "Phase 2" below |
-| 3 Drivers | **in progress**: 3a demo, 3b file, 3c USB layer and 3d DSLogic done (`DSVIEW_IMPL_DRV_DEMO` / `_FILE` / `_DSLOGIC`); next 3e DSCope/E8 | See "Phase 3" below |
+| 3 Drivers | **done except hardware steps**: 3a demo, 3b file, 3c USB layer, 3d DSLogic, 3e DSCope/MSO-E8 (`DSVIEW_IMPL_DRV_DEMO` / `_FILE` / `_DSLOGIC` / `_DSCOPE`). Open: DSLogic replug and nightly runs, one DSCope/E8 hardware confirmation | See "Phase 3" below |
 | 4 Session + control API | not started | |
 | 5 Rust GUI | not started | Parity checklist: PARITY.md |
 | 6 Removal + packaging | not started | |
@@ -405,7 +405,79 @@ protocol.demo playback, channel keys without a channel, analog overruns and DSO 
 - the three nightly hardware runs the plan asks for.
 
 **Left for later in Phase 3:**
-- 3e DSCope/E8, and the original DSLogic's DSO/DAQ modes, which share that code.
 - Making the demo/file drivers the default (after one release of A/B, with Phase 1/2), then
   deleting `hardware/demo` and `session_driver.c`.
+
+### 3e DSCope and MSO-E8: done (default stays C until a hardware confirmation)
+
+**Shared DSL device** (`crates/dsview-drivers/src/dsl/device.rs`, = `dsl.c`):
+- The DSLogic driver's shared half moved here, as `Dsl` with a `Family`.
+- It gained the DSO and DAQ data paths:
+  - transfer sizing per mode;
+  - the `DSL_setting` divider and counters for DSO/DAQ;
+  - `get_measure()` (the status block behind each DSO frame, read with C's index arithmetic);
+  - instant mode's tail measurement;
+  - the HMCAD1511 ADC power-down at the final stop.
+- `dslogic.rs` and `dscope.rs` hold what `dslogic.c` and `dscope.c` add.
+
+**DSCope driver** (`dscope.rs`; also serves the Hermelin MSO-E8):
+- the 64-bit DSO commands (`dso_cmd_gen`, `dso_offset` with both offset schemes and comb
+  compensation);
+- open: the stored calibration (`dso_load_eep`, the COMB table on cold FPGAs), the HMCAD1511 set-up,
+  `dso_init`;
+- every config key, including ZERO/ZERO_DEFAULT/ZERO_LOAD/ZERO_SET (writing the calibration back),
+  PROBE_VGAIN/PREOFF/COMB_COMP, the bandwidth limit, and the E8's attenuator and logic mode;
+- the auto calibration (`dso_zero`: warm-up, offset-scale fix, per-range offsets, the comb stage,
+  and the HMCAD1511 fine-gain loops) with its state per device (`ZeroCal`);
+- start (ADC branch set-up, fine gains, trigger position, per-channel commands) and the progress
+  polls.
+- C behaviour is kept down to its numeric conversions: x86 truncation and masked shifts, through
+  `c_i32`, `c_u16`, … in `dsl/mod.rs`. Departures: F24 and the table in DEVIATIONS.md.
+- C seam: `rs_dscope_driver_info` (`DSVIEW_IMPL_DRV_DSCOPE=rust`); `rs_driver.c` shares one
+  scan function between the two USB drivers.
+
+**Simulated device** (`crates/dsview-usb/src/sim.rs`):
+- `DslSim` speaks the DSL firmware protocol (registers, NVM, DSO command port, arm block, trigger
+  header, logic/DSO/DAQ data).
+- DSO frames carry a status block whose levels follow the offset commands, plus a settable
+  front-end bias. A perfect device lets the calibration run to its end; a biased one keeps it
+  correcting.
+- Bulk IN completes in ticks. C ticks once per `libusb_handle_events*()`, Rust once per
+  `bulk_in_wait` with a timeout, which gives both drivers the same batches.
+- The oracle links `csrc/fake_libusb.c` instead of libusb, so the C drivers run on the same
+  simulated device. `session.c`'s `g_poll` there lets the virtual clock run.
+- The Rust drivers get the device through `dsview_ffi::drv::set_usb_backend` (`SimBackend`).
+
+**Checks:**
+- **`drv-diff` USB scenarios.** About a third of the generated scenarios pick a DSCope or E8
+  profile, with or without stored calibration, a configured or cold FPGA, and a front-end bias.
+  They then run random DSO/DAQ/logic settings, calibration captures, ZERO_SET/ZERO_LOAD round
+  trips and captures, and compare every USB request either driver sent, besides all answers and
+  packets.
+  - Captures end after a fixed number of data packets or completed transfers, so both stop at the
+    same point.
+  - **3000 scenarios, all identical:** 4.2 million answers and USB requests, 215,000 packets.
+    About 1060 of them were DSCope/E8 scenarios, over all 12 profiles. The scenarios cover
+    calibrations running through all stages, biased devices that keep correcting, EEPROM write and
+    read back, instant mode, DAQ streams, E8 logic captures, and captures whose DSO frames both
+    drivers drop.
+  - The C driver crashed or hung in 164 runs, all in the demo driver (F18, killed after the
+    per-side time limit when it hangs), none on the simulated USB device.
+- Bugs found along the way:
+  - in the Rust port: an overflow panic on the E8's `bits = 0` channels;
+  - in the shim: channel values the driver changes during a capture were not copied back, and the
+    stop that C's session loop issues when a capture ends together with a stop request was missing;
+  - in C: F24.
+- **DSLogic after the restructuring** (live, DSLogic Plus):
+  - the replay tests of the Phase 0 captures are byte-identical as before;
+  - internal test mode, 16.7 million samples, 0 counter errors;
+  - 300 start/stop cycles at random stop times, all ended;
+  - a user stop in the middle of a stream through DSView: `usb-diff` reports the same protocol for
+    C and Rust;
+  - the control transcript is identical with `DSVIEW_IMPL=c` and `rust`.
+
+**Open:**
+- A DSCope or MSO-E8 owner runs the Rust driver once (`DSVIEW_IMPL_DRV_DSCOPE=rust`) before it
+  becomes the default (plan, Phase 3 exit).
+- 3d's replug and nightly hardware steps.
 
