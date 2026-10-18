@@ -121,6 +121,8 @@ pub struct TimeView {
     pub show_samples: bool,
     /// Oscilloscope mode.
     pub dso: crate::dsoview::DsoState,
+    /// Analog mode.
+    pub analog: crate::analogview::AnalogState,
 }
 
 impl Default for TimeView {
@@ -146,6 +148,7 @@ impl Default for TimeView {
             dividers: true,
             show_samples: false,
             dso: crate::dsoview::DsoState::new(),
+            analog: crate::analogview::AnalogState::new(),
         }
     }
 }
@@ -249,6 +252,9 @@ impl TimeView {
     pub fn show(&mut self, ui: &mut Ui, s: &Session) -> bool {
         if s.mode() == dsview_core::Mode::Dso as i32 {
             return self.show_dso(ui, s);
+        }
+        if s.mode() == dsview_core::Mode::Analog as i32 {
+            return self.show_analog(ui, s);
         }
         let tb = timebase(s);
         let full = ui.max_rect();

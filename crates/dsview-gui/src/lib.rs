@@ -2,6 +2,7 @@
 //! (`app`), the time view (`timeview`) and the control API hooks (`hooks`).
 //! The binary is `dsview` (`main.rs`).
 
+pub mod analogview;
 pub mod app;
 pub mod dsoview;
 pub mod hooks;

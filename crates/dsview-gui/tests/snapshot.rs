@@ -85,7 +85,18 @@ fn demo_in_mode(mode: dsview_core::Mode) -> Session {
     let e = list.iter().find(|e| e.name == "Demo Logic").unwrap();
     assert!(s.set_device(e.handle));
     s.switch_work_mode(mode as i32);
-    assert!(s.start_capture(true));
+    if mode == dsview_core::Mode::Analog {
+        // analog captures until stopped: stop once data arrived
+        assert!(s.start_capture(false));
+        let t0 = std::time::Instant::now();
+        while s.data().analog.lock().unwrap().sample_count() < 2000 {
+            assert!(t0.elapsed() < Duration::from_secs(30), "no analog data");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        s.stop_capture();
+    } else {
+        assert!(s.start_capture(true));
+    }
     assert!(s.wait(Duration::from_secs(60), |st| st.ended_seq > 0 && !st.working));
     s
 }
@@ -103,6 +114,22 @@ fn dso_demo_view() {
         });
     harness.run();
     harness.snapshot("dso_demo_view");
+    s.exit();
+}
+
+#[test]
+fn analog_demo_view() {
+    let s = demo_in_mode(dsview_core::Mode::Analog);
+    let mut view = TimeView::default();
+    let s2 = s.clone();
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1100.0, 640.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            view.show(ui, &s2);
+        });
+    harness.run();
+    harness.snapshot("analog_demo_view");
     s.exit();
 }
 
