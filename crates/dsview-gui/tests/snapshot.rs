@@ -703,3 +703,44 @@ fn protocol_export_dialog() {
     assert!(harness.query_by_label("Export Format: ").is_none());
     s.exit();
 }
+
+/// The decoder options' show buttons hide a row at once and stay with the
+/// stack when OK rebuilds it.
+#[test]
+fn decoder_show_buttons() {
+    use egui_kittest::kittest::Queryable;
+    let s = demo_session();
+    let mut dock = dsview_gui::protocol::ProtocolDock::default();
+    let s2 = s.clone();
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(560.0, 900.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            dock.show(ui, &s2);
+        });
+    harness.run();
+    harness.get_all_by_label("Settings").next().unwrap().click();
+    harness.run();
+    let t = s.state().decoders[0].clone();
+    let k = (0..t.stack.rows().len())
+        .find(|&i| t.stack.rows()[i].title().ends_with("Address/Data"))
+        .unwrap();
+    let title = t.stack.rows()[k].title();
+    assert!(t.stack.row_shown(k));
+    harness.get_by_label(&title).click();
+    harness.run();
+    assert!(!t.stack.row_shown(k), "{title} still shown");
+    harness.snapshot("decoder_show_buttons");
+    harness.get_by_label("OK").click();
+    harness.run();
+    let t2 = s.state().decoders[0].clone();
+    assert!(!Arc::ptr_eq(&t, &t2), "the stack was rebuilt");
+    let k2 = t2
+        .stack
+        .rows()
+        .iter()
+        .position(|r| r.title() == title)
+        .unwrap();
+    assert!(!t2.stack.row_shown(k2));
+    s.exit();
+}

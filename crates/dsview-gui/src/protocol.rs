@@ -2,6 +2,7 @@
 //! dialog (`dialogs/decoderoptionsdlg.cpp`) and the protocol export
 //! (`dialogs/protocolexp.cpp`).
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -67,6 +68,21 @@ struct AddDialog {
     region: (usize, usize),
     /// The region the edited stack had, as samples.
     old_region: Option<(u64, u64)>,
+    /// The show buttons: decoder id or row title -> shown (absent: shown).
+    shown: HashMap<String, bool>,
+}
+
+/// The titles of decoder `d`'s rows (`Row::title`): one per annotation row,
+/// or the decoder's name when it has none.
+fn row_titles(d: &DecoderInfo) -> Vec<String> {
+    if d.annotation_rows.is_empty() {
+        vec![d.name.clone()]
+    } else {
+        d.annotation_rows
+            .iter()
+            .map(|r| format!("{}: {}", d.name, r.desc))
+            .collect()
+    }
 }
 
 impl AddDialog {
@@ -115,6 +131,7 @@ impl AddDialog {
             replace: None,
             region: (0, 0),
             old_region: None,
+            shown: HashMap::new(),
         }
     }
 
@@ -158,6 +175,20 @@ impl AddDialog {
             options,
             error: None,
             replace: Some((i, t.name(), *t.view_index.lock().unwrap())),
+            shown: t
+                .stack
+                .decoders()
+                .iter()
+                .enumerate()
+                .map(|(k, d)| (d.info.id.clone(), t.stack.decoder_shown(k)))
+                .chain(
+                    t.stack
+                        .rows()
+                        .iter()
+                        .enumerate()
+                        .map(|(i, r)| (r.title(), t.stack.row_shown(i))),
+                )
+                .collect(),
             region: (0, 0),
             old_region: Some(t.stack.region()),
         }
@@ -210,6 +241,14 @@ impl AddDialog {
         o.insert("options".into(), opts(0).into());
         if !stacked.is_empty() {
             o.insert("stacked decoders".into(), stacked.into());
+        }
+        if !self.shown.is_empty() {
+            let show: Map<String, Value> = self
+                .shown
+                .iter()
+                .map(|(k, v)| (k.clone(), (*v).into()))
+                .collect();
+            o.insert("show".into(), show.into());
         }
         Ok(Value::Object(o))
     }
@@ -529,7 +568,7 @@ impl ProtocolDock {
                             .chain(&root.opt_channels)
                             .find(|c| c.id == *id);
                         let required = root.channels.iter().any(|c| c.id == *id);
-                        ui.label(format!(
+                        let l = ui.label(format!(
                             "{}{}",
                             info.map_or(id.as_str(), |c| c.name.as_str()),
                             if required { " *" } else { "" }
@@ -546,16 +585,47 @@ impl ProtocolDock {
                                 for (i, n) in &logic {
                                     ui.selectable_value(ch, Some(*i), format!("{i}: {n}"));
                                 }
-                            });
+                            })
+                            .response
+                            .labelled_by(l.id);
                         ui.end_row();
                     }
                 });
+            // the edited trace takes the show buttons at once
+            let live = dlg
+                .replace
+                .as_ref()
+                .and_then(|r| s.state().decoders.get(r.0).cloned());
             for (k, d) in dlg.stack.iter().enumerate() {
+                ui.separator();
+                // `DecoderGroupBox`: the decoder's and its rows' show buttons
+                let mut on = dlg.shown.get(&d.id).copied().unwrap_or(true);
+                if ui
+                    .checkbox(&mut on, egui::RichText::new(&d.name).strong())
+                    .changed()
+                {
+                    dlg.shown.insert(d.id.clone(), on);
+                    if let Some(t) = &live {
+                        t.stack.set_decoder_shown(k, on);
+                    }
+                }
+                ui.indent(("dec-rows", k), |ui| {
+                    for title in row_titles(d) {
+                        let mut on = dlg.shown.get(&title).copied().unwrap_or(true);
+                        if ui.checkbox(&mut on, &title).changed() {
+                            if let Some(t) = &live
+                                && let Some(i) =
+                                    t.stack.rows().iter().position(|r| r.title() == title)
+                            {
+                                t.stack.show_row(i, on);
+                            }
+                            dlg.shown.insert(title, on);
+                        }
+                    }
+                });
                 if d.options.is_empty() {
                     continue;
                 }
-                ui.separator();
-                ui.strong(&d.name);
                 egui::Grid::new(("dec-opts", k))
                     .num_columns(2)
                     .show(ui, |ui| {
@@ -563,9 +633,9 @@ impl ProtocolDock {
                             let Some(o) = d.options.iter().find(|o| o.id == *id) else {
                                 continue;
                             };
-                            ui.label(o.desc.clone().unwrap_or_else(|| id.clone()));
+                            let l = ui.label(o.desc.clone().unwrap_or_else(|| id.clone()));
                             if o.values.is_empty() {
-                                ui.text_edit_singleline(text);
+                                ui.text_edit_singleline(text).labelled_by(l.id);
                             } else {
                                 egui::ComboBox::from_id_salt(("opt", k, id.clone()))
                                     .selected_text(text.clone())
@@ -574,7 +644,9 @@ impl ProtocolDock {
                                             let t = opt_text(v);
                                             ui.selectable_value(text, t.clone(), t);
                                         }
-                                    });
+                                    })
+                                    .response
+                                    .labelled_by(l.id);
                             }
                             ui.end_row();
                         }

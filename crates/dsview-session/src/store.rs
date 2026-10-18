@@ -200,7 +200,7 @@ pub fn decoders_json(s: &Session) -> Value {
         let mut obj = Map::new();
         let mut stacked = Vec::new();
         let mut show = Map::new();
-        for d in t.stack.decoders() {
+        for (k, d) in t.stack.decoders().iter().enumerate() {
             let mut options = Map::new();
             for o in &d.info.options {
                 let v = d.options.get(&o.id).or(o.def.as_ref());
@@ -220,14 +220,14 @@ pub fn decoders_json(s: &Session) -> Value {
             } else {
                 stacked.push(json!({"id": d.info.id, "options": options}));
             }
-            show.insert(d.info.id.clone(), d.shown.into());
+            show.insert(d.info.id.clone(), t.stack.decoder_shown(k).into());
         }
         obj.insert("version".into(), DECODER_CONFIG_VERSION.into());
         obj.insert("label".into(), t.name().into());
         obj.insert("stacked decoders".into(), stacked.into());
         obj.insert("view_index".into(), (*t.view_index.lock().unwrap()).into());
-        for r in t.stack.rows() {
-            show.insert(r.title_id(), r.shown.into());
+        for (i, r) in t.stack.rows().iter().enumerate() {
+            show.insert(r.title_id(), t.stack.row_shown(i).into());
         }
         obj.insert("show".into(), show.into());
         out.push(Value::Object(obj));

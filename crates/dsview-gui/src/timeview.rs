@@ -79,13 +79,13 @@ enum DecRow {
 fn decoder_rows(t: &DecodeTrace) -> Vec<DecRow> {
     let st = &t.stack;
     let mut out = Vec::new();
-    for d in st.decoders() {
-        if !d.shown {
+    for (k, d) in st.decoders().iter().enumerate() {
+        if !st.decoder_shown(k) {
             out.push(DecRow::Unshown(d.info.name.clone()));
             continue;
         }
         for (i, r) in st.rows().iter().enumerate() {
-            if r.decoder.id == d.info.id && st.row_stats(i).0 > 0 && r.shown {
+            if r.decoder.id == d.info.id && st.row_stats(i).0 > 0 && st.row_shown(i) {
                 out.push(DecRow::Row {
                     row: i,
                     title: r.title(),

@@ -291,6 +291,10 @@ pub struct DecoderStack {
     /// `set_rows_lshow`: rows the protocol list shows, changed by the user
     /// (else `Row::list_shown`).
     list_shown: Mutex<HashMap<usize, bool>>,
+    /// `Decoder::show` and `set_rows_gshow` while the stack runs (the
+    /// decoder options' show buttons): decoder and row overrides.
+    dec_shown: Mutex<HashMap<usize, bool>>,
+    row_shown: Mutex<HashMap<usize, bool>>,
 }
 
 fn load_index(info: &DecoderInfo) -> usize {
@@ -356,6 +360,8 @@ impl DecoderStack {
             region: Mutex::new((0, u64::MAX)),
             format: std::sync::atomic::AtomicU8::new(0),
             list_shown: Mutex::new(HashMap::new()),
+            dec_shown: Mutex::new(HashMap::new()),
+            row_shown: Mutex::new(HashMap::new()),
         }
     }
 
@@ -368,6 +374,28 @@ impl DecoderStack {
     /// `set_rows_lshow` (the protocol list options' row checkboxes).
     pub fn set_row_list_shown(&self, i: usize, shown: bool) {
         lock(&self.list_shown).insert(i, shown);
+    }
+
+    /// `Decoder::shown()` of decoder `k`.
+    pub fn decoder_shown(&self, k: usize) -> bool {
+        let over = lock(&self.dec_shown).get(&k).copied();
+        over.unwrap_or_else(|| self.decoders.get(k).is_some_and(|d| d.shown))
+    }
+
+    /// `Decoder::show`: the trace draws decoder `k`'s rows or "Unshown".
+    pub fn set_decoder_shown(&self, k: usize, shown: bool) {
+        lock(&self.dec_shown).insert(k, shown);
+    }
+
+    /// `get_rows_gshow()` of row `i`: drawn in the trace.
+    pub fn row_shown(&self, i: usize) -> bool {
+        let over = lock(&self.row_shown).get(&i).copied();
+        over.unwrap_or_else(|| self.rows.get(i).is_some_and(|r| r.shown))
+    }
+
+    /// `set_rows_gshow` while the stack runs.
+    pub fn show_row(&self, i: usize, shown: bool) {
+        lock(&self.row_shown).insert(i, shown);
     }
 
     /// The number format annotations show in.
