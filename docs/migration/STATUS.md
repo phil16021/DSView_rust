@@ -629,6 +629,12 @@ It uses the Rust drivers for every kind of device.
     (F25, below).
   - The transcript was re-recorded from the Qt GUI for this. The old one had the decoder and row
     order of an earlier install of the decoder directory.
+- **Every annotation, C GUI against Rust:**
+  - The Qt GUI on the C core (`DSVIEW_IMPL=c`: SigSession, DecoderStack and the C decoder engine)
+    against `dsview-cli serve`. Both captured the demo, then dumped all four decoders' annotations
+    through `get_annotations`.
+  - All 8,379 annotations are identical: start, end, row title and text. So are the decoder
+    states (stack, progress, counts) and the row sets.
 - `crates/dsview-control/tests/transcript.rs` runs the same transcript in-process over a real
   socket: the repository's demo files and decoders, no USB.
 - `crates/dsview-session/tests/session.rs` covers:
