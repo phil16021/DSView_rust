@@ -8,6 +8,7 @@ pub mod dsotrigger;
 pub mod dsoview;
 pub mod fftview;
 pub mod hooks;
+pub mod lissajousview;
 pub mod mathview;
 pub mod protocol;
 pub mod soak;

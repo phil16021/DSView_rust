@@ -264,6 +264,10 @@ impl eframe::App for App {
                             self.view.dso.math.open_dialog();
                             ui.close();
                         }
+                        if ui.button("Lissajous…").clicked() {
+                            self.view.dso.lissajous.open_dialog(&self.session);
+                            ui.close();
+                        }
                     });
                 });
                 ui.separator();
@@ -351,6 +355,7 @@ impl eframe::App for App {
             .map(|x| (x.index, x.name.clone()))
             .collect();
         self.view.dso.math.dialog(&ctx, &names);
+        self.view.dso.lissajous.dialog(&ctx, &self.session, &names);
         if let Some((handle, name)) = self.switch_prompt.clone() {
             egui::Window::new("New device")
                 .collapsible(false)

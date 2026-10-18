@@ -73,6 +73,8 @@ pub struct DsoState {
     pub hover: Option<(u16, u64, u8, String)>,
     /// The math trace.
     pub math: crate::mathview::MathState,
+    /// The Lissajous figure.
+    pub lissajous: crate::lissajousview::LissajousState,
     /// The math trace's header row (`get_y()`), when shown.
     math_y: Option<i32>,
 }
@@ -334,15 +336,20 @@ impl TimeView {
         painter.rect_filled(header, 0.0, Color32::from_gray(34));
         painter.rect_filled(ruler_rect, 0.0, Color32::from_gray(30));
         let tpainter = ui.painter_at(area);
-        if self.dso.split {
-            for c in &chans {
-                self.paint_grid(&tpainter, area, c.geom.rect, &tb);
-            }
+        if self.dso.lissajous.enabled {
+            // the figure replaces the grid and the traces
+            self.dso.lissajous.paint(&tpainter, s, area, rect.w);
         } else {
-            self.paint_grid(&tpainter, area, rect, &tb);
+            if self.dso.split {
+                for c in &chans {
+                    self.paint_grid(&tpainter, area, c.geom.rect, &tb);
+                }
+            } else {
+                self.paint_grid(&tpainter, area, rect, &tb);
+            }
+            self.paint_dso_traces(&tpainter, s, area, rect, &tb, &chans);
+            self.paint_math(&tpainter, s, area, rect, &tb, &chans);
         }
-        self.paint_dso_traces(&tpainter, s, area, rect, &tb, &chans);
-        self.paint_math(&tpainter, s, area, rect, &tb, &chans);
         self.paint_dso_fore(&tpainter, area, rect, &tb, &chans);
         self.paint_ruler(&painter, ruler_rect, s, &tb);
         self.paint_cursors(&painter, ruler_rect, area, &tb);

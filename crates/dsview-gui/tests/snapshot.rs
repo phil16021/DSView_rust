@@ -217,6 +217,28 @@ fn dso_math_view() {
     s.exit();
 }
 
+#[test]
+fn lissajous_view() {
+    let s = demo_in_mode(dsview_core::Mode::Dso);
+    let mut view = TimeView::default();
+    view.dso.lissajous.enabled = true;
+    (
+        view.dso.lissajous.x,
+        view.dso.lissajous.y,
+        view.dso.lissajous.percent,
+    ) = (0, 1, 100);
+    let s2 = s.clone();
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1100.0, 640.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            view.show(ui, &s2);
+        });
+    harness.run();
+    harness.snapshot("lissajous_view");
+    s.exit();
+}
+
 fn click(h: &mut Harness<'_>, x: f32, y: f32) {
     let pos = egui::pos2(x, y);
     let ev = &mut h.input_mut().events;

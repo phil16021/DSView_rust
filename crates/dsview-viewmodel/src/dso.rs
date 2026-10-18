@@ -499,6 +499,57 @@ pub fn math_envelope_shape(
     Some(TraceShape::Envelope(rects))
 }
 
+/// `LissajousTrace::DIV_NUM`
+pub const LISSAJOUS_DIVS: i32 = 10;
+/// `LissajousOptions::WellLen`: the percent slider keeps at least 16 k
+/// samples.
+pub const LISSAJOUS_WELL_LEN: u64 = 16 * 1024;
+
+/// `LissajousTrace::paint_back`: the centred square and its division
+/// lines (dashed in Qt).
+pub fn lissajous_grid(width: i32, height: i32) -> (IRect, Vec<Seg>) {
+    let square = width.min(height);
+    let border = IRect {
+        x: if width > square { (width - square) / 2 } else { 0 },
+        y: if height > square { (height - square) / 2 } else { 0 },
+        w: square,
+        h: square,
+    };
+    let span = (square / LISSAJOUS_DIVS) as f64;
+    let mut lines = Vec::new();
+    for i in 1..LISSAJOUS_DIVS {
+        // drawLine(int, double, int, double): truncated
+        let y = (border.y as f64 + span * i as f64) as i32 as f32;
+        lines.push((border.x as f32, y, border.right() as f32, y));
+    }
+    for i in 1..LISSAJOUS_DIVS {
+        let x = (border.x as f64 + span * i as f64) as i32 as f32;
+        lines.push((x, border.y as f32, x, border.bottom() as f32));
+    }
+    (border, lines)
+}
+
+/// `LissajousTrace::paint_mid`: the first `percent` % of the samples, x
+/// from one channel and y from the other, 0..255 across the square.
+pub fn lissajous_points(border: IRect, xs: &[u8], ys: &[u8], sample_count: u64, percent: i32) -> Vec<(f32, f32)> {
+    let n = (sample_count as f64 * (percent as f64 / 100.0).min(1.0)) as usize;
+    let n = n.min(xs.len()).min(ys.len());
+    let scale = border.w as f64 / 255.0;
+    let (left, bottom) = (border.x as f64, border.bottom() as f64);
+    (0..n)
+        .map(|i| ((left + xs[i] as f64 * scale) as f32, (bottom - ys[i] as f64 * scale) as f32))
+        .collect()
+}
+
+/// `LissajousOptions`: the percent slider's minimum for `sample_limit`.
+pub fn lissajous_min_percent(sample_limit: u64) -> i32 {
+    if sample_limit > LISSAJOUS_WELL_LEN {
+        (LISSAJOUS_WELL_LEN as f64 * 100.0 / sample_limit as f64).ceil() as i32
+    } else {
+        100
+    }
+}
+
 /// `paint_prepare`: the trigger's sub-sample offset (`trig_hoff`), from the
 /// samples just before the trigger cursor at `trig_index`. None when the
 /// cursor is past the data or no crossing is found (Qt keeps the old
@@ -1076,6 +1127,19 @@ mod tests {
         assert_eq!(r.len(), 2);
         // values grow upwards: C's "bottom" lies above "top", the height is negative
         assert_eq!(r[0], (0.0, 280.0, 1.0, -10.0));
+    }
+
+    #[test]
+    fn lissajous() {
+        let (b, lines) = lissajous_grid(1000, 500);
+        assert_eq!(b, IRect { x: 250, y: 0, w: 500, h: 500 });
+        assert_eq!(lines.len(), 18);
+        assert_eq!(lines[0], (250.0, 50.0, 749.0, 50.0));
+        let p = lissajous_points(b, &[0, 255], &[0, 255], 2, 100);
+        assert_eq!(p, vec![(250.0, 499.0), (750.0, -1.0)]);
+        assert_eq!(lissajous_points(b, &[0; 10], &[0; 10], 10, 50).len(), 5);
+        assert_eq!(lissajous_min_percent(1_000_000), 2);
+        assert_eq!(lissajous_min_percent(10_000), 100);
     }
 
     #[test]
