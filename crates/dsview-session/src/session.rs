@@ -239,6 +239,12 @@ pub struct State {
     capture_work_time: u64,
     setup: CaptureSetup,
     dso_packets: u64,
+    /// DSO: the last frame was triggered, on channel `trig_ch`
+    /// (`_trigger_flag`, `_trigger_ch`).
+    pub trig_flag: bool,
+    pub trig_ch: u8,
+    /// Increments with each DSO frame (`_dso_data_seq`).
+    pub dso_seq: u64,
     /// The device status of the last DSO frame (`_dso_status`), if valid.
     pub dso_status: Option<dsview_core::Status>,
     sel: Selectors,
@@ -1482,6 +1488,8 @@ impl Session {
             st.capture_times += 1;
             st.captures = st.capture_times;
             st.triged = false;
+            st.trig_flag = false;
+            st.trig_ch = 0;
             st.error = crate::session::error::NONE;
             st.setup = setup;
             let logic = mode == Mode::Logic as i32;
@@ -1698,6 +1706,8 @@ impl Session {
                 num_samples,
                 data,
                 samplerate_tog,
+                trig_flag,
+                trig_ch,
                 ..
             } => {
                 let mut store = lock(&self.capture_data().dso);
@@ -1731,6 +1741,12 @@ impl Session {
                     );
                 } else {
                     store.append_payload(data, n, *samplerate_tog);
+                }
+                {
+                    let mut st = self.state();
+                    st.dso_seq += 1;
+                    st.trig_flag = *trig_flag;
+                    st.trig_ch = *trig_ch;
                 }
                 let first = self.state().dso_packets == 1;
                 if n != 0 && (!instant || first) {

@@ -3,6 +3,7 @@
 //! The binary is `dsview` (`main.rs`).
 
 pub mod app;
+pub mod dsoview;
 pub mod hooks;
 pub mod protocol;
 pub mod soak;

@@ -71,6 +71,104 @@ fn protocol_demo_view() {
     s.exit();
 }
 
+/// The demo device in `mode`, after one instant capture.
+fn demo_in_mode(mode: dsview_core::Mode) -> Session {
+    let s = Session::new(
+        Paths {
+            data_dir: root().join("DSView"),
+            profile_dir: None,
+            version: "test".into(),
+        },
+        Arc::new(NoUsb),
+    );
+    let (list, _) = s.devices();
+    let e = list.iter().find(|e| e.name == "Demo Logic").unwrap();
+    assert!(s.set_device(e.handle));
+    s.switch_work_mode(mode as i32);
+    assert!(s.start_capture(true));
+    assert!(s.wait(Duration::from_secs(60), |st| st.ended_seq > 0 && !st.working));
+    s
+}
+
+#[test]
+fn dso_demo_view() {
+    let s = demo_in_mode(dsview_core::Mode::Dso);
+    let mut view = TimeView::default();
+    let s2 = s.clone();
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1100.0, 640.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            view.show(ui, &s2);
+        });
+    harness.run();
+    harness.snapshot("dso_demo_view");
+    s.exit();
+}
+
+fn click(h: &mut Harness<'_>, x: f32, y: f32) {
+    let pos = egui::pos2(x, y);
+    let ev = &mut h.input_mut().events;
+    ev.push(egui::Event::PointerMoved(pos));
+    for pressed in [true, false] {
+        ev.push(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+}
+
+/// The header controls and the timebase knob change the device.
+#[test]
+fn dso_controls() {
+    use dsview_core::key;
+    let s = demo_in_mode(dsview_core::Mode::Dso);
+    let mut view = TimeView::default();
+    let s2 = s.clone();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 640.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            view.show(ui, &s2);
+        });
+    h.run();
+    let factor = |ch: usize| s.config(key::PROBE_FACTOR, Some(ch)).unwrap().get_u64();
+    let vdiv = |ch: usize| s.config(key::PROBE_VDIV, Some(ch)).unwrap().get_u64();
+    let pos1 = s
+        .channels()
+        .iter()
+        .position(|c| c.index == 1 && c.ty == dsview_core::channel_type::DSO)
+        .unwrap();
+    assert_eq!(factor(pos1), 1);
+    // channel 1's header row (the layout's second band of the 594 px area
+    // below the 46 px ruler) is at y = 498; x10 spans 25..60, y - 10..y + 10
+    let y = 498.0;
+    click(&mut h, 40.0, y);
+    h.run();
+    assert_eq!(factor(pos1), 10);
+    // the dial's lower right half steps V/div up
+    let v0 = vdiv(pos1);
+    click(&mut h, 100.0, y + 25.0);
+    h.run();
+    assert!(vdiv(pos1) > v0, "{} > {v0}", vdiv(pos1));
+    // the wheel over the traces steps the timebase
+    let tb0 = s.config_u64(key::TIMEBASE).unwrap();
+    h.input_mut().events.push(egui::Event::PointerMoved(egui::pos2(600.0, 300.0)));
+    h.input_mut().events.push(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Line,
+        delta: egui::vec2(0.0, 1.0),
+        modifiers: egui::Modifiers::NONE,
+        phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Wheel,
+    });
+    h.run();
+    let tb1 = s.config_u64(key::TIMEBASE).unwrap();
+    assert!(tb1 < tb0, "zoom in: {tb1} < {tb0}");
+    s.exit();
+}
+
 #[test]
 fn protocol_dock() {
     let s = demo_session();

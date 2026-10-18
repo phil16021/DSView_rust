@@ -119,6 +119,8 @@ pub struct TimeView {
     pub quick_scroll: bool,
     pub dividers: bool,
     pub show_samples: bool,
+    /// Oscilloscope mode.
+    pub dso: crate::dsoview::DsoState,
 }
 
 impl Default for TimeView {
@@ -143,8 +145,28 @@ impl Default for TimeView {
             quick_scroll: true,
             dividers: true,
             show_samples: false,
+            dso: crate::dsoview::DsoState::new(),
         }
     }
+}
+
+/// This frame's wheel events in Qt's `angleDelta` units (120 per notch):
+/// a line is a notch, 50 points (a trackpad's pixels) are one too. Read from
+/// the events, as egui's smoothed delta spreads a notch over frames.
+pub(crate) fn wheel_angle(i: &egui::InputState) -> (i32, i32) {
+    let (mut x, mut y) = (0.0f32, 0.0f32);
+    for e in &i.events {
+        if let egui::Event::MouseWheel { unit, delta, .. } = e {
+            let k = match unit {
+                egui::MouseWheelUnit::Line => 120.0,
+                egui::MouseWheelUnit::Point => 120.0 / 50.0,
+                egui::MouseWheelUnit::Page => 120.0 * 3.0,
+            };
+            x += delta.x * k;
+            y += delta.y * k;
+        }
+    }
+    (x.round() as i32, y.round() as i32)
 }
 
 struct Font<'a>(&'a egui::Painter, egui::FontId);
@@ -225,6 +247,9 @@ impl TimeView {
     }
 
     pub fn show(&mut self, ui: &mut Ui, s: &Session) -> bool {
+        if s.mode() == dsview_core::Mode::Dso as i32 {
+            return self.show_dso(ui, s);
+        }
         let tb = timebase(s);
         let full = ui.max_rect();
         let header = Rect::from_min_max(full.min, pos2(full.left() + HEADER_WIDTH, full.bottom()));
@@ -579,7 +604,7 @@ impl TimeView {
                     ctrl: i.modifiers.command,
                     shift: i.modifiers.shift,
                 },
-                i.smooth_scroll_delta,
+                wheel_angle(i),
             )
         });
         let spp = self.vp.samples_per_pixel(tb);
@@ -588,13 +613,12 @@ impl TimeView {
 
         // the wheel (egui gives points; Qt's notch is 120 eighths of a degree)
         if let Some(p) = hover
-            && (scroll.x != 0.0 || scroll.y != 0.0)
+            && (scroll.0 != 0 || scroll.1 != 0)
         {
-            let to_qt = |v: f32| (v * 120.0 / 50.0) as i32;
             let x = (p.x - area.left()) as i32;
             match input::wheel(
-                to_qt(scroll.x),
-                to_qt(scroll.y),
+                scroll.0,
+                scroll.1,
                 x,
                 mods,
                 false,
@@ -1111,7 +1135,7 @@ impl TimeView {
         }
     }
 
-    fn paint_ruler(&self, painter: &egui::Painter, rect: Rect, s: &Session, tb: &Timebase) {
+    pub(crate) fn paint_ruler(&self, painter: &egui::Painter, rect: Rect, s: &Session, tb: &Timebase) {
         let small = egui::FontId::proportional(11.0);
         let m = Font(painter, small.clone());
         let trig_pos = s.state().trigger_pos;
@@ -1170,7 +1194,7 @@ impl TimeView {
         }
     }
 
-    fn paint_cursors(&self, painter: &egui::Painter, ruler: Rect, area: Rect, tb: &Timebase) {
+    pub(crate) fn paint_cursors(&self, painter: &egui::Painter, ruler: Rect, area: Rect, tb: &Timebase) {
         for (i, &smp) in self.cursors.samples.iter().enumerate() {
             let x = area.left() + self.vp.index_to_pixel(smp, false, tb) as f32;
             if x < area.left() || x > area.right() {

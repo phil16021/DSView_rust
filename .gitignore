@@ -70,3 +70,8 @@ install_manifest.txt
 
 # USB baseline traces (pinned by testdata/usb/*/manifest.json, stored outside git)
 *.pcapng
+
+# egui_kittest snapshot artefacts
+crates/dsview-gui/tests/snapshots/*.diff.png
+crates/dsview-gui/tests/snapshots/*.new.png
+crates/dsview-gui/tests/snapshots/*.old.png

@@ -468,6 +468,38 @@ impl AnalogStore {
         }
     }
 
+    /// The entries of the level `get_envelope_section` picks for
+    /// `min_length` (its `samples`, `samples_num` long) as a slice.
+    pub fn get_envelope_samples(&self, min_length: f32, probe_index: i32) -> &[EnvelopeSample] {
+        let log_factor = (ENVELOPE_SCALE_FACTOR as f32).ln();
+        let min_level = (((min_length.ln() / log_factor).floor() as i32) - 1).max(0) as usize;
+        (probe_index >= 0)
+            .then(|| self.envelope_levels.get(probe_index as usize))
+            .flatten()
+            .and_then(|l| l.get(min_level))
+            .map_or(&[], |e| &e.samples[..(e.length as usize).min(e.samples.len())])
+    }
+
+    /// `ring_start()`: the oldest sample's position once the ring wrapped.
+    pub fn ring_start(&self) -> u64 {
+        if self.sample_count < self.total_sample_count {
+            0
+        } else {
+            self.ring_sample_count
+        }
+    }
+
+    /// `ring_end()`: the newest sample's position.
+    pub fn ring_end(&self) -> u64 {
+        if self.sample_count == 0 {
+            0
+        } else if self.ring_sample_count == 0 {
+            self.total_sample_count - 1
+        } else {
+            self.ring_sample_count - 1
+        }
+    }
+
     /// One envelope level (for tests): length, ring length, count, entries.
     #[doc(hidden)]
     pub fn envelope(&self, probe: usize, level: usize) -> (u64, u64, u64, &[EnvelopeSample]) {
