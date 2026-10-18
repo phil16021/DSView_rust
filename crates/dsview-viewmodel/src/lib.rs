@@ -26,6 +26,7 @@ pub mod input;
 pub mod layout;
 pub mod logic;
 pub mod measure;
+pub mod progress;
 pub mod ruler;
 pub mod spectrum;
 pub mod viewport;

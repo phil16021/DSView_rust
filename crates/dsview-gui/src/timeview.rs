@@ -15,6 +15,7 @@ use dsview_viewmodel::input::{self, DRAG_TIMER_INTERVAL_MS, Kinetic, Mods, Wheel
 use dsview_viewmodel::layout::{self, LayoutParams, Slot, TraceKind};
 use dsview_viewmodel::logic::{EdgeBuffers, logic_shape};
 use dsview_viewmodel::measure::{self, MouseMeasure};
+use dsview_viewmodel::progress as vprog;
 use dsview_viewmodel::ruler::{self, LabelSlot, TextMeasure, TickKind};
 use dsview_viewmodel::viewport::{Timebase, Viewport};
 use eframe::egui::{self, Color32, Pos2, Rect, Stroke, Ui, pos2, vec2};
@@ -135,6 +136,8 @@ pub struct TimeView {
     pub search: Option<(u64, bool)>,
     /// `cur_samplelimits - 1`, for the decode region's end.
     last_sample: u64,
+    /// When the running capture started (`start_trigger_timer`).
+    wait_since: Option<Instant>,
 }
 
 impl Default for TimeView {
@@ -142,6 +145,7 @@ impl Default for TimeView {
         TimeView {
             vp: Viewport::default(),
             map_zoom_fixed: false,
+            wait_since: None,
             cursors: Cursors::default(),
             kinetic: Kinetic::default(),
             kinetic_last: None,
@@ -390,6 +394,35 @@ impl TimeView {
         let store = s.data().logic.lock().unwrap_or_else(|e| e.into_inner());
         let end_align = store.ring_sample_count().saturating_sub(1);
         let tpainter = ui.painter_at(area);
+        let (working, repeat, limit) = {
+            let st = s.state();
+            (
+                st.working,
+                st.collect_mode == dsview_session::session::CollectMode::Repeat,
+                st.cur_samplelimits,
+            )
+        };
+        if !working {
+            self.wait_since = None;
+        } else if self.wait_since.is_none() {
+            self.wait_since = Some(Instant::now());
+        }
+        let screen = vprog::screen(
+            working,
+            repeat,
+            s.is_realtime_refresh(),
+            store.sample_count() > 0,
+        );
+        if screen == vprog::Screen::Progress {
+            let received = store.sample_count();
+            drop(store);
+            self.paint_progress(&tpainter, area, s, received, limit);
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(vprog::TRIGGER_TIMER_MS));
+            self.paint_ruler(&painter, ruler_rect, s, &tb);
+            self.paint_header(&painter, header, area, &rows, &font_id);
+            return changed;
+        }
         for row in &rows {
             if let Some((t, drows)) = &row.dec {
                 self.paint_decoder(&tpainter, area, row, t, drows, l.signal_height as f32);
@@ -441,6 +474,73 @@ impl TimeView {
         self.paint_actions(&tpainter, area, &tb);
         self.paint_header(&painter, header, area, &rows, &font_id);
         changed
+    }
+
+    /// `Viewport::paintProgress`: the logo in a circle, the received
+    /// samples as a green arc; until data arrives, the blinking dots, the
+    /// device's trigger status and its capture progress as a blue arc.
+    fn paint_progress(
+        &self,
+        p: &egui::Painter,
+        area: Rect,
+        s: &Session,
+        received: u64,
+        limit: u64,
+    ) {
+        let (w, h) = (area.width(), area.height());
+        let g = vprog::Geom::new(w, h);
+        let at = |x: f32, y: f32| pos2(area.left() + x, area.top() + y);
+        let green = Color32::from_rgb(0, 153, 37);
+        let blue = Color32::from_rgb(17, 133, 209);
+        let grey = Color32::from_rgb(160, 160, 164);
+        let fore = Color32::from_gray(220);
+        let arc = |r: f32, percent: f64, c: Color32| {
+            let pts: Vec<Pos2> = g.arc(r, percent).iter().map(|&(x, y)| at(x, y)).collect();
+            if pts.len() > 1 {
+                p.add(egui::Shape::line(pts, Stroke::new(4.0, c)));
+            }
+        };
+        let progress100 = vprog::progress100(received, limit);
+        p.circle_stroke(at(g.cx, g.cy), g.radius - 2.0, Stroke::new(1.0, grey));
+        arc(g.radius, progress100 as f64, green);
+        for ((x, y0, y1), (dx, dy, r)) in g.logo().into_iter().zip(g.logo_dots()) {
+            p.line_segment([at(x, y0), at(x, y1)], Stroke::new(1.0, grey));
+            p.circle_stroke(at(dx, dy), r, Stroke::new(1.0, grey));
+        }
+        let mut captured = 0;
+        if received == 0 {
+            let (dots, r) = g.wait_dots(w, h);
+            let lit = self
+                .wait_since
+                .map_or(0, |t| vprog::lit_dot(t.elapsed().as_millis() as u64));
+            for (i, (x, y)) in dots.into_iter().enumerate() {
+                let c = if i == lit {
+                    fore
+                } else {
+                    fore.gamma_multiply(100.0 / 255.0)
+                };
+                p.circle_filled(at(x, y), r, c);
+            }
+            if let Some((triggered, progress)) = s.capture_status() {
+                captured = progress;
+                p.text(
+                    at(g.cx, g.cy + g.radius * 0.4 + g.radius * 0.25),
+                    egui::Align2::CENTER_CENTER,
+                    vprog::status_text(triggered, progress),
+                    egui::FontId::proportional(13.0),
+                    blue,
+                );
+            }
+        } else {
+            p.text(
+                at(g.cx, g.cy),
+                egui::Align2::CENTER_CENTER,
+                format!("{progress100}%"),
+                egui::FontId::proportional(66.0),
+                green,
+            );
+        }
+        arc((g.radius - 4.0).max(0.0), captured as f64, blue);
     }
 
     /// `DecodeTrace::paint_mid`: each drawn row, detailed or "Zoom in for
@@ -1382,5 +1482,56 @@ impl TimeView {
         let tb = timebase(s);
         let off = index as f64 / (tb.snap_samplerate * self.vp.scale) - (self.vp.width / 2) as f64;
         self.vp.set_scale_offset(self.vp.scale, off as i64, &tb);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dsview_session::Paths;
+    use dsview_usb::{Info, Open, UsbBackend, UsbDevice, UsbError};
+    use egui_kittest::Harness;
+
+    struct NoUsb;
+
+    impl UsbBackend for NoUsb {
+        fn list(&self) -> Result<Vec<Info>, UsbError> {
+            Ok(Vec::new())
+        }
+        fn open(&self, _: u8, _: u8, _: Open) -> Result<Box<dyn UsbDevice>, UsbError> {
+            Err(UsbError::NotFound)
+        }
+    }
+
+    /// The progress screen before any data (the demo reports no trigger
+    /// status) and with 40% of the samples received.
+    #[test]
+    fn progress_screen() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let s = Session::new(
+            Paths {
+                data_dir: root.join("DSView"),
+                profile_dir: None,
+                version: "test".into(),
+            },
+            Arc::new(NoUsb),
+        );
+        let mut results = egui_kittest::SnapshotResults::new();
+        for (received, name) in [(0, "progress_waiting"), (400, "progress_receiving")] {
+            let tv = TimeView::default();
+            let s2 = s.clone();
+            let mut h = Harness::builder()
+                .with_size(egui::vec2(600.0, 360.0))
+                .wgpu()
+                .build_ui(move |ui| {
+                    let r = ui.max_rect();
+                    ui.painter().rect_filled(r, 0.0, Color32::from_gray(24));
+                    tv.paint_progress(&ui.painter_at(r), r, &s2, received, 1000);
+                });
+            h.run_steps(2);
+            h.snapshot(name);
+            results.extend_harness(&mut h);
+        }
+        s.exit();
     }
 }
