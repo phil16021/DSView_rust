@@ -528,8 +528,15 @@ fn device_options_analog() {
 fn dscope_session() -> Session {
     use dsview_usb::Speed;
     use dsview_usb::sim::{Hub, SimBackend, SimConfig};
-    let hub = Arc::new(std::sync::Mutex::new(Hub::new(SimConfig::new(0x2A0E, 0x0002, Speed::High))));
-    let sim = Arc::new(SimBackend::new(hub, Arc::new(|d: Duration| std::thread::sleep(d))));
+    let hub = Arc::new(std::sync::Mutex::new(Hub::new(SimConfig::new(
+        0x2A0E,
+        0x0002,
+        Speed::High,
+    ))));
+    let sim = Arc::new(SimBackend::new(
+        hub,
+        Arc::new(|d: Duration| std::thread::sleep(d)),
+    ));
     let s = Session::new(
         Paths {
             data_dir: root().join("DSView"),
@@ -539,7 +546,10 @@ fn dscope_session() -> Session {
         sim,
     );
     let (list, _) = s.devices();
-    let e = list.iter().find(|e| e.name.contains("DSCope")).expect("simulated DSCope listed");
+    let e = list
+        .iter()
+        .find(|e| e.name.contains("DSCope"))
+        .expect("simulated DSCope listed");
     assert!(s.set_device(e.handle));
     s
 }
@@ -551,7 +561,9 @@ fn calibration_dialog() {
     let s = dscope_session();
     assert_eq!(s.mode(), dsview_core::Mode::Dso as i32);
     s.set_config(key::CALI, ConfValue::Bool(true), None);
-    let cal = std::rc::Rc::new(std::cell::RefCell::new(dsview_gui::calibration::Calibration::open(&s)));
+    let cal = std::rc::Rc::new(std::cell::RefCell::new(
+        dsview_gui::calibration::Calibration::open(&s),
+    ));
     let (c2, s2) = (cal.clone(), s.clone());
     let mut h = Harness::builder()
         .with_size(egui::vec2(700.0, 420.0))
@@ -566,6 +578,22 @@ fn calibration_dialog() {
     h.run();
     assert!(!cal.borrow().open);
     assert!(!s.config(key::CALI, None).unwrap().get_bool());
+    s.exit();
+}
+
+#[test]
+fn store_dialog() {
+    let s = demo_session();
+    let mut d = dsview_gui::storedlg::StoreDialog::new("/tmp/capture.csv".into(), true, false);
+    let s2 = s.clone();
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(560.0, 300.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            d.show(ui.ctx(), &s2, &[45_147, 50_223], "test");
+        });
+    harness.run();
+    harness.snapshot("store_dialog");
     s.exit();
 }
 

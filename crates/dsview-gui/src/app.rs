@@ -38,6 +38,9 @@ pub struct App {
     pub measure: crate::measuredock::MeasureDock,
     pub search: crate::searchdock::SearchDock,
     pub calibration: Option<crate::calibration::Calibration>,
+    pub store: Option<crate::storedlg::StoreDialog>,
+    /// Export: original data (`appOptions.originalData`).
+    pub original_data: bool,
     pub fft: crate::fftview::FftState,
     pub shared: Shared,
     pub version: String,
@@ -78,6 +81,8 @@ impl App {
             measure: crate::measuredock::MeasureDock::default(),
             search: crate::searchdock::SearchDock::default(),
             calibration: None,
+            store: None,
+            original_data: false,
             fft: crate::fftview::FftState::default(),
             shared,
             version: version.into(),
@@ -131,14 +136,28 @@ impl App {
                 if p.extension().is_none_or(|e| e != "dsl") {
                     p.set_extension("dsl");
                 }
-                dsview_session::store::save_dsl(&self.session, &p, &self.version)
+                if self.session.have_view_data() {
+                    self.store = Some(crate::storedlg::StoreDialog::new(
+                        p,
+                        false,
+                        self.original_data,
+                    ));
+                    Ok(())
+                } else {
+                    Err("No data to save.".into())
+                }
             }
             Some(FileJob::Export(p)) => {
-                let fmt = match p.extension().and_then(|e| e.to_str()) {
-                    Some("vcd") => dsview_formats::export::Format::Vcd,
-                    _ => dsview_formats::export::Format::Csv,
-                };
-                dsview_session::store::export(&self.session, &p, fmt)
+                if self.session.have_view_data() {
+                    self.store = Some(crate::storedlg::StoreDialog::new(
+                        p,
+                        true,
+                        self.original_data,
+                    ));
+                    Ok(())
+                } else {
+                    Err("No data to export.".into())
+                }
             }
         };
         if let Err(e) = result {
@@ -423,7 +442,7 @@ impl eframe::App for App {
                 ui.scope_builder(egui::UiBuilder::new().max_rect(bottom), |ui| {
                     self.fft.show(ui, &self.session);
                 });
-            } else if self.search.busy() {
+            } else if self.search.busy() || self.store.as_ref().is_some_and(|d| d.busy()) {
                 // the search holds the logic store; the view waits for it
                 ui.centered_and_justified(|ui| ui.label("Searching…"));
             } else {
@@ -444,6 +463,16 @@ impl eframe::App for App {
             c.show(&ctx, &self.session);
             if !c.open {
                 self.calibration = None;
+            }
+        }
+        if let Some(d) = &mut self.store {
+            let cursors = self.view.cursors.samples.clone();
+            let out = d.show(&ctx, &self.session, &cursors, &self.version);
+            if let Some(m) = d.message.take() {
+                self.message = Some(m);
+            }
+            if matches!(out, crate::storedlg::Outcome::Done) {
+                self.store = None;
             }
         }
         self.fft.dialog(&ctx, &self.session);

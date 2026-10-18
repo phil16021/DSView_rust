@@ -575,6 +575,42 @@ pub fn session_json(s: &Session, version: &str) -> Value {
 /// `StoreSession::save_start` + `save_logic`/`save_dso` for the whole
 /// capture. Errors carry DSView's messages.
 pub fn save_dsl(s: &Session, path: &Path, version: &str) -> Result<(), String> {
+    save_dsl_range(s, path, version, None)
+}
+
+/// `StoreSession::SetDataRange`: the samples between two cursors, the start
+/// rounded down and the end up to whole 64-sample units (0 for either end:
+/// the capture's); an end past the data means the capture's end.
+fn logic_range(
+    store: &dsview_store::logic::LogicStore,
+    range: Option<(u64, u64)>,
+) -> Result<(u64, u64), String> {
+    let ring = store.ring_sample_count();
+    let (mut start, mut end) = range.unwrap_or((0, 0));
+    if start > ring {
+        return Err("ERROR:the start curosr is invalid!".into());
+    }
+    if end > ring {
+        end = 0;
+    }
+    start -= start % 64;
+    if end > 0 && !end.is_multiple_of(64) {
+        end += 64 - end % 64;
+        if end > ring {
+            end = 0;
+        }
+    }
+    Ok((start, if end == 0 { ring } else { end }))
+}
+
+/// [`save_dsl`] of the samples `range` covers (logic captures; other modes
+/// save everything, as C does).
+pub fn save_dsl_range(
+    s: &Session,
+    path: &Path,
+    version: &str,
+    range: Option<(u64, u64)>,
+) -> Result<(), String> {
     let mode = s.mode();
     if !s.have_view_data() {
         return Err("No data to save.".into());
@@ -600,12 +636,23 @@ pub fn save_dsl(s: &Session, path: &Path, version: &str) -> Result<(), String> {
         .iter()
         .filter(|c| c.enabled && sigs.contains(&c.index) && store.has_data(c.index as i32))
         .collect();
+    let ranged = range.is_some_and(|(a, b)| a > 0 || b > 0);
+    let (start, end) = logic_range(&store, range)?;
     let writer = LogicWriter {
         driver,
         samplerate: rate,
-        total_samples: store.sample_count(),
+        // a range is saved as a capture of its own (DEVIATIONS.md)
+        total_samples: if ranged {
+            end - start
+        } else {
+            store.sample_count()
+        },
         trigger_time_ms: time_ms,
-        trigger_pos: trig_pos,
+        trigger_pos: if ranged {
+            trig_pos.saturating_sub(start)
+        } else {
+            trig_pos
+        },
         channels: saved
             .iter()
             .map(|c| WriteChannel {
@@ -622,6 +669,47 @@ pub fn save_dsl(s: &Session, path: &Path, version: &str) -> Result<(), String> {
         .map_err(map)?;
     z.add("decoders", decoders.as_bytes()).map_err(map)?;
     z.add("session", session.as_bytes()).map_err(map)?;
+    if ranged {
+        // the range's bytes per channel, cut into whole blocks again
+        const BLOCK_BYTES: usize = (dsview_store::logic::LEAF_BLOCK_SAMPLES / 8) as usize;
+        for c in &saved {
+            let mut pending: Vec<u8> = Vec::with_capacity(BLOCK_BYTES);
+            let mut n = 0;
+            let mut cursor = start;
+            while cursor < end {
+                let (b, off) = store.get_block_index_with_sample(cursor);
+                let size = store.get_block_size(b) * 8;
+                if size <= off {
+                    break;
+                }
+                let take = (size - off).min(end - cursor);
+                let (buf, level) = store.get_block_buf(b, c.index as i32);
+                let (from, to) = ((off / 8) as usize, ((off + take) / 8) as usize);
+                if buf.is_null() {
+                    pending.extend(std::iter::repeat_n(if level { 0xff } else { 0 }, to - from));
+                } else {
+                    // SAFETY: inside the block's bytes; the store is locked
+                    pending.extend_from_slice(unsafe {
+                        std::slice::from_raw_parts(buf.add(from), to - from)
+                    });
+                }
+                while pending.len() >= BLOCK_BYTES {
+                    let rest = pending.split_off(BLOCK_BYTES);
+                    z.add(&format!("L-{}/{n}", c.index), &pending)
+                        .map_err(map)?;
+                    pending = rest;
+                    n += 1;
+                }
+                cursor += take;
+            }
+            if !pending.is_empty() {
+                z.add(&format!("L-{}/{n}", c.index), &pending)
+                    .map_err(map)?;
+            }
+        }
+        drop(store);
+        return z.finish().map_err(map);
+    }
     let blocks = store.get_block_num();
     let mut fill = Vec::new();
     for c in &saved {
@@ -721,6 +809,18 @@ fn export_kind(ty: i32) -> ChannelKind {
 /// `StoreSession::export_exec` for logic, DSO and analog data (whole
 /// capture; logic rows only where a value changes, DSView's default).
 pub fn export(s: &Session, path: &Path, format: Format) -> Result<(), String> {
+    export_range(s, path, format, None, false)
+}
+
+/// [`export`] of the logic samples between two cursors (`SetDataRange`), as
+/// original data (every sample) or compressed (CSV: changes only).
+pub fn export_range(
+    s: &Session,
+    path: &Path,
+    format: Format,
+    range: Option<(u64, u64)>,
+    original: bool,
+) -> Result<(), String> {
     let mode = s.mode();
     let kind = match mode {
         1 => ChannelKind::Dso,
@@ -746,7 +846,22 @@ pub fn export(s: &Session, path: &Path, format: Format) -> Result<(), String> {
             map_unit: c.map_unit.unwrap_or_default(),
         })
         .collect();
-    let mut ex = Exporter::new(format, kind, channels, 0).map_err(|e| e.to_string())?;
+    // logic: the range's raw start is the output's first sample index
+    let (start_index, end_index) = if kind == ChannelKind::Logic {
+        let store = s.data().logic.lock().unwrap_or_else(|e| e.into_inner());
+        let ring = store.ring_sample_count();
+        let (a, mut b) = range.unwrap_or((0, 0));
+        if a > ring {
+            return Err("ERROR:the start curosr is invalid!".into());
+        }
+        if b > ring {
+            b = 0;
+        }
+        (a, b)
+    } else {
+        (0, 0)
+    };
+    let mut ex = Exporter::new(format, kind, channels, start_index).map_err(|e| e.to_string())?;
     let (rate, time_ms, sigs) = {
         let st = s.state();
         (
@@ -786,12 +901,49 @@ pub fn export(s: &Session, path: &Path, format: Format) -> Result<(), String> {
             .collect();
         let unitsize = sig_idx.len().div_ceil(8);
         const USIZE: u64 = 8192;
+        let (start_block, start_offset) = if start_index > 0 {
+            store.get_block_index_with_sample(start_index)
+        } else {
+            (0, 0)
+        };
+        let (end_block, end_offset) = if end_index > 0 {
+            store.get_block_index_with_sample(end_index)
+        } else {
+            (0, 0)
+        };
         for blk in 0..store.get_block_num() {
+            if blk < start_block {
+                continue;
+            }
+            if blk > end_block && end_block > 0 {
+                break;
+            }
+            let mut block_size = store.get_block_size(blk);
+            if blk == end_block && end_offset / 8 < block_size && end_offset > 0 {
+                block_size = end_offset / 8;
+            }
+            let skip = if blk == start_block && start_offset > 0 {
+                block_size -= start_offset / 8;
+                (start_offset / 8) as usize
+            } else {
+                0
+            };
             let bufs: Vec<(*const u8, bool)> = sig_idx
                 .iter()
-                .map(|&i| store.get_block_buf(blk, i))
+                .map(|&i| {
+                    let (p, level) = store.get_block_buf(blk, i);
+                    // SAFETY: the block holds at least `skip` bytes
+                    (
+                        if p.is_null() {
+                            p
+                        } else {
+                            unsafe { p.add(skip) }
+                        },
+                        level,
+                    )
+                })
                 .collect();
-            let samples = store.get_block_size(blk) * 8;
+            let samples = block_size * 8;
             let mut xbuf = vec![0u8; USIZE as usize * unitsize];
             let mut i = 0;
             while i < samples {
@@ -815,7 +967,7 @@ pub fn export(s: &Session, path: &Path, format: Format) -> Result<(), String> {
                     ex.receive(&ExportPacket::Logic {
                         data: &xbuf[..size * unitsize],
                         unitsize,
-                        export_original: false,
+                        export_original: original,
                     })
                     .map_err(|e| e.to_string())?,
                 )?;

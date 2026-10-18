@@ -179,3 +179,54 @@ fn protocol_export_merges_rows_by_start() {
     assert!(first.starts_with("1,1805880.00,"), "{first}");
     s.exit();
 }
+
+/// A range between cursors: the CSV export holds exactly the full export's
+/// rows from the start sample on, and a saved .dsl reloads as the range.
+#[test]
+fn ranges_for_export_and_save() {
+    use dsview_formats::export::Format;
+    use dsview_session::store;
+    let (_g, s) = session("Demo Logic");
+    assert!(s.start_capture(false));
+    wait(&s, "capture end", |st| st.ended_seq > 0 && !st.working);
+    let dir = std::env::temp_dir().join(format!("dsv-range-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let csv = Format::from_id("csv").unwrap();
+
+    // original data: one row per sample, so rows can be compared by index
+    let (a, b) = (40_000u64, 60_000u64);
+    store::export_range(&s, &dir.join("all.csv"), csv, None, true).unwrap();
+    store::export_range(&s, &dir.join("part.csv"), csv, Some((a, b)), true).unwrap();
+    let rows = |p: &str| -> Vec<String> {
+        std::fs::read_to_string(dir.join(p))
+            .unwrap()
+            .lines()
+            .filter(|l| !l.starts_with(';') && !l.starts_with("Time"))
+            .map(|l| l.split_once(',').map_or(l, |x| x.1).to_owned())
+            .collect()
+    };
+    let (all, part) = (rows("all.csv"), rows("part.csv"));
+    // C cuts at whole bytes: from a / 8 × 8 to b / 8 × 8
+    let (from, to) = ((a / 8 * 8) as usize, (b / 8 * 8) as usize);
+    assert_eq!(part.len(), to - from, "rows");
+    assert_eq!(part, all[from..to]);
+
+    // .dsl: 64-sample units, reloaded as a capture of its own
+    store::save_dsl_range(&s, &dir.join("part.dsl"), "test", Some((a, b))).unwrap();
+    let mut r = dsview_formats::dsl::DslReader::open(&dir.join("part.dsl")).unwrap();
+    let (fa, fb) = (a - a % 64, b.div_ceil(64) * 64);
+    assert_eq!(r.header().total_samples, fb - fa);
+    let store_ = s.data().logic.lock().unwrap();
+    for pos in [0usize, 3] {
+        let bits = r.logic_channel(pos).unwrap();
+        let ch = r.header().channels[pos].index as i32;
+        for i in (0..fb - fa).step_by(97) {
+            let want = store_.get_sample(fa + i, ch);
+            let got = bits[(i / 8) as usize] >> (i % 8) & 1 == 1;
+            assert_eq!(got, want, "channel {ch} sample {}", fa + i);
+        }
+    }
+    drop(store_);
+    let _ = std::fs::remove_dir_all(&dir);
+    s.exit();
+}
