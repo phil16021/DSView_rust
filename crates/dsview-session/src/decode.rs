@@ -400,12 +400,17 @@ impl DecoderStack {
     /// `0..=min(last_sample, captured - 1)` of `store`. `has_signal(i)`:
     /// logic channel `i` is shown (a decoder reads the capture of its first
     /// bound channel's signal).
+    ///
+    /// While `capture_ended` is false the capture is still running (a
+    /// stream shown as it arrives): the decoder waits for its data and stops
+    /// at the capture's end (`set_capture_end_flag`).
     pub fn decode(
         &self,
         store: &Mutex<LogicStore>,
         has_signal: &dyn Fn(i32) -> bool,
         samplerate: f64,
         last_sample: u64,
+        capture_ended: &AtomicBool,
     ) {
         self.stop.store(false, Ordering::SeqCst);
         self.clear();
@@ -424,9 +429,10 @@ impl DecoderStack {
             self.set_error(ERR_REQUIRED_CHANNELS);
             return;
         }
+        let live = !capture_ended.load(Ordering::Acquire);
         let ring = {
             let s = store.lock().unwrap_or_else(|e| e.into_inner());
-            if s.empty() {
+            if !live && s.empty() {
                 sr_err!("ERROR:Decode data is empty.");
                 return;
             }
@@ -437,11 +443,23 @@ impl DecoderStack {
             return;
         }
         self.results().samplerate = samplerate;
-        self.execute(store, ring, last_sample, samplerate);
+        // a live decode runs to the capture's limit; a finished one to its data
+        let last = if live {
+            last_sample
+        } else {
+            last_sample.min(ring.wrapping_sub(1))
+        };
+        self.execute(store, last, samplerate, capture_ended);
     }
 
     /// `execute_decode_stack` + `decode_data`
-    fn execute(&self, store: &Mutex<LogicStore>, sample_count: u64, last_sample: u64, rate: f64) {
+    fn execute(
+        &self,
+        store: &Mutex<LogicStore>,
+        decode_end: u64,
+        rate: f64,
+        capture_ended: &AtomicBool,
+    ) {
         let session = dsview_decode::Session::new();
         let mut prev: Option<Arc<dsview_decode::Instance>> = None;
         let mut bottom = None;
@@ -457,7 +475,6 @@ impl DecoderStack {
             }
             prev = Some(di);
         }
-        let decode_end = last_sample.min(sample_count.wrapping_sub(1));
         session.metadata_set_samplerate(rate as u64);
 
         let class_rows = self.class_rows.clone();
@@ -477,7 +494,7 @@ impl DecoderStack {
             }
         });
         match session.start() {
-            Ok(()) => self.decode_data(store, &session, bottom.as_ref(), decode_end),
+            Ok(()) => self.decode_data(store, &session, bottom.as_ref(), decode_end, capture_ended),
             Err(e) if !e.is_empty() => self.results().error = e,
             Err(_) => {}
         }
@@ -500,6 +517,7 @@ impl DecoderStack {
         session: &dsview_decode::Session,
         bottom: Option<&Arc<dsview_decode::Instance>>,
         decode_end: u64,
+        capture_ended: &AtomicBool,
     ) {
         let map = bottom.map(|b| b.channelmap()).unwrap_or_default();
         let mut i = 0u64;
@@ -507,21 +525,43 @@ impl DecoderStack {
         let mut decoded = 0u64;
         let mut end_time = false;
         let mut failed = false;
+        let mut checked_end = false;
+        // the leaf each decoder channel reads (kept while a live capture
+        // still frees constant leaves)
+        let mut pinned: Vec<*const u8> = vec![std::ptr::null(); map.len()];
         self.results().progress = 0;
 
-        {
-            let s = store.lock().unwrap_or_else(|e| e.into_inner());
-            let count = s.ring_sample_count();
-            if count == 0 {
-                sr_info!("Have no data to decode.");
-                return;
-            }
-            if end_index >= count {
-                end_index = count - 1;
-            }
-        }
-
         while i <= end_index && !self.stop.load(Ordering::Relaxed) {
+            if capture_ended.load(Ordering::Acquire) {
+                if !checked_end {
+                    checked_end = true;
+                    let count = store
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .ring_sample_count();
+                    if count == 0 {
+                        sr_info!("Have no data to decode.");
+                        return;
+                    }
+                    if end_index >= count {
+                        end_index = count - 1;
+                    }
+                    if i >= count {
+                        sr_info!("ERROR: the decoding sample index is out of range.");
+                        break;
+                    }
+                }
+            } else {
+                let count = store
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .ring_sample_count();
+                if i >= count {
+                    // wait for the data
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                    continue;
+                }
+            }
             let mut s = store.lock().unwrap_or_else(|e| e.into_inner());
             let mut chunk_end = end_index;
             let mut ptrs: Vec<(*const u8, usize)> = Vec::with_capacity(map.len());
@@ -539,6 +579,13 @@ impl DecoderStack {
                 }
                 let run = s.get_samples(i, sig);
                 chunk_end = run.end_sample;
+                let k = ptrs.len();
+                if !s.is_able_free() && pinned[k] != run.lbp {
+                    if !pinned[k].is_null() {
+                        s.free_decode_lpb(pinned[k]);
+                    }
+                    pinned[k] = run.lbp;
+                }
                 let len = (run.end_sample.saturating_sub(i & !7)).div_ceil(8) as usize;
                 ptrs.push((run.data, len));
                 consts.push(u8::from(s.get_sample(i, sig)));

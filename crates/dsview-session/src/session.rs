@@ -11,7 +11,7 @@
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant};
 
@@ -290,6 +290,8 @@ struct Inner {
     data: [Data; 2],
     view: AtomicUsize,
     capture: AtomicUsize,
+    /// `set_capture_end_flag`: false while a live decode follows a capture.
+    capture_ended: AtomicBool,
     trigger: Mutex<Trigger>,
     data_dir: PathBuf,
     profile_dir: Option<PathBuf>,
@@ -376,6 +378,7 @@ impl Session {
             data: [Data::new(), Data::new()],
             view: AtomicUsize::new(0),
             capture: AtomicUsize::new(0),
+            capture_ended: AtomicBool::new(true),
             trigger: Mutex::new(Trigger::default()),
             data_dir: paths.data_dir,
             profile_dir: paths.profile_dir,
@@ -1474,18 +1477,33 @@ impl Session {
                 .as_ref()
                 .is_some_and(DeviceDesc::is_file),
         };
-        let swap = {
+        let (swap, live) = {
             let mut st = self.state();
             st.capture_times += 1;
             st.captures = st.capture_times;
             st.triged = false;
             st.error = crate::session::error::NONE;
             st.setup = setup;
+            let logic = mode == Mode::Logic as i32;
             // repeat mode captures into the other buffer while one is shown
-            st.collect_mode == CollectMode::Repeat
-                && mode == Mode::Logic as i32
-                && (!st.stream_mode || st.capture_times > 1)
+            let swap = st.collect_mode == CollectMode::Repeat
+                && logic
+                && (!st.stream_mode || st.capture_times > 1);
+            // a stream shown as it arrives is decoded as it arrives
+            let live = logic
+                && st.stream_mode
+                && match st.collect_mode {
+                    CollectMode::Single => true,
+                    CollectMode::Repeat => st.capture_times == 1,
+                    CollectMode::Loop => false,
+                };
+            (swap, live)
         };
+        if live {
+            self.clear_all_decode_tasks();
+            self.clear_decode_results();
+        }
+        self.0.capture_ended.store(!live, Ordering::Release);
         if swap {
             let other = 1 - self.0.view.load(Ordering::Acquire);
             self.0.capture.store(other, Ordering::Release);
@@ -1501,6 +1519,9 @@ impl Session {
             let mut st = self.state();
             st.working = true;
             st.started_seq += 1;
+        }
+        if live {
+            self.start_all_decoders();
         }
         self.notify();
         self.emit(SessionEvent::CaptureStarted);
@@ -1661,7 +1682,10 @@ impl Session {
                 }
                 if store.last_ended() {
                     store.set_loop(self.state().collect_mode == CollectMode::Loop);
-                    let decoding_live = false;
+                    // constant leaves stay while a live decode may still read them
+                    let decoding_live = self.state().decoding
+                        && self.0.view.load(Ordering::Acquire)
+                            == self.0.capture.load(Ordering::Acquire);
                     store.first_payload(data, setup.limit, &setup.logic, !decoding_live);
                 } else {
                     store.append_payload(data);
@@ -1850,10 +1874,13 @@ impl Session {
                 st.working,
             )
         };
+        // in a single stream capture the decoders run already (live)
         let (mut add, mut swap) = match mode {
-            CollectMode::Single | CollectMode::Loop => (true, false),
-            CollectMode::Repeat => (true, !stream || times > 1),
+            CollectMode::Single => (!stream, false),
+            CollectMode::Loop => (true, false),
+            CollectMode::Repeat => (!stream || times > 1, !stream || times > 1),
         };
+        self.0.capture_ended.store(true, Ordering::Release);
         // a repeat capture that ends after the stop is dropped
         // (swapBackBufferAlways off)
         if mode == CollectMode::Repeat && !working && times > 1 {
@@ -1946,7 +1973,12 @@ impl Session {
                 &|i| signals.contains(&i),
                 rate as f64,
                 last,
+                &self.0.capture_ended,
             );
+            if self.0.capture_ended.load(Ordering::Acquire) {
+                // the leaves kept for a live decode can go now
+                lock(&self.data().logic).decode_end();
+            }
             self.notify();
             self.emit(SessionEvent::DecodeProgress);
         }
