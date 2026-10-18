@@ -1,7 +1,7 @@
 [package]
 name = "dsview-drivers"
 version = "0.1.0"
-description = "DSView device drivers: demo, file replay"
+description = "DSView device drivers: demo, file replay, DSLogic"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -10,3 +10,7 @@ publish.workspace = true
 [dependencies]
 dsview-core = { path = "../dsview-core" }
 dsview-formats = { path = "../dsview-formats" }
+dsview-usb = { path = "../dsview-usb" }
+
+[dev-dependencies]
+serde_json.workspace = true

@@ -20,6 +20,7 @@ struct Scenario {
     trigger: Option<(&'static str, i64)>,
     /// Stop after this long instead of waiting for the capture to finish.
     stop_after: Option<Duration>,
+    samples: u64,
 }
 
 fn scenarios(available_rates: &[u64]) -> Vec<Scenario> {
@@ -49,6 +50,7 @@ fn scenarios(available_rates: &[u64]) -> Vec<Scenario> {
                 channels: ch,
                 trigger: None,
                 stop_after: None,
+                samples: 1_048_576,
             });
         }
     }
@@ -59,6 +61,7 @@ fn scenarios(available_rates: &[u64]) -> Vec<Scenario> {
         channels: 16,
         trigger: Some(("rising", 0)),
         stop_after: Some(Duration::from_secs(2)),
+        samples: 1_048_576,
     });
     out.push(Scenario {
         name: "trigger-high-ch1-stop-while-waiting".into(),
@@ -66,6 +69,17 @@ fn scenarios(available_rates: &[u64]) -> Vec<Scenario> {
         channels: 16,
         trigger: Some(("high", 1)),
         stop_after: Some(Duration::from_secs(2)),
+        samples: 1_048_576,
+    });
+    // a user stop in the middle of a long stream: the driver's second stop
+    // stage (STOP + status read) after the device drained
+    out.push(Scenario {
+        name: "stream-stop-midway".into(),
+        samplerate: rate,
+        channels: 16,
+        trigger: None,
+        stop_after: Some(Duration::from_secs(1)),
+        samples: 10_000_000,
     });
     out
 }
@@ -93,7 +107,7 @@ fn run_steps(c: &mut Client, device: i64, s: &Scenario) -> Result<Value> {
     call(
         c,
         "set_sampling",
-        json!({"samplerate": s.samplerate, "samples": 1_048_576}),
+        json!({"samplerate": s.samplerate, "samples": s.samples}),
     )?;
     match s.stop_after {
         None => call(c, "start_capture", json!({"timeout_s": 30})),
@@ -148,12 +162,14 @@ pub fn record(root: &Path, args: &[&str]) -> Result<()> {
     let mut iface = "usbmon1".to_string();
     let mut out = root.join("testdata/usb/dslogic");
     let mut dry_run = false;
+    let mut only: Option<String> = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match *a {
             "--iface" => iface = it.next().context("--iface usbmonN")?.to_string(),
             "--out" => out = PathBuf::from(it.next().context("--out DIR")?),
             "--dry-run" => dry_run = true,
+            "--only" => only = Some(it.next().context("--only NAME")?.to_string()),
             other => bail!("unexpected argument {other}"),
         }
     }
@@ -181,6 +197,9 @@ pub fn record(root: &Path, args: &[&str]) -> Result<()> {
     std::fs::create_dir_all(&out)?;
     let mut summary = Vec::new();
     for s in scenarios(&rates) {
+        if only.as_deref().is_some_and(|o| !s.name.contains(o)) {
+            continue;
+        }
         let file = out.join(format!("{}.pcapng", s.name));
         let cap = if dry_run {
             None

@@ -11,7 +11,9 @@ use std::ffi::{CStr, CString, c_char, c_void};
 use std::sync::Mutex;
 
 use dsview_core::{Body, Channel, ConfValue, ListItem, Packet, SrError};
+use dsview_drivers::dsl::dslogic;
 use dsview_drivers::{Device, Step, demo, file, sys};
+use dsview_usb::UsbBackend;
 
 use crate::error::{guard, guard_or};
 
@@ -322,6 +324,133 @@ pub unsafe extern "C" fn dsv_drv_file_new(path: *const c_char, out: *mut *mut Ds
             Err(e) => e as i32,
         }
     })
+}
+
+/// `DS_RES_PATH`: FX2 firmware and FPGA bitstreams.
+///
+/// # Safety
+/// `dir` must be NUL-terminated or NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dsv_drv_set_res_dir(dir: *const c_char) {
+    if !dir.is_null() {
+        let d = unsafe { CStr::from_ptr(dir) }
+            .to_string_lossy()
+            .into_owned();
+        guard_or((), || sys::set_res_dir(d.into()));
+    }
+}
+
+fn usb_backend() -> std::sync::Arc<dyn UsbBackend> {
+    static B: std::sync::OnceLock<std::sync::Arc<dyn UsbBackend>> = std::sync::OnceLock::new();
+    B.get_or_init(|| std::sync::Arc::new(dsview_usb::nusb_backend::NusbBackend))
+        .clone()
+}
+
+/// A DSLogic found on the bus (bus number and device address).
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct DsvUsbLocation {
+    pub bus: u8,
+    pub address: u8,
+}
+
+/// DSLogic devices on the bus whose profile matches, up to `cap`; `*slow`
+/// is set when a DreamSourceLab device runs below high speed.
+///
+/// # Safety
+/// `out` must have room for `cap` entries, `slow` writable or NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dsv_drv_dslogic_scan(
+    out: *mut DsvUsbLocation,
+    cap: u32,
+    slow: *mut i32,
+) -> u32 {
+    guard_or(0, || {
+        let (list, too_slow) = dslogic::scan(usb_backend().as_ref());
+        if !slow.is_null() {
+            unsafe { *slow = too_slow as i32 };
+        }
+        let n = list.len().min(cap as usize);
+        for (i, c) in list.iter().take(n).enumerate() {
+            unsafe {
+                *out.add(i) = DsvUsbLocation {
+                    bus: c.info.bus,
+                    address: c.info.address,
+                }
+            };
+        }
+        n as u32
+    })
+}
+
+/// Probes the DSLogic at `bus`.`address`: 1 and `*out` when it runs the
+/// DSL firmware, 0 after uploading the firmware (it re-enumerates), -1 when
+/// it is gone or does not answer.
+///
+/// # Safety
+/// `out` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dsv_drv_dslogic_probe(
+    bus: u8,
+    address: u8,
+    out: *mut *mut DsvDevice,
+) -> i32 {
+    guard(|| {
+        let backend = usb_backend();
+        let (list, _) = dslogic::scan(backend.as_ref());
+        let Some(c) = list
+            .iter()
+            .find(|c| c.info.bus == bus && c.info.address == address)
+        else {
+            return -1;
+        };
+        match dslogic::probe(backend.clone(), c) {
+            dslogic::Probed::Device(d) => {
+                unsafe { *out = handle(d) };
+                1
+            }
+            dslogic::Probed::FirmwareUploaded => 0,
+            dslogic::Probed::NotReady => -1,
+        }
+    })
+}
+
+/// A USB device's bus and address after it reconnected (`sdi->conn`).
+///
+/// # Safety
+/// `h` must be a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dsv_drv_set_location(h: *const DsvDevice, bus: u8, address: u8) {
+    guard_or((), || dev(h).lock().set_location(bus, address));
+}
+
+/// The library's `struct ds_trigger` (`size` must be its size).
+///
+/// # Safety
+/// `h` must be a live handle, `t` readable for `size` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dsv_drv_set_trigger(
+    h: *const DsvDevice,
+    t: *const c_void,
+    size: usize,
+) -> i32 {
+    if t.is_null() || size != std::mem::size_of::<dsview_core::Trigger>() {
+        return SR_ERR_ARG;
+    }
+    guard(|| {
+        let trig = unsafe { t.cast::<dsview_core::Trigger>().read_unaligned() };
+        dev(h).lock().set_trigger(&trig);
+        SR_OK
+    })
+}
+
+/// The `ds_set_last_error` code of the device's last failure (0: none).
+///
+/// # Safety
+/// `h` must be a live handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dsv_drv_last_error(h: *const DsvDevice) -> i32 {
+    guard_or(0, || dev(h).lock().last_error())
 }
 
 /// # Safety
@@ -726,7 +855,7 @@ fn emit_all(packets: &[Packet], emit: DsvEmit, ctx: *mut c_void) {
             trig_status: 0,
         };
         match &p.body {
-            Body::End => {}
+            Body::End | Body::Overflow => {}
             Body::Header {
                 feed_version,
                 start_sec,

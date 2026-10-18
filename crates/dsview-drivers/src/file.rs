@@ -322,7 +322,7 @@ impl Device for FileDevice {
         Ok(())
     }
 
-    fn config_get(&self, id: i32, ch: Option<usize>) -> SrResult<Option<ConfValue>> {
+    fn config_get(&mut self, id: i32, ch: Option<usize>) -> SrResult<Option<ConfValue>> {
         use ConfValue::*;
         let v = self.vdev()?;
         let c = ch.and_then(|i| self.channels.get(i));

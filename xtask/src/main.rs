@@ -9,7 +9,7 @@
 //!   cargo xtask control dump OUT  run it and write the transcript to OUT (A/B of two DSViews)
 //!   cargo xtask control ab --bin <DSView>   same probes with DSVIEW_IMPL=c and rust; must match
 //!   cargo xtask gen-header [--check]   regenerate crates/dsview-ffi/include/dsview_ffi.h (cbindgen)
-//!   cargo xtask usb record [--iface usbmonN] [--out DIR] [--dry-run]
+//!   cargo xtask usb record [--iface usbmonN] [--out DIR] [--dry-run] [--only NAME]
 //!                                record DSLogic USB traffic per scenario (tools/usb/README.md)
 
 mod ab;

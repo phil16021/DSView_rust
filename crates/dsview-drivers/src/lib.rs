@@ -2,6 +2,7 @@
 //!
 //! * [`demo`]: the "virtual-demo" driver (`libsigrok4DSL/hardware/demo`)
 //! * [`file`]: the "virtual-session" driver playing `.dsl` files (`session_driver.c`)
+//! * [`dsl`]: DreamSourceLab USB devices; [`dsl::dslogic`] the DSLogic driver
 //!
 //! A driver hands out [`Device`]s. The C seam (`libsigrok4DSL/hardware/rust/
 //! rs_driver.c`) wraps each in an `sr_dev_driver`, so DSView keeps calling
@@ -14,10 +15,11 @@
 //! forward them (and the GUI can call back into the device) unlocked.
 
 pub mod demo;
+pub mod dsl;
 pub mod file;
 pub mod sys;
 
-use dsview_core::{Channel, ConfValue, Mode, Packet, SrResult, Status};
+use dsview_core::{Channel, ConfValue, Mode, Packet, SrResult, Status, Trigger};
 
 /// What the session loop does after a [`Device::poll`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,7 +69,8 @@ pub trait Device: Send {
     fn close(&mut self) -> SrResult<()>;
 
     /// `config_get`. `Ok(None)` is C's "SR_OK without setting *data".
-    fn config_get(&self, key: i32, ch: Option<usize>) -> SrResult<Option<ConfValue>>;
+    /// (`&mut`: some keys act on the device, e.g. DSLogic WAIT_UPLOAD.)
+    fn config_get(&mut self, key: i32, ch: Option<usize>) -> SrResult<Option<ConfValue>>;
     fn config_set(&mut self, key: i32, value: &ConfValue, ch: Option<usize>) -> SrResult<()>;
     fn config_list(&self, key: i32) -> SrResult<ConfValue>;
     fn status(&self, prg: bool) -> SrResult<Status>;
@@ -81,4 +84,13 @@ pub trait Device: Send {
     fn poll(&mut self, abort: bool, out: &mut Vec<Packet>) -> Step;
     /// `dev_acquisition_stop`, called when the session loop ends.
     fn stop(&mut self, out: &mut Vec<Packet>) -> SrResult<()>;
+
+    /// The `ds_trigger` set up through the library (hardware drivers arm with it).
+    fn set_trigger(&mut self, _t: &Trigger) {}
+    /// A USB device's new bus and address after it reconnected.
+    fn set_location(&mut self, _bus: u8, _address: u8) {}
+    /// The `ds_set_last_error` code of the last failure, 0 if none.
+    fn last_error(&self) -> i32 {
+        0
+    }
 }

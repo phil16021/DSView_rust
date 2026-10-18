@@ -150,3 +150,17 @@ pub fn set_user_dir(dir: PathBuf) {
 pub fn user_dir() -> PathBuf {
     user_dir_cell().read().unwrap().clone()
 }
+
+fn res_dir_cell() -> &'static RwLock<PathBuf> {
+    static DIR: OnceLock<RwLock<PathBuf>> = OnceLock::new();
+    DIR.get_or_init(|| RwLock::new(PathBuf::new()))
+}
+
+/// `DS_RES_PATH` (`ds_set_firmware_resource_dir`): FX2 firmware and FPGA bitstreams.
+pub fn set_res_dir(dir: PathBuf) {
+    *res_dir_cell().write().unwrap() = dir;
+}
+
+pub fn res_dir() -> PathBuf {
+    res_dir_cell().read().unwrap().clone()
+}

@@ -195,6 +195,8 @@ pub enum Body {
         start_usec: i64,
     },
     End,
+    /// `SR_DF_OVERFLOW`: the device lost data (stream mode).
+    Overflow,
     /// `struct ds_trigger_pos`.
     Trigger(TriggerPos),
     /// `sr_datafeed_logic`; `data.len()` is `length`.
@@ -252,6 +254,7 @@ impl Packet {
             Body::Header { .. } => 10000,
             Body::End => 10001,
             Body::Trigger(_) => 10003,
+            Body::Overflow => 10009,
             Body::Logic { .. } => 10004,
             Body::Dso { .. } => 10005,
             Body::Analog { .. } => 10006,
@@ -268,6 +271,54 @@ pub struct TriggerPos {
     pub remain_cnt_l: u32,
     pub remain_cnt_h: u32,
     pub status: u32,
+}
+
+/// `struct ds_trigger` (libsigrok-internal.h): the trigger the GUI sets up
+/// through `ds_trigger_*`, same layout. Stage `TRIGGER_STAGES` holds the
+/// simple trigger.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(C)]
+pub struct Trigger {
+    pub trigger_en: u16,
+    pub trigger_mode: u16,
+    pub trigger_pos: u16,
+    pub trigger_stages: u16,
+    pub trigger_logic: [u8; TRIGGER_STAGES + 1],
+    pub trigger0_inv: [u8; TRIGGER_STAGES + 1],
+    pub trigger1_inv: [u8; TRIGGER_STAGES + 1],
+    pub trigger0: [[u8; MAX_TRIGGER_PROBES]; TRIGGER_STAGES + 1],
+    pub trigger1: [[u8; MAX_TRIGGER_PROBES]; TRIGGER_STAGES + 1],
+    pub trigger0_count: [u32; TRIGGER_STAGES + 1],
+    pub trigger1_count: [u32; TRIGGER_STAGES + 1],
+}
+
+pub const TRIGGER_STAGES: usize = 16;
+pub const TRIGGER_PROBES: usize = 16;
+pub const MAX_TRIGGER_PROBES: usize = 32;
+/// `STriggerDataStage`
+pub const S_TRIGGER_DATA_STAGE: usize = 3;
+/// `trigger_mode` values
+pub const SIMPLE_TRIGGER: u16 = 0;
+pub const ADV_TRIGGER: u16 = 1;
+pub const SERIAL_TRIGGER: u16 = 2;
+
+impl Default for Trigger {
+    /// `ds_trigger_init()`
+    fn default() -> Self {
+        Trigger {
+            trigger_en: 0,
+            trigger_mode: SIMPLE_TRIGGER,
+            trigger_pos: 0,
+            trigger_stages: 0,
+            trigger_logic: [1; TRIGGER_STAGES + 1],
+            trigger0_inv: [0; TRIGGER_STAGES + 1],
+            trigger1_inv: [0; TRIGGER_STAGES + 1],
+            trigger0: [[b'X'; MAX_TRIGGER_PROBES]; TRIGGER_STAGES + 1],
+            trigger1: [[b'X'; MAX_TRIGGER_PROBES]; TRIGGER_STAGES + 1],
+            trigger0_count: [0; TRIGGER_STAGES + 1],
+            trigger1_count: [0; TRIGGER_STAGES + 1],
+        }
+    }
 }
 
 /// `LA_CROSS_DATA`.

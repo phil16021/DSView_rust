@@ -5,7 +5,7 @@
 | 0 Infrastructure, oracle, baselines | **done, one item deferred** | Deferred: performance baselines (moved to Phase 1b/2, see DEVIATIONS.md). USB traces recorded 2026-10-17 |
 | 1 Formats + store | **done**: 1a formats behind `DSVIEW_IMPL_FORMATS`, 1b sample stores behind `DSVIEW_IMPL_STORE`; Rust becomes the default after one release of A/B | See "Phase 1a" and "Phase 1b" below |
 | 2 Decoder engine | **done**: Rust/PyO3 engine behind `DSVIEW_IMPL_DECODE`; Rust becomes the default after one release of A/B | See "Phase 2" below |
-| 3 Drivers | **in progress**: 3a demo and 3b file drivers done, behind `DSVIEW_IMPL_DRV_DEMO` / `DSVIEW_IMPL_DRV_FILE`; next 3c USB layer and 3d DSLogic | See "Phase 3" below |
+| 3 Drivers | **in progress**: 3a demo, 3b file, 3c USB layer and 3d DSLogic done (`DSVIEW_IMPL_DRV_DEMO` / `_FILE` / `_DSLOGIC`); next 3e DSCope/E8 | See "Phase 3" below |
 | 4 Session + control API | not started | |
 | 5 Rust GUI | not started | Parity checklist: PARITY.md |
 | 6 Removal + packaging | not started | |
@@ -334,10 +334,78 @@ protocol.demo playback, channel keys without a channel, analog overruns and DSO 
 - **F21:** demo logic playback ignores disabled channels (it shifts data); `map_unit` dangles;
   NULL-channel crash; two END packets per DSO capture.
 
+### 3c USB layer, 3d DSLogic driver: done (hardware steps that need a replug open)
+
+**`crates/dsview-usb`:**
+- `UsbBackend`/`UsbDevice` traits. Every call has a timeout; bulk IN is an ordered queue of
+  transfers that can be cancelled as a whole.
+- **nusb backend:** no libusb.
+- **Trace reader:** usbmon pcapng (`dumpcap -i usbmonN`).
+- **Replay device:** plays the device side of a C-driver capture. It checks every vendor request
+  and bulk OUT the driver sends, and answers with the recorded responses and sample data. It
+  releases bulk IN data only after the commands that preceded it in the capture.
+  Timing-dependent status polls are optional; the header offsets C leaves unset (F22) are not
+  compared.
+- **Tools:**
+  - `usb-dump`: a capture as protocol steps;
+  - `usb-diff`: compares two captures with the replay's rules;
+  - `usb-probe`: lists devices and reads a DSLogic's firmware version.
+
+**DSLogic driver** (`crates/dsview-drivers/src/dsl`):
+- Logic mode of `dslogic.c` and the shared parts of `dsl.c`:
+  - scan, profile match and firmware upload;
+  - open: firmware version, FPGA configuration or HDL version check, the security handshake,
+    the threshold;
+  - all config keys;
+  - the 372-byte `DSL_setting` and the 32-channel extension;
+  - transfer sizing as in C, the trigger header, data trimming;
+  - progress and overflow polls, the two-step stop.
+- Profiles, channel modes and lists are generated from `dsl.h` (`tools/gen/dsl_tables.py`; the
+  DSCope profiles are already in).
+- C seam: `rs_driver.c` registers the driver in place of `DSLogic_driver_info`.
+  - Each device is keyed by the `libusb_device` that lib_main's hotplug thread knows, so attach,
+    detach, the 500 ms reconnect merge and the duplicate check work unchanged.
+  - The GUI's `ds_trigger` is passed in when a capture starts.
+  - Device errors reach `ds_set_last_error()`.
+
+**Checks:**
+- **Replay of the Phase 0 C captures** (`tests/dslogic_replay.rs`). Opening the device (startup
+  trace) and all 11 capture scenarios match the C driver step for step, including every
+  `DSL_setting` byte. The scenarios are 1, 5 and 20 MHz with 16, 8 and 4 channels, plus two trigger
+  waits stopped through WAIT_UPLOAD. The delivered data equals the captured bulk data, exactly
+  `limit` samples. Mutation checks: a changed mode bit and a wrong trim are caught. A changed
+  trigger-position cap and the second stop stage are not reached by these captures; the second
+  stop stage is covered live below.
+- **Trigger masks against C** (`dev/dsview-oracle/tests/trigger_diff.rs`): 2000 random triggers set
+  through the C `ds_trigger_*` API (16 advanced stages, the simple stage, 32 probes), all six masks
+  for every stage, both probe halves and half/quarter rate, about 1.6 million values. All equal;
+  C's `struct ds_trigger` also reads as `dsview_core::Trigger`.
+- **Live, DSLogic Plus (PID 0x0034, firmware 2.2), C and Rust in the same staged DSView:**
+  - usbmon recordings of the startup and 12 scenarios with `DSVIEW_IMPL=c` and `rust`. The 12 are
+    the Phase 0 set plus a new user stop in the middle of a 10 s stream.
+  - `usb-diff` reports the same protocol for all 13, including the stop's second stage (FORCE_RDY,
+    drain, STOP, status read).
+  - The capture results (samples, duration) are identical. Only the stop latency differs (51 vs
+    72 ms) and, with it, how many transfers arrive before the stop (53 vs 56).
+- **Rust driver alone** (`cargo run --example dslogic`):
+  - internal test mode, 16.7 million samples at 100 MHz, checked against the counter pattern:
+    0 errors;
+  - buffer mode, 10 million samples at 100 MHz;
+  - a stop during a stream;
+  - **1000 start/stop cycles** at random rates and stop times. All ended in 9 minutes, using 3.6 s
+    of CPU (no busy waiting).
+- Every demo, file and decoder check still passes. `drv-diff` was rerun after the shim changes,
+  and the control transcript is identical with everything in Rust (the DSLogic attached and scanned
+  by the Rust driver).
+
+**Open for 3d (each needs someone at the device):**
+- firmware upload and FPGA configuration from cold (the device had both loaded; that needs a
+  replug);
+- unplug and replug during a capture with the Rust driver;
+- the three nightly hardware runs the plan asks for.
+
 **Left for later in Phase 3:**
-- 3c USB layer: nusb backend, recording, replay of the Phase 0 traces, simulator.
-- 3d DSLogic driver.
-- 3e DSCope/E8.
+- 3e DSCope/E8, and the original DSLogic's DSO/DAQ modes, which share that code.
 - Making the demo/file drivers the default (after one release of A/B, with Phase 1/2), then
   deleting `hardware/demo` and `session_driver.c`.
 

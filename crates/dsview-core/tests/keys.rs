@@ -47,3 +47,13 @@ fn status_layout_is_c() {
         156
     );
 }
+
+#[test]
+fn trigger_layout_is_c() {
+    // struct ds_trigger: 4 u16, 3 x 17 bytes, 2 x 17 x 32 chars, 2 x 17 u32
+    assert_eq!(std::mem::size_of::<dsview_core::Trigger>(), 1284);
+    assert_eq!(
+        std::mem::offset_of!(dsview_core::Trigger, trigger0_count),
+        1148
+    );
+}

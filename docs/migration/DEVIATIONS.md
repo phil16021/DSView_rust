@@ -288,6 +288,27 @@ Found while porting, identical in Rust unless noted:
   in the file, so after disabling a channel the packets differed. `DslReader::set_channel_enabled`
   now takes the live flags, in the Rust file driver and in `session_driver.c`'s Rust path.
 
+### F22. Command headers carry stack contents on the wire
+**Observed (Phase 3, usbmon traces of the C driver):** `struct ctl_header.offset` is never set for
+some commands. It goes to the device as whatever the stack held:
+- CTL_WR START, STOP and BULK_WR (the BULK_WR before arming showed `0x9897` in every trace);
+- CTL_RD_PRE FW_VERSION and HW_STATUS (`0xa1ad` once while opening).
+
+DSLogic firmware ignores the field for these commands. This fork already zeroes it for PROG_B, SYS,
+LED, INTRDY and WORDWIDE, after MSO-E8 firmware wrote INTRDY's byte into its EEPROM through a garbage
+offset.
+
+**Rust behaviour:** 0. The replay device and `usb-diff` do not compare these two bytes.
+
+### F23. More of the DSLogic driver's C defects
+- **Unbounded waits.** Arming polls HW_STATUS for SYS_CLR with `while(1)`; FPGA configuration
+  does the same for INIT_B, GPIF_DONE and FPGA_DONE. The data transfers have no timeout, and
+  stopping waits until the device has drained them. A device that stops answering hangs the
+  collect thread, and `ds_stop_collect()` blocks with it.
+- **NULL dereference.** `config_list(SR_CONF_PROBE_VDIV)` walks `dev_caps.vdivs`, which is NULL
+  for every DSLogic profile. The GUI asks only for DSO and DAQ channels, so this does not happen in
+  practice.
+
 ## Planned behaviour deviations (Rust intentionally differs)
 
 | Area | C behaviour | Rust behaviour | Phase |
@@ -325,6 +346,12 @@ Found while porting, identical in Rust unless noted:
 | Demo driver, channel keys without a channel | NULL dereference | SR_ERR_ARG | 3a ✔ |
 | Demo/file `map_unit` | Pointer into a freed GVariant | Copied string (interned in the shim) | 3a/3b ✔ |
 | Demo random data and timing | `rand()` and the wall clock | Same algorithm on `dsview_drivers::sys` (process-wide RNG and clock, replaceable in tests) | 3a ✔ |
+| DSLogic command header offsets (F22) | Stack contents | 0 | 3d ✔ |
+| DSLogic status polls (arm, FPGA configuration) | Loop until the bit is set | At most 200 reads, then an error | 3d ✔ |
+| DSLogic stop | Waits for the device to drain, without a time limit | Waits 3 s, then cancels the transfers and ends the capture | 3d ✔ |
+| DSLogic `PROBE_VDIV` list without a range table | NULL dereference | Empty list | 3d ✔ |
+| DSLogic profile check | Reads manufacturer/product over USB (GET_DESCRIPTOR) | Takes them from the OS device list (sysfs on Linux), so no USB traffic while scanning | 3d ✔ |
+| Original DSLogic (PID 0x0001), DSO and DAQ modes | Supported | Not yet: they share their code with the DSCope and arrive with it (3e); setting the mode fails | 3d |
 | DSO envelope, `cal_vrms`, `cal_vmean` | Implemented, never called | Not ported; under `DSVIEW_IMPL_STORE=rust`, `enable_envelope` is a no-op and the two return 0 | 1b ✔ |
 | Analog data/DSO frames/envelopes before they are written | `malloc`: uninitialised | Zeroed | 1b ✔ |
 
@@ -353,3 +380,7 @@ Found while porting, identical in Rust unless noted:
 | Phase 3: `compat/rs_driver.c` | `libsigrok4DSL/hardware/rust/rs_driver.c`, next to the other shims (`output/rs_output.c`, `rs_decode.c`) | Same place as the code it stands in for |
 | Phase 3: `dsview-usb-fake` for the demo/file drivers | The real libsigrok4DSL `ds_*` API in the oracle, with the C and the Rust driver selected by `DSVIEW_IMPL_DRV_*` | The demo and file drivers do no USB; the fake is for 3c/3d |
 | Oracle C build | Now `NDEBUG` (as DSView's Release build) and `DSVIEW_RUST_CORE` (the shims are linked) | The driver oracle needs the shipped app's behaviour (`sr_config_get` asserts are off there) and the Rust drivers behind the same API. The goldens are unchanged |
+| Phase 3c: `dsview-usb-fake` (a libusb with simulated devices for C and Rust) | Replay of the Phase 0 C captures against the Rust driver, plus usbmon recordings of both drivers on the real DSLogic compared with `usb-diff` | The captures pin the C driver's real traffic, including the device's answers and data; the hardware is here. The fake (and the simulator) come with the DSCope, which is not |
+| Phase 3c: recording backend (`DSVIEW_USB_RECORD`) | usbmon (`dumpcap`) records any driver; `usb-dump` and `usb-diff` read the files | usbmon needs no driver support and records C and Rust alike |
+| Phase 3: Rust USB through the C library's hotplug | The Rust driver enumerates with nusb; the shim keys each device by lib_main's `libusb_device`, so the C hotplug, reconnect and duplicate checks keep working | lib_main's hotplug thread stays until the session moves to Rust (Phase 4) |
+

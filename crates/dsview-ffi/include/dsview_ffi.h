@@ -213,6 +213,14 @@ typedef struct dsv_conf {
 } dsv_conf;
 
 /**
+ * A DSLogic found on the bus (bus number and device address).
+ */
+typedef struct dsv_usb_location {
+  uint8_t bus;
+  uint8_t address;
+} dsv_usb_location;
+
+/**
  * `struct sr_dev_inst` identity fields.
  */
 typedef struct dsv_dev_info {
@@ -634,6 +642,57 @@ uint32_t dsv_drv_demo_scan(struct dsv_device **out, uint32_t cap);
  * `path` must be NUL-terminated, `out` writable.
  */
 int32_t dsv_drv_file_new(const char *path, struct dsv_device **out);
+
+/**
+ * `DS_RES_PATH`: FX2 firmware and FPGA bitstreams.
+ *
+ * # Safety
+ * `dir` must be NUL-terminated or NULL.
+ */
+void dsv_drv_set_res_dir(const char *dir);
+
+/**
+ * DSLogic devices on the bus whose profile matches, up to `cap`; `*slow`
+ * is set when a DreamSourceLab device runs below high speed.
+ *
+ * # Safety
+ * `out` must have room for `cap` entries, `slow` writable or NULL.
+ */
+uint32_t dsv_drv_dslogic_scan(struct dsv_usb_location *out, uint32_t cap, int32_t *slow);
+
+/**
+ * Probes the DSLogic at `bus`.`address`: 1 and `*out` when it runs the
+ * DSL firmware, 0 after uploading the firmware (it re-enumerates), -1 when
+ * it is gone or does not answer.
+ *
+ * # Safety
+ * `out` writable.
+ */
+int32_t dsv_drv_dslogic_probe(uint8_t bus, uint8_t address, struct dsv_device **out);
+
+/**
+ * A USB device's bus and address after it reconnected (`sdi->conn`).
+ *
+ * # Safety
+ * `h` must be a live handle.
+ */
+void dsv_drv_set_location(const struct dsv_device *h, uint8_t bus, uint8_t address);
+
+/**
+ * The library's `struct ds_trigger` (`size` must be its size).
+ *
+ * # Safety
+ * `h` must be a live handle, `t` readable for `size` bytes.
+ */
+int32_t dsv_drv_set_trigger(const struct dsv_device *h, const void *t, size_t size);
+
+/**
+ * The `ds_set_last_error` code of the device's last failure (0: none).
+ *
+ * # Safety
+ * `h` must be a live handle.
+ */
+int32_t dsv_drv_last_error(const struct dsv_device *h);
 
 /**
  * # Safety

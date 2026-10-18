@@ -16,3 +16,4 @@ dsview-decode = { path = "../dsview-decode" }
 dsview-drivers = { path = "../dsview-drivers" }
 dsview-formats = { path = "../dsview-formats" }
 dsview-store = { path = "../dsview-store" }
+dsview-usb = { path = "../dsview-usb" }

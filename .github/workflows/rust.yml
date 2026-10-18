@@ -54,6 +54,8 @@ jobs:
         run: |
           cargo build --release --locked -p dsview-oracle --bins
           ./target/release/decode-diff --runs 4 --jobs 2 --seed "$GITHUB_RUN_NUMBER"
+      - name: DSLogic trigger masks, C vs Rust
+        run: cargo test --release --locked -p dsview-oracle --test trigger_diff
       - name: Demo and file drivers, C vs Rust (seeded scenarios through the ds_* API)
         run: ./target/release/drv-diff --runs 200 --jobs 2 --seed "$((GITHUB_RUN_NUMBER * 1000))"
 

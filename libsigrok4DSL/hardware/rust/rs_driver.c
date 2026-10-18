@@ -2,8 +2,9 @@
  * Drivers backed by the Rust core (crates/dsview-drivers via dsv_drv_* in
  * dsview_ffi.h), used instead of their C counterparts when
  * DSVIEW_IMPL_DRV_<NAME>=rust (or DSVIEW_IMPL=rust): the demo driver
- * (DRV_DEMO, in sr_driver_list) and the file driver (DRV_FILE, in
- * sr_new_virtual_device). Transitional: removed with the C drivers.
+ * (DRV_DEMO) and DSLogic driver (DRV_DSLOGIC), both in sr_driver_list, and
+ * the file driver (DRV_FILE, in sr_new_virtual_device). Transitional:
+ * removed with the C drivers.
  *
  * The struct sr_dev_inst the library and the GUI use stays in C. Its channel
  * list mirrors the Rust device's: fields the GUI writes directly (enabled,
@@ -24,6 +25,10 @@
 #define LOG_PREFIX "rs-driver: "
 
 extern char DS_USR_PATH[500];
+extern char DS_RES_PATH[500];
+extern struct ds_trigger *trigger;
+
+_Static_assert(sizeof(struct ds_trigger) == 1284, "struct ds_trigger layout (dsview_core::Trigger)");
 
 _Static_assert(sizeof(struct sr_status) == 160, "struct sr_status layout (dsview_core::Status)");
 
@@ -155,6 +160,27 @@ static void get_device(struct sr_dev_inst *sdi)
 
     gen = dsv_drv_channel_generation(rs->h);
     n = dsv_drv_channel_count(rs->h);
+    if (gen == rs->generation && g_slist_length(sdi->channels) != n) {
+        /* dsl_adjust_probes(): the list grew or shrank at its end, the
+         * existing channels stay */
+        while (g_slist_length(sdi->channels) > n) {
+            GSList *last = g_slist_last(sdi->channels);
+            struct sr_channel *p = last->data;
+            sdi->channels = g_slist_delete_link(sdi->channels, last);
+            safe_free(p->name);
+            safe_free(p->trigger);
+            g_free(p);
+        }
+        for (i = g_slist_length(sdi->channels); i < n; i++) {
+            struct sr_channel *p;
+            if (dsv_drv_channel_get(rs->h, i, &c) != SR_OK)
+                break;
+            p = sr_channel_new(c.index, c.ty, c.enabled, c.name);
+            if (p == NULL)
+                break;
+            sdi->channels = g_slist_append(sdi->channels, p);
+        }
+    }
     if (gen != rs->generation || g_slist_length(sdi->channels) != n) {
         sr_dev_probes_free(sdi);
         for (i = 0; i < n; i++) {
@@ -366,11 +392,19 @@ static const GSList *rs_dev_mode_list(const struct sr_dev_inst *sdi)
 
 static int rs_dev_open(struct sr_dev_inst *sdi)
 {
-    int ret;
+    int ret, err;
     dsv_drv_set_user_dir(DS_USR_PATH);
+    dsv_drv_set_res_dir(DS_RES_PATH);
+    if (sdi->dev_type == DEV_TYPE_USB && sdi->conn != NULL) {
+        /* lib_main updates bus/address when the device reconnected */
+        struct sr_usb_dev_inst *usb = sdi->conn;
+        dsv_drv_set_location(H(sdi), usb->bus, usb->address);
+    }
     put_channels(sdi);
     ret = dsv_drv_open(H(sdi));
     get_device(sdi);
+    if (ret != SR_OK && (err = dsv_drv_last_error(H(sdi))) != 0)
+        ds_set_last_error(err);
     return ret;
 }
 
@@ -488,10 +522,16 @@ static int rs_dev_acquisition_start(struct sr_dev_inst *sdi, void *cb_data)
     (void)cb_data;
 
     put_channels(sdi);
+    if (trigger != NULL)
+        dsv_drv_set_trigger(H(sdi), trigger, sizeof(*trigger));
     ret = dsv_drv_start(H(sdi), rs_emit, sdi);
     get_device(sdi);
-    if (ret != SR_OK)
+    if (ret != SR_OK) {
+        int err = dsv_drv_last_error(H(sdi));
+        if (err != 0)
+            ds_set_last_error(err);
         return ret;
+    }
     return sr_session_source_add(-1, 0, 0, rs_receive, sdi);
 }
 
@@ -558,6 +598,122 @@ SR_PRIV struct sr_dev_driver rs_demo_driver_info = {
     .init = rs_demo_init,
     .cleanup = rs_cleanup,
     .scan = rs_demo_scan,
+    .dev_mode_list = rs_dev_mode_list,
+    .config_get = rs_config_get,
+    .config_set = rs_config_set,
+    .config_list = rs_config_list,
+    .dev_open = rs_dev_open,
+    .dev_close = rs_dev_close,
+    .dev_destroy = rs_dev_destroy,
+    .dev_status_get = rs_dev_status_get,
+    .dev_acquisition_start = rs_dev_acquisition_start,
+    .dev_acquisition_stop = rs_dev_acquisition_stop,
+    .priv = NULL,
+};
+
+/* ---------------------------------------------------------- DSLogic */
+
+SR_PRIV struct sr_dev_driver rs_dslogic_driver_info;
+
+static int rs_dslogic_init(struct sr_context *sr_ctx)
+{
+    dsv_drv_set_log(rs_log);
+    return std_hw_init(sr_ctx, &rs_dslogic_driver_info, LOG_PREFIX);
+}
+
+/* The libusb device lib_main's hotplug handling knows this device as. */
+static libusb_device *find_libusb_device(uint8_t bus, uint8_t address)
+{
+    struct drv_context *drvc = rs_dslogic_driver_info.priv;
+    libusb_device **list = NULL, *found = NULL;
+
+    if (drvc == NULL || libusb_get_device_list(drvc->sr_ctx->libusb_ctx, &list) < 0 || list == NULL)
+        return NULL;
+    for (int i = 0; list[i]; i++) {
+        if (libusb_get_bus_number(list[i]) == bus && libusb_get_device_address(list[i]) == address) {
+            found = libusb_ref_device(list[i]);
+            break;
+        }
+    }
+    libusb_free_device_list(list, 1);
+    return found;
+}
+
+/* scan(): the Rust driver finds and probes the devices; each one is keyed
+ * by lib_main's libusb_device, so hotplug and reconnect work as for C. */
+static GSList *rs_dslogic_scan(GSList *options)
+{
+    struct dsv_usb_location locs[16];
+    GSList *devices = NULL;
+    int32_t slow = 0;
+    uint32_t n, i;
+    int num = 0;
+    (void)options;
+
+    dsv_drv_set_res_dir(DS_RES_PATH);
+    sr_info("Scan DSLogic device...");
+    n = dsv_drv_dslogic_scan(locs, G_N_ELEMENTS(locs), &slow);
+    for (i = 0; i < n; i++) {
+        struct dsv_device *h = NULL;
+        struct dsv_dev_info info;
+        struct sr_dev_inst *sdi;
+        struct sr_usb_dev_inst *usb;
+        struct rs_dev *rs;
+        libusb_device *dev = find_libusb_device(locs[i].bus, locs[i].address);
+
+        if (dev == NULL)
+            continue;
+        if (sr_usb_device_is_exists(dev)) {
+            sr_detail("Device is exists, handle: %p", dev);
+            libusb_unref_device(dev);
+            continue;
+        }
+        sr_info("Found a new device,handle:%p", dev);
+        if (dsv_drv_dslogic_probe(locs[i].bus, locs[i].address, &h) != 1) {
+            /* firmware uploaded (it re-enumerates) or not answering */
+            libusb_unref_device(dev);
+            continue;
+        }
+        dsv_drv_info(h, &info);
+        sdi = sr_dev_inst_new(info.mode, SR_ST_INITIALIZING, info.vendor, info.model, info.version);
+        rs = g_try_malloc0(sizeof(*rs));
+        usb = sr_usb_dev_inst_new(locs[i].bus, locs[i].address);
+        if (sdi == NULL || rs == NULL || usb == NULL) {
+            g_free(rs);
+            g_free(usb);
+            sr_dev_inst_free(sdi);
+            dsv_drv_free(h);
+            libusb_unref_device(dev);
+            continue;
+        }
+        rs->h = h;
+        rs->generation = (uint64_t)-1;
+        sdi->priv = rs;
+        sdi->driver = &rs_dslogic_driver_info;
+        sdi->dev_type = DEV_TYPE_USB;
+        sdi->handle = (ds_device_handle)dev;
+        usb->usb_dev = dev;
+        sdi->conn = usb;
+        get_device(sdi);
+        sdi->status = SR_ST_INACTIVE;
+        dsv_drv_set_status(h, SR_ST_INACTIVE);
+        devices = g_slist_append(devices, sdi);
+        num++;
+    }
+    sr_info("Found new DSLogic device count: %d", num);
+    if (slow)
+        post_message_callback(DS_EV_DEVICE_SPEED_NOT_MATCH);
+    return devices;
+}
+
+SR_PRIV struct sr_dev_driver rs_dslogic_driver_info = {
+    .name = "DSLogic",
+    .longname = "DSLogic (generic driver, Rust)",
+    .api_version = 1,
+    .driver_type = DRIVER_TYPE_HARDWARE,
+    .init = rs_dslogic_init,
+    .cleanup = rs_cleanup,
+    .scan = rs_dslogic_scan,
     .dev_mode_list = rs_dev_mode_list,
     .config_get = rs_config_get,
     .config_set = rs_config_set,
