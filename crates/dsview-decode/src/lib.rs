@@ -118,14 +118,19 @@ pub fn load(module_name: &str) -> bool {
     }
 }
 
-/// `srd_decoder_load_all`: every directory entry of every search path, in
-/// directory order; failures are logged and skipped.
+/// `srd_decoder_load_all`: every directory entry of every search path;
+/// failures are logged and skipped. Entries load in name order: C takes
+/// the directory's order, which on ext4 follows a per-directory hash, so the
+/// decoder list and the row order of decoder stacks (rows follow load
+/// order) differed between two installs of the same files.
 pub fn load_all() {
     for dir in searchpaths() {
         match std::fs::read_dir(&dir) {
             Ok(entries) => {
-                for e in entries.flatten() {
-                    load(&e.file_name().to_string_lossy());
+                let mut names: Vec<_> = entries.flatten().map(|e| e.file_name()).collect();
+                names.sort();
+                for n in names {
+                    load(&n.to_string_lossy());
                 }
             }
             // C then tries the path as a zip archive (zipimport); not supported

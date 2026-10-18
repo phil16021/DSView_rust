@@ -913,6 +913,18 @@
             "progress": 100,
             "rows": [
               {
+                "id": "bits",
+                "title": "1:I²C: Bits"
+              },
+              {
+                "id": "addr-data",
+                "title": "1:I²C: Address/Data"
+              },
+              {
+                "id": "warnings",
+                "title": "1:I²C: Warnings"
+              },
+              {
                 "id": "bits-bytes",
                 "title": "24xx EEPROM: Bits/bytes"
               },
@@ -927,18 +939,6 @@
               {
                 "id": "warnings",
                 "title": "24xx EEPROM: Warnings"
-              },
-              {
-                "id": "bits",
-                "title": "1:I²C: Bits"
-              },
-              {
-                "id": "addr-data",
-                "title": "1:I²C: Address/Data"
-              },
-              {
-                "id": "warnings",
-                "title": "1:I²C: Warnings"
               }
             ],
             "stack": [
@@ -1506,20 +1506,6 @@
       "ok": {
         "decoders": [
           {
-            "id": "1:i2c",
-            "inputs": [
-              "logic"
-            ],
-            "longname": "Inter-Integrated Circuit",
-            "name": "1:I²C",
-            "outputs": [
-              "i2c"
-            ],
-            "tags": [
-              "Embedded/industrial"
-            ]
-          },
-          {
             "id": "0:i2c",
             "inputs": [
               "logic"
@@ -1534,17 +1520,17 @@
             ]
           },
           {
-            "id": "i2cfilter",
+            "id": "1:i2c",
             "inputs": [
-              "i2c"
+              "logic"
             ],
-            "longname": "I²C filter",
-            "name": "I²C filter",
+            "longname": "Inter-Integrated Circuit",
+            "name": "1:I²C",
             "outputs": [
               "i2c"
             ],
             "tags": [
-              "Util"
+              "Embedded/industrial"
             ]
           },
           {
@@ -1555,6 +1541,20 @@
             "longname": "I²C demultiplexer",
             "name": "I²C demux",
             "outputs": [],
+            "tags": [
+              "Util"
+            ]
+          },
+          {
+            "id": "i2cfilter",
+            "inputs": [
+              "i2c"
+            ],
+            "longname": "I²C filter",
+            "name": "I²C filter",
+            "outputs": [
+              "i2c"
+            ],
             "tags": [
               "Util"
             ]
@@ -1642,6 +1642,18 @@
             "progress": 100,
             "rows": [
               {
+                "id": "bits",
+                "title": "1:I²C: Bits"
+              },
+              {
+                "id": "addr-data",
+                "title": "1:I²C: Address/Data"
+              },
+              {
+                "id": "warnings",
+                "title": "1:I²C: Warnings"
+              },
+              {
                 "id": "bits-bytes",
                 "title": "24xx EEPROM: Bits/bytes"
               },
@@ -1656,18 +1668,6 @@
               {
                 "id": "warnings",
                 "title": "24xx EEPROM: Warnings"
-              },
-              {
-                "id": "bits",
-                "title": "1:I²C: Bits"
-              },
-              {
-                "id": "addr-data",
-                "title": "1:I²C: Address/Data"
-              },
-              {
-                "id": "warnings",
-                "title": "1:I²C: Warnings"
               }
             ],
             "stack": [
@@ -2195,6 +2195,18 @@
             "progress": 100,
             "rows": [
               {
+                "id": "bits",
+                "title": "1:I²C: Bits"
+              },
+              {
+                "id": "addr-data",
+                "title": "1:I²C: Address/Data"
+              },
+              {
+                "id": "warnings",
+                "title": "1:I²C: Warnings"
+              },
+              {
                 "id": "bits-bytes",
                 "title": "24xx EEPROM: Bits/bytes"
               },
@@ -2209,18 +2221,6 @@
               {
                 "id": "warnings",
                 "title": "24xx EEPROM: Warnings"
-              },
-              {
-                "id": "bits",
-                "title": "1:I²C: Bits"
-              },
-              {
-                "id": "addr-data",
-                "title": "1:I²C: Address/Data"
-              },
-              {
-                "id": "warnings",
-                "title": "1:I²C: Warnings"
               }
             ],
             "stack": [
@@ -2462,6 +2462,18 @@
             "progress": 100,
             "rows": [
               {
+                "id": "bits",
+                "title": "1:I²C: Bits"
+              },
+              {
+                "id": "addr-data",
+                "title": "1:I²C: Address/Data"
+              },
+              {
+                "id": "warnings",
+                "title": "1:I²C: Warnings"
+              },
+              {
                 "id": "bits-bytes",
                 "title": "24xx EEPROM: Bits/bytes"
               },
@@ -2476,18 +2488,6 @@
               {
                 "id": "warnings",
                 "title": "24xx EEPROM: Warnings"
-              },
-              {
-                "id": "bits",
-                "title": "1:I²C: Bits"
-              },
-              {
-                "id": "addr-data",
-                "title": "1:I²C: Address/Data"
-              },
-              {
-                "id": "warnings",
-                "title": "1:I²C: Warnings"
               }
             ],
             "stack": [

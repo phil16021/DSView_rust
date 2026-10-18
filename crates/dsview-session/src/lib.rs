@@ -11,11 +11,16 @@
 
 /// Log lines go where the drivers' go (`dsview_drivers::sys`).
 macro_rules! sr_err { ($($t:tt)*) => { dsview_drivers::sys::log(1, &format!($($t)*)) } }
+#[allow(unused_macros)]
 macro_rules! sr_info { ($($t:tt)*) => { dsview_drivers::sys::log(3, &format!($($t)*)) } }
 
+pub mod decode;
 pub mod library;
+pub mod session;
+pub mod store;
 
 pub use library::{Entry, Handle, Host, Kind, Library};
+pub use session::{Paths, Session};
 
 /// `enum libsigrok_event_type` and the `DS_EV_*` codes.
 pub mod event {

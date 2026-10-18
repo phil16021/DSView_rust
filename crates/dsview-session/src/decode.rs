@@ -1,0 +1,638 @@
+//! Protocol decoding of a capture: `pv/data/decoderstack.cpp` with its rows
+//! (`decode/row.cpp`), annotation storage (`decode/rowdata.cpp`,
+//! `decode/annotation.cpp`) and the option typing of
+//! `StoreSession::load_decoders`, on the Rust decoder engine.
+//!
+//! A [`DecoderStack`] holds one bottom decoder (bound to logic channels) and
+//! the decoders stacked on it. [`DecoderStack::decode`] runs them over a
+//! finished capture in the chunks DSView uses and files each annotation
+//! under the row of the decoder and class that produced it.
+
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
+
+use dsview_decode::{DecoderInfo, OptValue, OutputData};
+use dsview_formats::header::{strtod, strtoll};
+use dsview_store::logic::LogicStore;
+use serde_json::Value;
+
+/// `DecoderStack::MaxChunkSize`
+pub const MAX_CHUNK_SIZE: u64 = 16384;
+/// `DECODER_MAX_DATA_BLOCK_LEN`: longer numeric fields are shown as text.
+const MAX_DATA_BLOCK_LEN: usize = 256;
+
+/// `IDS_MSG_DECODERSTACK_DECODE_WORK_ERROR`
+pub const ERR_REQUIRED_CHANNELS: &str = "One or more required channels have not been specified";
+/// `IDS_MSG_DECODERSTACK_DECODE_DATA_ERROR`
+pub const ERR_CHANNEL_NOT_ENABLED: &str = "At least one of selected channels are not enabled.";
+/// `IDS_MSG_DECODERSTACK_DECODE_STACK_ERROR`
+pub const ERR_INSTANCE: &str = "Failed to create decoder instance";
+
+/// One decoder of a stack (`pv::data::decode::Decoder`).
+#[derive(Clone)]
+pub struct StackDecoder {
+    pub info: Arc<DecoderInfo>,
+    /// The options set on it (the engine fills in the defaults).
+    pub options: HashMap<String, OptValue>,
+    /// Decoder channel id -> logic channel index (the bottom decoder only).
+    pub probes: Vec<(String, i32)>,
+    pub shown: bool,
+}
+
+impl StackDecoder {
+    pub fn new(info: Arc<DecoderInfo>) -> StackDecoder {
+        StackDecoder {
+            info,
+            options: HashMap::new(),
+            probes: Vec::new(),
+            shown: true,
+        }
+    }
+
+    /// `have_probes`: the decoder takes logic channels.
+    pub fn has_channels(&self) -> bool {
+        !self.info.channels.is_empty() || !self.info.opt_channels.is_empty()
+    }
+
+    /// `Decoder::have_required_probes`
+    fn have_required_probes(&self) -> bool {
+        self.info
+            .channels
+            .iter()
+            .all(|c| self.probes.iter().any(|(id, _)| *id == c.id))
+    }
+
+    /// `Decoder::first_probe_index`. C takes the first entry of a map keyed
+    /// by channel pointer; this takes the first bound channel in declaration
+    /// order (required, then optional).
+    fn first_probe_index(&self) -> Option<i32> {
+        self.info
+            .channels
+            .iter()
+            .chain(&self.info.opt_channels)
+            .find_map(|c| self.probes.iter().find(|(id, _)| *id == c.id))
+            .map(|(_, i)| *i)
+    }
+
+    /// The channel binding as saved (`gen_decoders_json`).
+    pub fn bound_probes(&self) -> Vec<(String, i32)> {
+        self.info
+            .channels
+            .iter()
+            .chain(&self.info.opt_channels)
+            .filter_map(|c| self.probes.iter().find(|(id, _)| *id == c.id).cloned())
+            .collect()
+    }
+}
+
+/// An annotation row (`pv::data::decode::Row`): one per entry of a
+/// decoder's `annotation_rows`, or one for the whole decoder when it has
+/// none.
+#[derive(Clone)]
+pub struct Row {
+    pub decoder: Arc<DecoderInfo>,
+    /// Index of the row in `annotation_rows`, -1 for a decoder without rows.
+    pub order: i32,
+    /// Position of the decoder in the engine's load order. C orders rows by
+    /// `srd_decoder` address, which follows the load order.
+    load_index: usize,
+    pub shown: bool,
+}
+
+impl Row {
+    fn row(&self) -> Option<&dsview_decode::decoder::AnnotationRow> {
+        usize::try_from(self.order)
+            .ok()
+            .and_then(|o| self.decoder.annotation_rows.get(o))
+    }
+
+    /// `annotation_rows[i].id`, none for a decoder without rows.
+    pub fn id(&self) -> Option<&str> {
+        self.row().map(|r| r.id.as_str())
+    }
+
+    /// `Row::title()`: "<decoder name>: <row desc>"
+    pub fn title(&self) -> String {
+        match self.row() {
+            Some(r) => format!("{}: {}", self.decoder.name, r.desc),
+            None => self.decoder.name.clone(),
+        }
+    }
+
+    /// `Row::title_id()`: "<decoder id>: <row desc>"
+    pub fn title_id(&self) -> String {
+        match self.row() {
+            Some(r) => format!("{}: {}", self.decoder.id, r.desc),
+            None => self.decoder.id.clone(),
+        }
+    }
+
+    fn key(&self) -> (usize, i32) {
+        (self.load_index, self.order)
+    }
+}
+
+/// One stored annotation; `text` is the first text line as DSView shows it
+/// (numbers in hex).
+#[derive(Clone, Debug)]
+pub struct Ann {
+    pub start: u64,
+    pub end: u64,
+    pub text: Arc<str>,
+}
+
+#[derive(Default)]
+struct Results {
+    /// Per row of [`DecoderStack::rows`].
+    rows: Vec<Vec<Ann>>,
+    count: u64,
+    progress: i32,
+    error: String,
+    samplerate: f64,
+    /// `AnnotationResTable`: the shown text per text key.
+    texts: HashMap<String, Arc<str>>,
+}
+
+/// `pv::data::DecoderStack`
+pub struct DecoderStack {
+    decoders: Vec<StackDecoder>,
+    rows: Vec<Row>,
+    /// (decoder load index, annotation class) -> row
+    class_rows: HashMap<(usize, i32), usize>,
+    results: Arc<Mutex<Results>>,
+    stop: Arc<AtomicBool>,
+}
+
+fn load_index(info: &DecoderInfo) -> usize {
+    dsview_decode::decoders()
+        .iter()
+        .position(|d| d.id == info.id)
+        .unwrap_or(usize::MAX)
+}
+
+impl DecoderStack {
+    /// A stack of `decoders` (bottom first).
+    pub fn new(decoders: Vec<StackDecoder>) -> DecoderStack {
+        let mut rows: Vec<Row> = Vec::new();
+        let mut class_rows = HashMap::new();
+        // build_row: rows keyed by (decoder, order); a decoder stacked twice
+        // shares its rows
+        for d in &decoders {
+            let li = load_index(&d.info);
+            let mut add = |order: i32| {
+                if !rows.iter().any(|r| r.key() == (li, order)) {
+                    rows.push(Row {
+                        decoder: d.info.clone(),
+                        order,
+                        load_index: li,
+                        shown: true,
+                    });
+                }
+            };
+            if d.info.annotation_rows.is_empty() {
+                add(-1);
+            }
+            for (order, _) in d.info.annotation_rows.iter().enumerate() {
+                add(order as i32);
+            }
+        }
+        rows.sort_by_key(Row::key);
+        for d in &decoders {
+            let li = load_index(&d.info);
+            for (order, r) in d.info.annotation_rows.iter().enumerate() {
+                let ri = rows
+                    .iter()
+                    .position(|x| x.key() == (li, order as i32))
+                    .expect("row added above");
+                for &c in &r.classes {
+                    class_rows.insert((li, c as i32), ri);
+                }
+            }
+        }
+        let n = rows.len();
+        DecoderStack {
+            decoders,
+            rows,
+            class_rows,
+            results: Arc::new(Mutex::new(Results {
+                rows: vec![Vec::new(); n],
+                ..Results::default()
+            })),
+            stop: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    pub fn decoders(&self) -> &[StackDecoder] {
+        &self.decoders
+    }
+
+    /// `get_rows_gshow()`: every row, in map order.
+    pub fn rows(&self) -> &[Row] {
+        &self.rows
+    }
+
+    pub fn set_row_shown(&mut self, i: usize, shown: bool) {
+        self.rows[i].shown = shown;
+    }
+
+    fn results(&self) -> MutexGuard<'_, Results> {
+        lock(&self.results)
+    }
+
+    pub fn progress(&self) -> i32 {
+        self.results().progress
+    }
+
+    /// `get_result_count()`: annotations received in the last run.
+    pub fn result_count(&self) -> u64 {
+        self.results().count
+    }
+
+    pub fn error_message(&self) -> String {
+        self.results().error.clone()
+    }
+
+    /// `sample_rate()`: the rate of the last run, truncated.
+    pub fn sample_rate(&self) -> u64 {
+        self.results().samplerate as u64
+    }
+
+    /// `get_annotation_subset` of row `row`: annotations with
+    /// `end > start && start <= end_q`, in arrival order.
+    pub fn annotations(&self, row: usize, start: u64, end: u64) -> Vec<Ann> {
+        self.results()
+            .rows
+            .get(row)
+            .map(|v| {
+                v.iter()
+                    .filter(|a| a.end > start && a.start <= end)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Asks a running [`decode`](Self::decode) to stop.
+    pub fn request_stop(&self) {
+        self.stop.store(true, Ordering::SeqCst);
+    }
+
+    /// `DecoderStack::clear()`/`init()`: drops the results (progress stays).
+    pub fn clear(&self) {
+        let mut r = self.results();
+        let n = r.rows.len();
+        r.rows = vec![Vec::new(); n];
+        r.count = 0;
+        r.error.clear();
+        r.texts.clear();
+    }
+
+    fn set_error(&self, e: &str) {
+        sr_err!("ERROR:{e}");
+        self.results().error = e.to_owned();
+    }
+
+    /// `begin_decode_work` for a finished capture: decodes samples
+    /// `0..=min(last_sample, captured - 1)` of `store`. `has_signal(i)`:
+    /// logic channel `i` is shown (a decoder reads the capture of its first
+    /// bound channel's signal).
+    pub fn decode(
+        &self,
+        store: &Mutex<LogicStore>,
+        has_signal: &dyn Fn(i32) -> bool,
+        samplerate: f64,
+        last_sample: u64,
+    ) {
+        self.stop.store(false, Ordering::SeqCst);
+        self.clear();
+
+        if !self.decoders.iter().all(StackDecoder::have_required_probes) {
+            self.set_error(ERR_REQUIRED_CHANNELS);
+            return;
+        }
+        let have_snapshot = self
+            .decoders
+            .iter()
+            .filter(|d| d.has_channels())
+            .find_map(StackDecoder::first_probe_index)
+            .is_some_and(has_signal);
+        if !have_snapshot {
+            self.set_error(ERR_REQUIRED_CHANNELS);
+            return;
+        }
+        let ring = {
+            let s = store.lock().unwrap_or_else(|e| e.into_inner());
+            if s.empty() {
+                sr_err!("ERROR:Decode data is empty.");
+                return;
+            }
+            s.ring_sample_count()
+        };
+        if samplerate == 0.0 {
+            sr_err!("ERROR:Decode data got an invalid sample rate.");
+            return;
+        }
+        self.results().samplerate = samplerate;
+        self.execute(store, ring, last_sample, samplerate);
+    }
+
+    /// `execute_decode_stack` + `decode_data`
+    fn execute(&self, store: &Mutex<LogicStore>, sample_count: u64, last_sample: u64, rate: f64) {
+        let session = dsview_decode::Session::new();
+        let mut prev: Option<Arc<dsview_decode::Instance>> = None;
+        let mut bottom = None;
+        for d in &self.decoders {
+            let Ok(di) = session.inst_new(&d.info.id, Some(d.options.clone()), None) else {
+                self.set_error(ERR_INSTANCE);
+                return;
+            };
+            let _ = session.channel_set_all(&di, &d.probes);
+            match &prev {
+                Some(p) => session.stack(p, &di),
+                None => bottom = Some(di.clone()),
+            }
+            prev = Some(di);
+        }
+        let decode_end = last_sample.min(sample_count.wrapping_sub(1));
+        session.metadata_set_samplerate(rate as u64);
+
+        let class_rows = self.class_rows.clone();
+        let rowless = self.rows_by_decoder();
+        let ids: HashMap<String, usize> = self
+            .decoders
+            .iter()
+            .map(|d| (d.info.id.clone(), load_index(&d.info)))
+            .collect();
+        let (results, stop) = (self.results.clone(), self.stop.clone());
+        session.callback_add(dsview_decode::module::OUTPUT_ANN, move |o| {
+            if let OutputData::Annotation(a) = &o.data
+                && !stop.load(Ordering::Relaxed)
+            {
+                let li = ids.get(&o.inst.decoder.id).copied().unwrap_or(usize::MAX);
+                annotation(&results, &class_rows, &rowless, li, o.start, o.end, a);
+            }
+        });
+        match session.start() {
+            Ok(()) => self.decode_data(store, &session, bottom.as_ref(), decode_end),
+            Err(e) if !e.is_empty() => self.results().error = e,
+            Err(_) => {}
+        }
+        drop(session);
+    }
+
+    /// (decoder load index -> its rowless row), for classes without a row.
+    fn rows_by_decoder(&self) -> HashMap<usize, usize> {
+        self.rows
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| r.order < 0)
+            .map(|(i, r)| (r.load_index, i))
+            .collect()
+    }
+
+    fn decode_data(
+        &self,
+        store: &Mutex<LogicStore>,
+        session: &dsview_decode::Session,
+        bottom: Option<&Arc<dsview_decode::Instance>>,
+        decode_end: u64,
+    ) {
+        let map = bottom.map(|b| b.channelmap()).unwrap_or_default();
+        let mut i = 0u64;
+        let mut end_index = decode_end;
+        let mut decoded = 0u64;
+        let mut end_time = false;
+        let mut failed = false;
+        self.results().progress = 0;
+
+        {
+            let s = store.lock().unwrap_or_else(|e| e.into_inner());
+            let count = s.ring_sample_count();
+            if count == 0 {
+                sr_info!("Have no data to decode.");
+                return;
+            }
+            if end_index >= count {
+                end_index = count - 1;
+            }
+        }
+
+        while i <= end_index && !self.stop.load(Ordering::Relaxed) {
+            let mut s = store.lock().unwrap_or_else(|e| e.into_inner());
+            let mut chunk_end = end_index;
+            let mut ptrs: Vec<(*const u8, usize)> = Vec::with_capacity(map.len());
+            let mut consts = Vec::with_capacity(map.len());
+            for &sig in &map {
+                if sig == -1 {
+                    ptrs.push((std::ptr::null(), 0));
+                    consts.push(0);
+                    continue;
+                }
+                if !s.has_data(sig) {
+                    drop(s);
+                    self.set_error(ERR_CHANNEL_NOT_ENABLED);
+                    return;
+                }
+                let run = s.get_samples(i, sig);
+                chunk_end = run.end_sample;
+                let len = (run.end_sample.saturating_sub(i & !7)).div_ceil(8) as usize;
+                ptrs.push((run.data, len));
+                consts.push(u8::from(s.get_sample(i, sig)));
+            }
+            if chunk_end >= end_index {
+                chunk_end = end_index + 1;
+            }
+            if chunk_end - i > MAX_CHUNK_SIZE {
+                chunk_end = i + MAX_CHUNK_SIZE;
+            }
+            end_time = chunk_end > end_index;
+            // SAFETY: the leaves stay put while the store is locked.
+            let bufs: Vec<Option<&[u8]>> = ptrs
+                .iter()
+                .map(|&(p, n)| (!p.is_null()).then(|| unsafe { std::slice::from_raw_parts(p, n) }))
+                .collect();
+            let sent = session.send(i, chunk_end, &bufs, &consts);
+            drop(bufs);
+            drop(s);
+            if let Err(e) = sent {
+                if let dsview_decode::SendError::Decoder(m) = e {
+                    self.results().error = m;
+                }
+                failed = true;
+                break;
+            }
+            decoded += chunk_end - i;
+            // C divides by end_index (and faults on a one-sample capture)
+            self.results().progress = (decoded * 100 / end_index.max(1)) as i32;
+            i = chunk_end;
+        }
+        self.results().progress = 100;
+
+        if !failed
+            && end_time
+            && let Err(e) = session.end()
+            && !e.is_empty()
+        {
+            sr_err!("Failed to call srd_session_end:{e}");
+            self.results().error = e;
+        }
+    }
+}
+
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// `annotation_callback`: files an annotation under the row of its decoder
+/// and class (a class no row lists is counted but dropped).
+fn annotation(
+    results: &Mutex<Results>,
+    class_rows: &HashMap<(usize, i32), usize>,
+    rowless: &HashMap<usize, usize>,
+    li: usize,
+    start: u64,
+    end: u64,
+    a: &dsview_decode::Annotation,
+) {
+    let mut r = lock(results);
+    r.count += 1;
+    let Some(&row) = class_rows.get(&(li, a.class)).or_else(|| rowless.get(&li)) else {
+        sr_err!(
+            "Unexpected annotation: decoder = {li}, format = {}",
+            a.class
+        );
+        return;
+    };
+    let text = shown_text(&mut r.texts, a);
+    r.rows[row].push(Ann { start, end, text });
+}
+
+/// The first text line of an annotation as `Annotation::annotations()`
+/// shows it, interned by the same key as `AnnotationResTable::MakeIndex`
+/// (all texts plus the number), so equal keys share the first text seen.
+fn shown_text(table: &mut HashMap<String, Arc<str>>, a: &dsview_decode::Annotation) -> Arc<str> {
+    let lines: Vec<&str> = a
+        .texts
+        .iter()
+        .map(String::as_str)
+        .filter(|t| !t.starts_with('\n'))
+        .collect();
+    let mut key: String = lines.concat();
+    key.push_str(&a.hex);
+    if let Some(t) = table.get(&key) {
+        return t.clone();
+    }
+    let numeric = !a.hex.is_empty() && a.hex.len() <= MAX_DATA_BLOCK_LEN;
+    let text: String = match (numeric, lines.first()) {
+        // the protocol list's default format is hex: the number as given
+        (true, Some(t)) => c_format_s(&t.replace("{$}", "%s"), &a.hex),
+        (true, None) => a.hex.clone(),
+        (false, Some(t)) => (*t).to_owned(),
+        (false, None) => String::new(),
+    };
+    let text: Arc<str> = text.into();
+    table.insert(key, text.clone());
+    text
+}
+
+/// `sprintf(fmt, s)` for the conversions decoder texts use: the first `%s`
+/// takes `s`, `%%` is a percent sign; anything else is kept as written
+/// (C would read a missing argument).
+fn c_format_s(fmt: &str, s: &str) -> String {
+    let mut out = String::with_capacity(fmt.len() + s.len());
+    let mut used = false;
+    let mut it = fmt.chars().peekable();
+    while let Some(c) = it.next() {
+        if c == '%' {
+            match it.peek() {
+                Some('s') if !used => {
+                    it.next();
+                    out.push_str(s);
+                    used = true;
+                    continue;
+                }
+                Some('%') => {
+                    it.next();
+                    out.push('%');
+                    continue;
+                }
+                _ => {}
+            }
+        }
+        out.push(c);
+    }
+    out
+}
+
+// ------------------------------------------------------------ saved stacks
+
+/// One decoder entry of a saved stack, as `StoreSession::load_decoders`
+/// reads it.
+pub struct SavedDecoder<'a> {
+    pub id: &'a str,
+    pub options: Option<&'a serde_json::Map<String, Value>>,
+}
+
+/// Option values typed by each option's default, as `load_decoders` does:
+/// doubles from numbers or numeric strings, integers as 32-bit, strings as
+/// given (a number for a string option becomes ""). Unknown options and
+/// other types are skipped.
+pub fn typed_options(
+    info: &DecoderInfo,
+    options: Option<&serde_json::Map<String, Value>>,
+) -> HashMap<String, OptValue> {
+    let mut out = HashMap::new();
+    let Some(options) = options else { return out };
+    for opt in &info.options {
+        let Some(v) = options.get(&opt.id) else {
+            continue;
+        };
+        let (vs, num) = match v {
+            Value::String(s) => (s.as_str(), 0.0),
+            Value::Number(n) => ("", n.as_f64().unwrap_or(0.0)),
+            Value::Bool(b) => ("", f64::from(u8::from(*b))),
+            _ => ("", 0.0),
+        };
+        let value = match &opt.def {
+            Some(OptValue::Float(_)) => Some(OptValue::Float(if vs.is_empty() {
+                num
+            } else {
+                strtod(vs)
+            })),
+            // QJsonValue::toInt() / QString::toInt(): 32-bit
+            Some(OptValue::Int(_)) => Some(OptValue::Int(if vs.is_empty() {
+                num as i32 as i64
+            } else {
+                strtoll(vs) as i32 as i64
+            })),
+            Some(OptValue::Str(_)) => Some(OptValue::Str(vs.to_owned())),
+            None => None,
+        };
+        if let Some(v) = value {
+            out.insert(opt.id.clone(), v);
+        }
+    }
+    out
+}
+
+/// A decoder option value as JSON (`variant_to_json`, `gen_decoders_json`).
+pub fn opt_json(v: &OptValue) -> Value {
+    match v {
+        OptValue::Str(s) => Value::from(s.as_str()),
+        OptValue::Int(i) => Value::from(*i),
+        OptValue::Float(f) => serde_json::Number::from_f64(*f).map_or(Value::Null, Value::Number),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn printf_subset() {
+        assert_eq!(c_format_s("Data write: %s", "04"), "Data write: 04");
+        assert_eq!(c_format_s("50%% %s %s", "A"), "50% A %s");
+        assert_eq!(c_format_s("no number", "FF"), "no number");
+    }
+}

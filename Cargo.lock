@@ -381,6 +381,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "dsview-cli"
+version = "0.1.0"
+dependencies = [
+ "dsview-control",
+ "dsview-core",
+ "dsview-decode",
+ "dsview-drivers",
+ "dsview-session",
+ "dsview-usb",
+ "libc",
+]
+
+[[package]]
+name = "dsview-control"
+version = "0.1.0"
+dependencies = [
+ "dsview-core",
+ "dsview-decode",
+ "dsview-formats",
+ "dsview-session",
+ "dsview-store",
+ "dsview-testkit",
+ "dsview-usb",
+ "serde_json",
+]
+
+[[package]]
 name = "dsview-core"
 version = "0.1.0"
 
@@ -463,8 +490,14 @@ name = "dsview-session"
 version = "0.1.0"
 dependencies = [
  "dsview-core",
+ "dsview-decode",
  "dsview-drivers",
+ "dsview-formats",
+ "dsview-store",
  "dsview-usb",
+ "libc",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
