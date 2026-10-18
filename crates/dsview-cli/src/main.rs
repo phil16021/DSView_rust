@@ -14,8 +14,9 @@ use dsview_session::{Paths, Session};
 
 mod soak;
 
-/// DSView's version (CMakeLists.txt `DS_VERSION_STRING`).
-const DSVIEW_VERSION: &str = "1.6.1";
+/// DSView's version (the workspace version; CMakeLists.txt reads it as
+/// `DS_VERSION_STRING`).
+const DSVIEW_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const USAGE: &str = "\
 usage: dsview-cli serve --mcp [options]
@@ -28,8 +29,8 @@ Runs DSView's capture session without a GUI behind the control socket
 options:
   --socket PATH      control socket path
   --data-dir DIR     DSView's data directory (demo/, res/, decoders/);
-                     default ../share/DSView next to the binary, then
-                     /usr/local/share/DSView
+                     default ../share/dsview or ../share/DSView next
+                     to the binary, then /usr/local/share/DSView
   --decoders DIR     protocol decoder directory (default <data-dir>/decoders,
                      else <data-dir>/../libsigrokdecode4DSL/decoders)
   --log-level N      0 none .. 5 detail (default 3)
@@ -48,24 +49,13 @@ extern "C" fn on_signal(_: libc::c_int) {
     STOP.store(true, Ordering::SeqCst);
 }
 
-/// `GetAppDataDir()`
-fn default_data_dir() -> PathBuf {
-    if let Some(d) = std::env::current_exe()
-        .ok()
-        .and_then(|e| e.parent()?.parent().map(|p| p.join("share/DSView")))
-        .filter(|d| d.is_dir())
-    {
-        return d;
-    }
-    PathBuf::from("/usr/local/share/DSView")
-}
-
 fn fail(msg: &str) -> ! {
     eprintln!("dsview-cli: {msg}");
     std::process::exit(2);
 }
 
 fn main() {
+    dsview_session::crash::install("dsview-cli", DSVIEW_VERSION);
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cmd = args.first().map(String::as_str).unwrap_or("");
     if cmd != "serve" && cmd != "soak" {
@@ -108,7 +98,7 @@ fn main() {
     if cmd == "serve" && !mcp {
         fail("only `serve --mcp` is supported");
     }
-    let data_dir = data_dir.unwrap_or_else(default_data_dir);
+    let data_dir = data_dir.unwrap_or_else(dsview_session::default_data_dir);
     // GetDecodeScriptDir(): <data>/decoders, else ../share/libsigrokdecode4DSL/decoders
     let decoders = decoders.unwrap_or_else(|| {
         let own = data_dir.join("decoders");

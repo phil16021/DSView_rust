@@ -1,6 +1,6 @@
 [package]
 name = "dsview-drivers"
-version = "0.1.0"
+version.workspace = true
 description = "DSView device drivers: demo, file replay, DSLogic"
 edition.workspace = true
 rust-version.workspace = true

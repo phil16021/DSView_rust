@@ -1,6 +1,6 @@
 [package]
 name = "dsview-testkit"
-version = "0.1.0"
+version.workspace = true
 description = "Golden files, corpus manifest and diff helpers for the DSView Rust port"
 edition.workspace = true
 rust-version.workspace = true

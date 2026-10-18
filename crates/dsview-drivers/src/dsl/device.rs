@@ -742,6 +742,16 @@ impl Dsl {
                     return Err(SrError::Err);
                 };
                 let path: PathBuf = sys::res_dir().join(bit);
+                if !path.is_file() {
+                    // C's dsl_fpga_config sets FIRMWARE_NOT_EXIST, which its
+                    // caller overwrites with a USB I/O error (F31)
+                    sr_err!(
+                        "dsl_dev_open: the FPGA bitstream {} is missing.",
+                        path.display()
+                    );
+                    self.last_error = last_error::FIRMWARE_NOT_EXIST;
+                    return Err(SrError::Err);
+                }
                 if fpga_config(self.usb()?, &path).is_err() {
                     sr_err!("dsl_dev_open: Configure FPGA failed!");
                     self.last_error = last_error::DEVICE_USB_IO_ERROR;

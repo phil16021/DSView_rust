@@ -1,6 +1,6 @@
 [package]
 name = "dsview-ffi"
-version = "0.1.0"
+version.workspace = true
 description = "C ABI of the Rust DSView core for the transitional Qt GUI"
 edition.workspace = true
 rust-version.workspace = true

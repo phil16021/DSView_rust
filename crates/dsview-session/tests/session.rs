@@ -277,6 +277,57 @@ fn profiles_store_load_default() {
     s.exit();
 }
 
+/// A profile the user loads does not set decoder options that run a
+/// program or read a file; they wait for the user's yes.
+#[test]
+fn guarded_decoder_options_wait_for_confirmation() {
+    use dsview_decode::OptValue;
+    let (_g, s) = session("Demo Logic");
+    let dir = std::env::temp_dir().join(format!("dsv-guard-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let p = dir.join("p.dsc");
+    s.store_profile(&p).unwrap();
+    let mut doc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+    doc["decoder"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "id": "arm_itm",
+            "channel": [],
+            "options": {"objdump": "/bin/false", "elffile": "", "objdump_opts": "-x"}
+        }));
+    std::fs::write(&p, doc.to_string()).unwrap();
+    s.load_profile(&p).unwrap();
+    let held = s.state().held_decoders.clone();
+    assert_eq!(held.len(), 1);
+    assert_eq!(held[0].settings, ["arm_itm: objdump = /bin/false"]);
+    let opts = |s: &Session| {
+        let st = s.state();
+        let t = st.decoders.last().unwrap();
+        t.stack.decoders()[0].options.clone()
+    };
+    // loaded with the default, the other options as stored
+    assert!(!opts(&s).contains_key("objdump"));
+    assert_eq!(
+        opts(&s).get("objdump_opts"),
+        Some(&OptValue::Str("-x".into()))
+    );
+    let n = s.state().decoders.len();
+    assert!(s.apply_held_decoder(&held[0]));
+    assert_eq!(s.state().decoders.len(), n);
+    assert_eq!(
+        opts(&s).get("objdump"),
+        Some(&OptValue::Str("/bin/false".into()))
+    );
+    // DSView's own profiles are trusted
+    s.state().held_decoders.clear();
+    assert!(dsview_session::store::load_config_from_json(&s, &doc));
+    assert!(s.state().held_decoders.is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+    s.exit();
+}
+
 /// A decode region (the decoder options' start and end cursors): the
 /// annotations lie inside it.
 #[test]

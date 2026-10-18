@@ -16,6 +16,7 @@ mod exception;
 pub mod instance;
 pub mod log;
 pub mod module;
+pub mod python;
 pub mod session;
 
 use std::path::{Path, PathBuf};
@@ -49,7 +50,18 @@ pub fn init(paths: &[&Path]) -> Result<(), String> {
         unsafe {
             pyo3::ffi::PyImport_AppendInittab(c"sigrokdecode".as_ptr(), Some(module::init_module));
         }
-        Python::initialize();
+        match python::find_home() {
+            Some(home) => {
+                log::dbg(&format!("Python home: {}", home.display()));
+                // SAFETY: Python is not running yet.
+                if let Err(e) = unsafe { python::initialize(&home, &python::version()) } {
+                    log::err(&e);
+                    INITIALIZED.store(false, Ordering::SeqCst);
+                    return Err(e);
+                }
+            }
+            None => Python::initialize(),
+        }
     } else {
         // someone else started Python: install the module by hand
         Python::attach(|py| -> PyResult<()> {

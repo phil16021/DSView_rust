@@ -1,6 +1,6 @@
 [package]
 name = "dsview-cli"
-version = "0.1.0"
+version.workspace = true
 description = "DSView without a GUI: the capture session behind the control socket"
 edition.workspace = true
 rust-version.workspace = true

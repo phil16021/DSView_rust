@@ -22,17 +22,6 @@ use eframe::egui;
 
 use dsview_gui::DSVIEW_VERSION;
 
-fn default_data_dir() -> PathBuf {
-    if let Some(d) = std::env::current_exe()
-        .ok()
-        .and_then(|e| e.parent()?.parent().map(|p| p.join("share/DSView")))
-        .filter(|d| d.is_dir())
-    {
-        return d;
-    }
-    PathBuf::from("/usr/local/share/DSView")
-}
-
 fn usage() -> ! {
     eprintln!(
         "usage: dsview [-l N] [-s] [-v] [--mcp] [--data-dir DIR] [--bench SECONDS] [--soak MINUTES] [FILE]"
@@ -41,6 +30,7 @@ fn usage() -> ! {
 }
 
 fn main() -> eframe::Result {
+    dsview_session::crash::install("dsview", dsview_gui::DSVIEW_VERSION);
     let mut args = std::env::args().skip(1);
     let (mut data_dir, mut bench, mut file, mut mcp) = (None, None, None, false);
     let mut soak = None;
@@ -76,7 +66,7 @@ fn main() -> eframe::Result {
         }
     }
     dsview_gui::log::init(level);
-    let data_dir = data_dir.unwrap_or_else(default_data_dir);
+    let data_dir = data_dir.unwrap_or_else(dsview_session::default_data_dir);
     let decoders = {
         let own = data_dir.join("decoders");
         let shared = data_dir.join("../libsigrokdecode4DSL/decoders");

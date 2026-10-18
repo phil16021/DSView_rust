@@ -1,6 +1,6 @@
 [package]
 name = "dsview-dsp"
-version = "0.1.0"
+version.workspace = true
 description = "DSView's signal computations: DSO measurements, FFT spectrum (realfft instead of FFTW), math, envelopes"
 edition.workspace = true
 rust-version.workspace = true

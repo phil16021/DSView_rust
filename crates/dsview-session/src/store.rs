@@ -192,6 +192,78 @@ pub fn load_decoders(s: &Session, entries: &[Value]) -> usize {
     added
 }
 
+/// Decoder options that name a program to run or a file to read
+/// (`arm_itm` and `arm_etmv3`: `objdump`, `elffile`; `numbers_and_state`:
+/// `mapping`). A file the user opens does not set them by itself: they
+/// wait for the user's yes (DEVIATIONS, "Decoder options from files").
+pub const GUARDED_OPTIONS: &[&str] = &["objdump", "elffile", "mapping"];
+
+/// A decoder trace from a file, loaded without its guarded options.
+#[derive(Clone)]
+pub struct HeldDecoder {
+    pub trace: std::sync::Arc<DecodeTrace>,
+    /// The entry as the file has it.
+    pub entry: Value,
+    /// `decoder: option = value` per held option, for the question.
+    pub settings: Vec<String>,
+}
+
+/// The entry without its guarded options (those set to text), and what
+/// was taken out.
+fn without_guarded(entry: &Value) -> (Value, Vec<String>) {
+    let mut out = entry.clone();
+    let mut held = Vec::new();
+    let mut strip = |o: &mut Value| {
+        let id = o.get("id").and_then(Value::as_str).unwrap_or("").to_owned();
+        if let Some(opts) = o.get_mut("options").and_then(Value::as_object_mut) {
+            for k in GUARDED_OPTIONS {
+                if let Some(Value::String(v)) = opts.get(*k)
+                    && !v.is_empty()
+                {
+                    held.push(format!("{id}: {k} = {v}"));
+                    opts.remove(*k);
+                }
+            }
+        }
+    };
+    strip(&mut out);
+    if let Some(a) = out
+        .get_mut("stacked decoders")
+        .and_then(Value::as_array_mut)
+    {
+        a.iter_mut().for_each(&mut strip);
+    }
+    (out, held)
+}
+
+/// [`load_decoders`] for decoders from a file the user opened: guarded
+/// options are left at their defaults and held for
+/// [`Session::apply_held_decoder`].
+pub fn load_file_decoders(s: &Session, entries: &[Value]) -> usize {
+    let mut added = 0;
+    for entry in entries {
+        let (stripped, settings) = without_guarded(entry);
+        if load_decoders(s, std::slice::from_ref(&stripped)) == 0 {
+            continue;
+        }
+        added += 1;
+        if !settings.is_empty() {
+            let mut st = s.state();
+            let trace = st.decoders.last().expect("just added").clone();
+            sr_info!(
+                "Decoder options held for confirmation: {}",
+                settings.join(", ")
+            );
+            st.held_decoders.push(HeldDecoder {
+                trace,
+                entry: entry.clone(),
+                settings,
+            });
+        }
+    }
+    added
+}
+
 /// `StoreSession::gen_decoders_json`
 pub fn decoders_json(s: &Session) -> Value {
     let traces = s.state().decoders.clone();
@@ -285,13 +357,13 @@ pub fn load_file_session(s: &Session) {
     let path = Path::new(&path);
     let mut have_decoders = false;
     if let Some(doc) = read_entry(path, "session") {
-        have_decoders = load_config_from_json(s, &doc);
+        have_decoders = load_config(s, &doc, true);
     }
     if !have_decoders
         && s.mode() == Mode::Logic as i32
         && let Some(Value::Array(a)) = read_entry(path, "decoders")
     {
-        load_decoders(s, &a);
+        load_file_decoders(s, &a);
     }
     // MainWindow replays the file 100 ms later
     s.start_capture(true);
@@ -326,6 +398,12 @@ fn load_probe_analog_settings(ch: &mut dsview_core::Channel, o: &Map<String, Val
 
 /// `MainWindow::load_config_from_json`; true when it loaded decoders.
 pub fn load_config_from_json(s: &Session, doc: &Value) -> bool {
+    load_config(s, doc, false)
+}
+
+/// [`load_config_from_json`]; `from_user_file` holds the guarded decoder
+/// options ([`load_file_decoders`]).
+pub fn load_config(s: &Session, doc: &Value, from_user_file: bool) -> bool {
     let Some(obj) = doc.as_object() else {
         return false;
     };
@@ -479,7 +557,11 @@ pub fn load_config_from_json(s: &Session, doc: &Value) -> bool {
         && !a.is_empty()
     {
         have_decoders = true;
-        load_decoders(s, a);
+        if from_user_file {
+            load_file_decoders(s, a);
+        } else {
+            load_decoders(s, a);
+        }
     }
     load_channel_view_indexes(s, doc);
     have_decoders

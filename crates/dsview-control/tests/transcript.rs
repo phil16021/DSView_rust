@@ -121,3 +121,39 @@ fn demo_transcript_matches_qt() {
     let problems = compare(&stored, &actual);
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
+
+/// DSO voltages are in the V/div of the capture, as `get_voltage`: a V/div
+/// changed afterwards only stretches the trace.
+#[test]
+fn dso_voltages_keep_the_capture_vdiv() {
+    use dsview_control::ControlBackend;
+    let _g = serial();
+    init_decoders();
+    let session = Session::new(
+        Paths {
+            data_dir: root().join("DSView"),
+            profile_dir: None,
+            version: "test".into(),
+        },
+        Arc::new(NoUsb),
+    );
+    session.set_default_device();
+    let api = Api::new(session.clone(), "test");
+    let call = |m: &str, p: serde_json::Value| {
+        api.call(m, p.as_object().unwrap())
+            .unwrap_or_else(|e| panic!("{m}: {e}"))
+    };
+    call("set_mode", serde_json::json!({"mode": "dso"}));
+    call("start_capture", serde_json::json!({"timeout_s": 30}));
+    let before = call("measure_dso", serde_json::json!({"channel": 0}));
+    let vdiv = |cfg: &serde_json::Value| cfg["channels"][0]["vdiv_mv"].as_u64().unwrap();
+    let v0 = vdiv(&call("get_config", serde_json::json!({})));
+    let cfg = call(
+        "set_dso",
+        serde_json::json!({"channel": 0, "vdiv_mv": v0 * 2}),
+    );
+    assert_ne!(vdiv(&cfg), v0, "{cfg}");
+    let after = call("measure_dso", serde_json::json!({"channel": 0}));
+    assert_eq!(before, after);
+    session.exit();
+}

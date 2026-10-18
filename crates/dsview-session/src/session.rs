@@ -62,6 +62,20 @@ pub mod trig {
     pub const EDGE: i32 = 5;
 }
 
+/// The message `SigSession::set_device` shows for a `ds_get_last_error()`
+/// after a switch (Qt's English `IDS_MSG_*` texts, `SR_ERR_FIRMWARE_NOT_EXIST`
+/// .. `SR_ERR_DEVICE_NO_DRIVER`); the switch has failed when there is one.
+pub fn device_error_text(code: i32) -> Option<&'static str> {
+    Some(match code {
+        10 => "Error: Firmware file is not exist!",
+        11 => "The device is busy, switch failed!",
+        12 => "The firmware version is incorrect, please replug the device!",
+        13 => "Error: USB IO error!",
+        14 => "The device driver may not be installed!",
+        _ => return None,
+    })
+}
+
 /// What changed in a session, for frontends (the messages `SigSession`
 /// broadcasts to its listeners). Data and decode progress are sent at most
 /// every [`EVENT_INTERVAL`].
@@ -229,6 +243,9 @@ pub struct State {
     /// Increments when a capture starts / ends (`START_COLLECT_WORK`,
     /// `END_COLLECT_WORK`).
     pub started_seq: u64,
+    /// `set_measure_voltage_factor`: each DSO channel's V/div (mV) when the
+    /// capture started, which its codes are in.
+    pub cap_vdiv: Vec<(u16, u64)>,
     /// The capture whose data was last offered for saving
     /// (`_confirm_store_time_id`).
     confirm_store_seq: u64,
@@ -241,6 +258,9 @@ pub struct State {
     /// The GUI's language id (25, 31, 7), for the older per-language
     /// profiles; 0 when unknown.
     pub language: i64,
+    /// The `ds_get_last_error()` of the last device switch that has a
+    /// message ([`device_error_text`]), until the GUI takes it.
+    pub device_error: i32,
     pub ended_seq: u64,
     pub cur_snap_samplerate: u64,
     pub cur_samplelimits: u64,
@@ -264,6 +284,9 @@ pub struct State {
     pub dso_status: Option<dsview_core::Status>,
     sel: Selectors,
     pub decoders: Vec<Arc<DecodeTrace>>,
+    /// Decoders from a file the user opened whose program or file options
+    /// wait for the user's yes.
+    pub held_decoders: Vec<crate::store::HeldDecoder>,
     decode_queue: VecDeque<Arc<DecodeTrace>>,
     pub decoding: bool,
     pub collect_mode: CollectMode,
@@ -681,8 +704,11 @@ impl Session {
         }
         self.emit(SessionEvent::DeviceChanged);
         let err = self.0.lib.last_error();
-        // SR_ERR_DEVICE_FIRMWARE_VERSION_LOW .. SR_ERR_DEVICE_NO_DRIVER
-        !(1000..1100).contains(&err)
+        if device_error_text(err).is_none() {
+            return true;
+        }
+        self.state().device_error = err;
+        false
     }
 
     /// The hardware profile of the active device and mode
@@ -733,7 +759,7 @@ impl Session {
         while !self.state().decoders.is_empty() {
             self.remove_decoder(0);
         }
-        if crate::store::load_config_from_json(self, &doc) {
+        if crate::store::load_config(self, &doc, true) {
             let hardware = self
                 .state()
                 .device
@@ -1674,6 +1700,11 @@ impl Session {
             let mut st = self.state();
             st.working = true;
             st.started_seq += 1;
+            st.cap_vdiv = channels
+                .iter()
+                .filter(|c| c.ty == channel_type::DSO)
+                .map(|c| (c.index, c.vdiv))
+                .collect();
         }
         if live {
             self.start_all_decoders();
@@ -1982,6 +2013,27 @@ impl Session {
         let mut st = self.state();
         st.decoders.push(Arc::new(trace));
         st.decoders.len() - 1
+    }
+
+    /// Sets the held options of a decoder from a file (the user said yes):
+    /// the trace is reloaded from the file's entry in its place and decoded
+    /// again. False when the trace is gone.
+    pub fn apply_held_decoder(&self, held: &crate::store::HeldDecoder) -> bool {
+        let Some(index) = self
+            .state()
+            .decoders
+            .iter()
+            .position(|t| Arc::ptr_eq(t, &held.trace))
+        else {
+            return false;
+        };
+        if crate::store::load_decoders(self, std::slice::from_ref(&held.entry)) == 0 {
+            return false;
+        }
+        self.remove_decoder(index);
+        self.move_last_decoder_to(index);
+        self.start_decode(index);
+        true
     }
 
     /// Moves the last decoder trace to position `index` (an edited stack

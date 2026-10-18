@@ -1,6 +1,6 @@
 [package]
 name = "dsview-gui"
-version = "0.1.0"
+version.workspace = true
 description = "DSView's GUI in Rust (egui/eframe)"
 edition.workspace = true
 rust-version.workspace = true

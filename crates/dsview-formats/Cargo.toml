@@ -1,6 +1,6 @@
 [package]
 name = "dsview-formats"
-version = "0.1.0"
+version.workspace = true
 description = "DSView file formats: .dsl/.demo captures, header INI, profiles, exports"
 edition.workspace = true
 rust-version.workspace = true

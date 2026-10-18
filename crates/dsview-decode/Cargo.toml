@@ -1,6 +1,6 @@
 [package]
 name = "dsview-decode"
-version = "0.1.0"
+version.workspace = true
 description = "DSView protocol decoder engine: runs the sigrok Python decoders through an embedded CPython (PyO3)"
 edition.workspace = true
 rust-version.workspace = true

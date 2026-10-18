@@ -1,6 +1,6 @@
 [package]
 name = "dsview-store"
-version = "0.1.0"
+version.workspace = true
 description = "DSView sample stores: bit-packed logic captures with mip-maps, DSO and analog envelopes"
 edition.workspace = true
 rust-version.workspace = true

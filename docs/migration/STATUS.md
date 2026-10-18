@@ -7,7 +7,7 @@
 | 2 Decoder engine | **done**: Rust/PyO3 engine behind `DSVIEW_IMPL_DECODE`; Rust becomes the default after one release of A/B | See "Phase 2" below |
 | 3 Drivers | **done except hardware steps**: 3a demo, 3b file, 3c USB layer, 3d DSLogic (replug tests passed 2026-10-18), 3e DSCope/MSO-E8 (`DSVIEW_IMPL_DRV_DEMO` / `_FILE` / `_DSLOGIC` / `_DSCOPE`). Open: a firmware upload from the host, the nightly runs, one DSCope/E8 hardware confirmation | See "Phase 3" below |
 | 4 Session + control API | **done**: 4a acquisition library in Rust behind `DSVIEW_IMPL_ACQ`; 4b capture session, control server, `dsview-cli serve --mcp` (transcript identical to the Qt GUI, 1 h soaks passed) | See "Phase 4" below |
-| 5 Rust GUI | **in progress**: M6.0, M6a-M6f done; the Rust GUI is the default on Linux (`DSVIEW_RUST_GUI`, Qt kept as `DSView-qt` for one release); next M6g hardening | PARITY.md 52 of 52 (2026-10-19); AccessKit live over AT-SPI |
+| 5 Rust GUI | **in progress**: M6.0, M6a-M6f done; the Rust GUI is the default on Linux (`DSVIEW_RUST_GUI`, Qt kept as `DSView-qt` for one release); M6g hardening in progress (step 1 done) | PARITY.md 52 of 52 (2026-10-19); AccessKit live over AT-SPI |
 | 6 Removal + packaging | planned after release R1: M7a removal and packaging, M7b post-parity fixes | PLAN.md (revised 2026-10-18): M6f → M6g → R1 → M7a/M7b |
 
 ## Phase 0 deliverables
@@ -1103,3 +1103,47 @@ the demo transcript is unchanged.
   - The trace area's painted parts show as unnamed elements.
 - **PARITY.md is at 52 of 52.** The command-line row is ticked: `-l`, `-v`, `-s`, `--mcp` and the
   file argument have been in place since step 2.
+
+### M6g hardening: in progress
+**Step 1, runtime (done 2026-10-19):**
+- **Bundled Python:**
+  - `dsview` and `dsview-cli` carry the RUNPATH `$ORIGIN/../lib/dsview`;
+  - `dsview_decode::python` finds `<prefix>/lib/dsview/python3.X/encodings` and starts the
+    interpreter through `PyConfig` with that home and search path (stdlib, `lib-dynload`).
+    This replaces the Qt packages' `PYTHONHOME`/`PYTHONPATH` wrapper. A set `PYTHONHOME`
+    still wins.
+  - `tools/package/bundle-python.sh PREFIX BIN [PYTHON]` copies libpython and the standard
+    library into that layout. It checks that the binary links the same version.
+  - Checked: a staged `usr/` with `dsview-cli` and pyenv's 3.12 bundle (62 MB), started with
+    `env -i` and no `LD_LIBRARY_PATH`. It loads the decoders, and `/proc/<pid>/maps` shows
+    libpython and every `lib-dynload` module from the bundle, nothing from pyenv.
+- **Device errors (`SigSession::set_device`):**
+  - The GUI shows Qt's messages for a failed switch: firmware file missing, device busy,
+    firmware version, USB I/O error, no driver.
+  - `set_device` returned true for every code, because it checked for codes 1000-1099, which do
+    not exist (the codes are 10-14). Fixed. The control API's `select_device` now reports
+    "could not open the device" as Qt's does.
+  - A missing FPGA bitstream is reported as a missing firmware file (F31).
+  - Tests: a cold simulated DSLogic without its bitstream; the message table.
+- **Decoder options from files:**
+  - `objdump`, `elffile` (`arm_itm`, `arm_etmv3`) and `mapping` (`numbers_and_state`) from a
+    `.dsl` or a loaded `.dsc` are held at their defaults.
+  - The GUI asks per decoder ("The file sets decoder options that run a program or read a file
+    …"). Yes reloads the trace in its place with them and decodes it again.
+  - DSView's own profiles and the demos load as before.
+  - Tested in `session.rs`.
+- **DSO voltages in the control API:** the V/div of the capture, recorded when it starts, as
+  Qt's `set_measure_voltage_factor`. Changing V/div afterwards no longer changes `measure_dso`
+  or `read_waveform`. The test fails without the fix.
+- **One version:**
+  - `[workspace.package] version = "1.6.1"`, which every crate takes;
+  - the GUI and CLI use `CARGO_PKG_VERSION`;
+  - CMake reads `DS_VERSION_*` from `Cargo.toml` (checked with `cmake -P`).
+- **Data directory:** `<prefix>/share/dsview` (the packages' layout), else Qt's
+  `<prefix>/share/DSView`, else `/usr/local/share/DSView`. GUI and CLI now share this lookup in
+  `dsview_session::default_data_dir`.
+- **Crash reports:** a panic in `dsview` or `dsview-cli` writes the message, thread, place and
+  backtrace to `$XDG_STATE_HOME/dsview/crash/<app>-<time>-<pid>.txt`, then prints as before.
+- **Firmware:** the 14 FX2 firmware files the tree lacks are listed in F31. The log already names
+  a missing one.
+

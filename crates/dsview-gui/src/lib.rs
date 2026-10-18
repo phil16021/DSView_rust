@@ -32,8 +32,9 @@ pub mod toolbar;
 pub mod triggerdock;
 pub mod zerocal;
 
-/// DSView's version (CMakeLists.txt `DS_VERSION_STRING`).
-pub const DSVIEW_VERSION: &str = "1.6.1";
+/// DSView's version (the workspace version; CMakeLists.txt reads it as
+/// `DS_VERSION_STRING`).
+pub const DSVIEW_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Prints the `--bench` result.
 pub fn report(b: &app::Bench) {

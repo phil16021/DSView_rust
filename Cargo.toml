@@ -24,6 +24,8 @@ members = [
 default-members = ["crates/dsview-cli", "crates/dsview-control", "crates/dsview-core", "crates/dsview-decode", "crates/dsview-drivers", "crates/dsview-dsp", "crates/dsview-ffi", "crates/dsview-formats", "crates/dsview-session", "crates/dsview-store", "crates/dsview-viewmodel", "crates/dsview-usb", "dev/dsview-testkit", "dsview-mcp", "xtask"]
 
 [workspace.package]
+# DSView's version: the one source (CMakeLists.txt reads it too)
+version = "1.6.1"
 edition = "2024"
 rust-version = "1.88"
 license = "GPL-3.0-or-later"

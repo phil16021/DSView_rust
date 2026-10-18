@@ -1,6 +1,6 @@
 [package]
 name = "dsview-usb"
-version = "0.1.0"
+version.workspace = true
 description = "USB access for the DSView drivers: device traits, nusb backend, usbmon pcapng traces and replay"
 edition.workspace = true
 rust-version.workspace = true

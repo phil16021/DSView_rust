@@ -41,9 +41,17 @@ project(DSView)
 set(DS_TITLE DSView)
 set(DS_DESCRIPTION "A GUI for instruments of DreamSourceLab")
 
-set(DS_VERSION_MAJOR 1)
-set(DS_VERSION_MINOR 6)
-set(DS_VERSION_MICRO 1)
+# the version comes from the Rust workspace (Cargo.toml [workspace.package])
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml" DS_CARGO_VERSION
+     REGEX "^version = \"[0-9]+\\.[0-9]+\\.[0-9]+\"")
+string(REGEX MATCH "([0-9]+)\\.([0-9]+)\\.([0-9]+)" _ "${DS_CARGO_VERSION}")
+if(NOT CMAKE_MATCH_3 STREQUAL "")
+    set(DS_VERSION_MAJOR ${CMAKE_MATCH_1})
+    set(DS_VERSION_MINOR ${CMAKE_MATCH_2})
+    set(DS_VERSION_MICRO ${CMAKE_MATCH_3})
+else()
+    message(FATAL_ERROR "No version = \"x.y.z\" line in Cargo.toml")
+endif()
 set(DS_VERSION_STRING  ${DS_VERSION_MAJOR}.${DS_VERSION_MINOR}.${DS_VERSION_MICRO})
 
 configure_file (

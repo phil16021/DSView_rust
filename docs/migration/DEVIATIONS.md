@@ -469,6 +469,22 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
   monitor the window was last on; `ReadSettings` moves it back when it shows less than 70 × 70 px
   of the screen. Ported.
 
+### F31. Runtime findings (M6g)
+- **A missing FPGA bitstream shows as a USB error.** `dsl_fpga_config` sets
+  `SR_ERR_FIRMWARE_NOT_EXIST` when it cannot open the file, but `dsl_dev_open` then overwrites it
+  with `SR_ERR_DEVICE_USB_IO_ERROR`. The user reads "USB IO error!" for a file missing on disk.
+  Rust checks the file first and keeps "firmware not exist" (row below).
+- **The FX2 firmware files of 14 models are not in the tree:**
+  - DSLogicBasic, DSLogicPlus, DSLogicU2Basic, DSLogicU2Pro16, DSLogicU3Pro16, DSLogicU3Pro32;
+  - DSCopeB20, DSCopeC20, DSCopeC20B, DSCopeC20P, DSCopeU2B100, DSCopeU2B20, DSCopeU2P20,
+    DSCopeU3P100.
+  - Devices that boot their firmware from flash do not need them; the DSLogic Plus here is one.
+  - A device that needs one stays unready, and the log names the file
+    ("Unable to open firmware file … for reading"), in C and in Rust.
+- **`update_dso_data_scale` is never called.** The snapshot's data scale is set only with the
+  sample rate, so a V/div changed after a capture stretches the trace and keeps its voltages.
+  The control API now does the same (row below).
+
 ## Planned behaviour deviations (Rust intentionally differs)
 
 | Area | C behaviour | Rust behaviour | Phase |
@@ -481,7 +497,8 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
 | DSCope `dso_tune()` | Dead code | Not ported | 3e ✔ |
 | DSCope channel values during a capture (`hw_offset`, calibration V/div and offsets) | Written into `sdi->channels` by the driver | Copied into the C channel list before each packet is forwarded and after each poll | 3e ✔ |
 | Decoder `wait()` pin tuple | One tuple object, mutated in place | A fresh tuple per call | 2 |
-| Decoder options from files | Applied as stored | Path/exec options (`objdump`, `elffile`, `mapping`) reset to defaults until the user confirms | 2 |
+| Decoder options from files | Applied as stored | Path/exec options (`objdump`, `elffile`, `mapping`) from a file the user opens (`.dsl`, a loaded `.dsc`) start at their defaults; the GUI asks before setting them. DSView's own profiles and the shipped demos are trusted; a headless session keeps the defaults | M6g ✔ |
+| Missing FPGA bitstream (F31) | Reported as a USB I/O error | Reported as "Firmware file is not exist", the code C meant | M6g ✔ |
 | USB stop/abort | No transfer cancellation, infinite timeouts, unbounded busy-polls | FORCE_RDY → grace period → cancel all transfers; every wait has a deadline | 3 ✔ |
 | `.dsl` samplerate | Fractional rates misread (F3); an unparsable string silently loads as 0 or garbage | Decodes the C writer's format; an unparsable string is an error | 1a ✔ |
 | `.dsl` misaligned logic block | Stream silently ends at that block | Load error ("logic block is not 8-byte aligned") | 1a ✔ |
@@ -529,7 +546,7 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
 | Decoder's capture signal (F25) | First bound channel by pointer order | First bound channel in declaration order (required, then optional) | 4b ✔ |
 | View indexes from a session with fewer channels (F25) | Reads past the vector | Extra signals keep theirs | 4b ✔ |
 | Single capture in stream mode (demo, files, DSLogic stream) | Decoders start with the capture and decode while it runs | Decoders run when the capture ends; same results, progress jumps at the end | 4b ✔ |
-| DSO voltages in `measure_dso`/`read_waveform` | `DsoSignal` scales by the view height, the dial and the snapshot's measure factor and data scale | Per code `vdiv × probe factor × 10 / (ref_max − ref_min)`, the same as Qt when the data scale is 1 (the demo: every value in the transcript identical); a hardware data scale other than 1 is not applied yet | 4b ✔ |
+| DSO voltages in `measure_dso`/`read_waveform` | `DsoSignal` scales by the view height, the dial and the snapshot's measure factor and data scale | Per code `vdiv × probe factor × 10 / (ref_max − ref_min)` with the V/div of the capture, which is what Qt's factors reduce to (the data scale is the view height over the code range); every value in the demo transcript is identical | 4b ✔, capture V/div M6g ✔ |
 | DSO data lock, feed timer, trigger-check timer | Throttle the display; poll the hardware's trigger flag every 200 ms | Not needed without a display; `triggered` comes from the first data, as with demo and file devices in C | 4b ✔ |
 | Control methods in `dsview-cli serve` | Run on the GUI thread; waiting replies answered from the event loop | One method at a time under a lock; captures, decoding and saving wait outside it | 4b ✔ |
 | DSO envelope | Built when `DsoSignal` draws at ≥ 256 samples per pixel | Ported in M6.0 (until then the Rust store had none, and the Qt GUI drew deep DSO frames empty with `DSVIEW_IMPL_STORE=rust`, F26); same entries, compared against the C++ class | M6.0 ✔ |

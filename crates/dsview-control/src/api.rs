@@ -1637,8 +1637,16 @@ impl ControlBackend for Api {
 }
 
 /// Millivolts per sample code of DSO channel `c` at list position `pos`
-/// (the on-screen trace's calibration).
+/// (the on-screen trace's calibration), with the V/div of the capture as
+/// `DsoSignal::get_voltage` (a V/div changed afterwards only stretches the
+/// trace).
 pub fn mv_per_code(s: &Session, pos: usize, c: &dsview_core::Channel) -> f64 {
+    let vdiv = s
+        .state()
+        .cap_vdiv
+        .iter()
+        .find(|(i, _)| *i == c.index)
+        .map_or(c.vdiv, |&(_, v)| v);
     let ref_min = s
         .config(key::REF_MIN, None)
         .map_or(1.0, |v| v.get_u32() as f64);
@@ -1651,7 +1659,7 @@ pub fn mv_per_code(s: &Session, pos: usize, c: &dsview_core::Channel) -> f64 {
         .config(key::PROBE_FACTOR, Some(pos))
         .map_or(1, |v| v.get_u64()) as f64;
     let range = (ref_max - ref_min).max(1.0);
-    c.vdiv as f64 * factor * dsview_session::session::DSO_VDIVS as f64 / range
+    vdiv as f64 * factor * dsview_session::session::DSO_VDIVS as f64 / range
 }
 
 /// Runs `f` on the samples, hw offset, mV per code, rate and status block

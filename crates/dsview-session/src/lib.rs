@@ -14,6 +14,7 @@ macro_rules! sr_err { ($($t:tt)*) => { dsview_drivers::sys::log(1, &format!($($t
 #[allow(unused_macros)]
 macro_rules! sr_info { ($($t:tt)*) => { dsview_drivers::sys::log(3, &format!($($t)*)) } }
 
+pub mod crash;
 pub mod decode;
 pub mod library;
 pub mod numfmt;
@@ -23,6 +24,25 @@ pub mod trigger;
 
 pub use library::{Entry, Handle, Host, Kind, Library};
 pub use session::{Paths, Session};
+
+/// The data directory of a binary in `<prefix>/bin` (`GetAppDataDir`):
+/// `<prefix>/share/dsview`, the packages' layout, or Qt's
+/// `<prefix>/share/DSView`.
+pub fn data_dir_for(bin_dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    let share = bin_dir.parent()?.join("share");
+    ["dsview", "DSView"]
+        .into_iter()
+        .map(|n| share.join(n))
+        .find(|d| d.is_dir())
+}
+
+/// [`data_dir_for`] the running binary, else `/usr/local/share/DSView`.
+pub fn default_data_dir() -> std::path::PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|e| data_dir_for(e.parent()?))
+        .unwrap_or_else(|| "/usr/local/share/DSView".into())
+}
 
 /// `enum libsigrok_event_type` and the `DS_EV_*` codes.
 pub mod event {

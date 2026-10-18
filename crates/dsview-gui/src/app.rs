@@ -57,6 +57,9 @@ pub struct App {
     files: Option<Receiver<Option<FileJob>>>,
     message: Option<String>,
     switch_prompt: Option<(u64, String)>,
+    /// A decoder from an opened file whose program or file options wait
+    /// for the user's yes.
+    held: Option<dsview_session::store::HeldDecoder>,
     known_devices: usize,
     /// "Save captured data?" is asked; what follows either way.
     store_confirm: Option<AfterSave>,
@@ -384,6 +387,7 @@ impl App {
             files: None,
             message: None,
             switch_prompt: None,
+            held: None,
             known_devices: 0,
             store_confirm: None,
             after_save: None,
@@ -642,6 +646,11 @@ impl App {
         }
         if devices {
             self.hotplug();
+        }
+        // a failed switch (`SigSession::set_device`'s messages)
+        let err = std::mem::take(&mut self.session.state().device_error);
+        if let Some(t) = dsview_session::session::device_error_text(err) {
+            self.message = Some(t.into());
         }
         // the docks of this work mode, as last left (`TrigBar::reload`)
         self.load_docks();
@@ -1115,6 +1124,25 @@ impl App {
                 }
                 Some(false) => self.switch_prompt = None,
                 None => {}
+            }
+        }
+        // the held decoder options, one decoder at a time
+        if self.held.is_none() {
+            let mut st = self.session.state();
+            if !st.held_decoders.is_empty() {
+                self.held = Some(st.held_decoders.remove(0));
+            }
+        }
+        if let Some(h) = self.held.clone() {
+            let text = format!(
+                "The file sets decoder options that run a program or read a file:\n{}\nUse them?",
+                h.settings.join("\n")
+            );
+            if let Some(yes) = crate::msgbox::confirm(&ctx, "held-options", &text) {
+                if yes {
+                    self.session.apply_held_decoder(&h);
+                }
+                self.held = None;
             }
         }
         if let Some(msg) = self.message.clone()

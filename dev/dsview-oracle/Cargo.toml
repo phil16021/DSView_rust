@@ -1,6 +1,6 @@
 [package]
 name = "dsview-oracle"
-version = "0.1.0"
+version.workspace = true
 description = "Builds the original C libraries and runs them as the golden reference for the Rust port"
 edition.workspace = true
 rust-version.workspace = true

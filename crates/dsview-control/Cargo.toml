@@ -1,6 +1,6 @@
 [package]
 name = "dsview-control"
-version = "0.1.0"
+version.workspace = true
 description = "DSView's control API (JSON-RPC over a local socket) without Qt"
 edition.workspace = true
 rust-version.workspace = true
