@@ -21,6 +21,7 @@ sha2.workspace = true
 zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
+dsview-session = { path = "../../crates/dsview-session" }
 dsview-dsp = { path = "../../crates/dsview-dsp" }
 criterion = { version = "0.8", default-features = false }
 dsview-store = { path = "../../crates/dsview-store" }

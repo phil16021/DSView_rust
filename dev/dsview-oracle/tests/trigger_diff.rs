@@ -52,8 +52,12 @@ impl Rng {
 
 const SYMBOLS: &[u8] = b"X01RFC";
 
+/// C's `trigger` is one global: the tests take turns.
+static C_TRIGGER: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn trigger_masks_match_c() {
+    let _g = C_TRIGGER.lock().unwrap_or_else(|e| e.into_inner());
     let mut r = Rng(0x1234_5678_9abc_def1);
     let mut compared = 0u64;
     for round in 0..2000 {
@@ -132,4 +136,140 @@ fn trigger_masks_match_c() {
         }
     }
     assert!(compared > 1_000_000);
+}
+
+/// The trigger dock: `dsview_session::trigger::AdvTrigger::commit` against
+/// Qt's `TriggerDock::commit_trigger` call sequence on the C setters, for
+/// random dock states (stage and serial, 16 and 32 channels).
+#[test]
+fn dock_commit_matches_c() {
+    let _g = C_TRIGGER.lock().unwrap_or_else(|e| e.into_inner());
+    use dsview_session::trigger::{ALL_X, AdvTrigger, normalise};
+    use std::ffi::CString;
+    let mut r = Rng(0x0dd_b1a5_e5ee_d123);
+    let text = |r: &mut Rng, sym: &[u8]| -> String {
+        let s: String = (0..16)
+            .map(|_| sym[r.below(sym.len() as u64) as usize] as char)
+            .collect();
+        normalise(&s, "X01RFC")
+    };
+    for round in 0..3000 {
+        let ch_num = if r.below(4) == 0 { 32usize } else { 16 };
+        let mut a = AdvTrigger {
+            advanced: r.below(5) != 0,
+            stages: r.below(16) as usize,
+            tab: r.below(2) as usize,
+            ..AdvTrigger::default()
+        };
+        for s in &mut a.stage {
+            s.value0 = text(&mut r, SYMBOLS);
+            s.value1 = text(&mut r, SYMBOLS);
+            s.value0_ext32 = text(&mut r, SYMBOLS);
+            s.value1_ext32 = text(&mut r, SYMBOLS);
+            s.inv0 = r.below(2) as u8;
+            s.inv1 = r.below(2) as u8;
+            s.logic = r.below(2) as u8;
+            s.contiguous = r.below(2) == 1;
+            s.count = 1 + r.below(100_000) as u32;
+        }
+        let sr = &mut a.serial;
+        sr.start = text(&mut r, SYMBOLS);
+        sr.stop = text(&mut r, SYMBOLS);
+        sr.clock = text(&mut r, SYMBOLS);
+        sr.start_ext32 = text(&mut r, SYMBOLS);
+        sr.stop_ext32 = text(&mut r, SYMBOLS);
+        sr.clock_ext32 = text(&mut r, SYMBOLS);
+        sr.channel = r.below(ch_num as u64) as usize;
+        sr.data = text(&mut r, b"X01");
+        sr.bits = r.below(16) as usize;
+        let pos = 1 + r.below(90) as u16;
+
+        // Rust
+        let mut rust = Trigger::default();
+        let adv = a.commit(&mut rust, pos, ch_num);
+
+        // C, as commit_trigger() calls it
+        let cs = |s: String| CString::new(s).unwrap();
+        let join = |hi: &str, lo: &str| {
+            if ch_num == 32 {
+                format!("{hi} {lo}")
+            } else {
+                lo.to_owned()
+            }
+        };
+        unsafe {
+            ds_trigger_init();
+            ds_trigger_set_pos(pos);
+            if !a.advanced {
+                ds_trigger_set_mode(dsview_core::SIMPLE_TRIGGER);
+            } else {
+                ds_trigger_set_en(1);
+                ds_trigger_set_mode(if a.tab == 0 {
+                    dsview_core::ADV_TRIGGER
+                } else {
+                    dsview_core::SERIAL_TRIGGER
+                });
+                ds_trigger_set_stage(a.stages as u16);
+                let n = a.stages + 1;
+                if a.tab == 0 {
+                    for i in 0..n {
+                        let s = &a.stage[i];
+                        let (v0, v1) = (
+                            cs(join(&s.value0_ext32, &s.value0)),
+                            cs(join(&s.value1_ext32, &s.value1)),
+                        );
+                        ds_trigger_stage_set_value(
+                            i as u16,
+                            ch_num as u16,
+                            v0.as_ptr(),
+                            v1.as_ptr(),
+                        );
+                    }
+                } else {
+                    let sr = &a.serial;
+                    let s1 = &a.stage[1];
+                    let (st, sp) = (
+                        cs(join(&sr.start_ext32, &sr.start)),
+                        cs(join(&sr.stop_ext32, &sr.stop)),
+                    );
+                    let (ed, cp) = (
+                        cs(join(&sr.clock_ext32, &sr.clock)),
+                        cs(join(&s1.value1_ext32, &s1.value1)),
+                    );
+                    ds_trigger_stage_set_value(0, ch_num as u16, st.as_ptr(), sp.as_ptr());
+                    ds_trigger_stage_set_value(1, ch_num as u16, ed.as_ptr(), cp.as_ptr());
+                    let (mut ch, mut ch32) = (ALL_X.to_owned(), ALL_X.to_owned());
+                    let d = sr.channel;
+                    if ch_num == 32 && d >= 16 {
+                        ch32.replace_range(30 - 2 * (d - 16)..31 - 2 * (d - 16), "0");
+                    } else {
+                        ch.replace_range(30 - 2 * d..31 - 2 * d, "0");
+                    }
+                    let (ch, ch32) = (cs(ch), cs(ch32));
+                    ds_trigger_stage_set_value(2, 16, ch.as_ptr(), ch32.as_ptr());
+                    let (dv, v13) = (cs(sr.data.clone()), cs(a.stage[3].value1.clone()));
+                    ds_trigger_stage_set_value(3, 16, dv.as_ptr(), v13.as_ptr());
+                }
+                for i in 0..n {
+                    let s = &a.stage[i];
+                    ds_trigger_stage_set_logic(i as u16, 16, ((s.contiguous as u8) << 1) + s.logic);
+                }
+                for i in 0..n {
+                    let s = &a.stage[i];
+                    ds_trigger_stage_set_inv(i as u16, 16, s.inv0, s.inv1);
+                }
+                if a.tab == 0 {
+                    for i in 0..n {
+                        ds_trigger_stage_set_count(i as u16, 16, a.stage[i].count, 0);
+                    }
+                } else {
+                    ds_trigger_stage_set_count(1, 16, 1, 0);
+                    ds_trigger_stage_set_count(3, 16, a.serial.bits as u32, 0);
+                }
+            }
+        }
+        let c = unsafe { *trigger };
+        assert_eq!(adv, a.advanced, "round {round}");
+        assert_eq!(rust, c, "round {round}: {a:?}");
+    }
 }

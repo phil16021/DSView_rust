@@ -468,6 +468,10 @@ pub fn load_config_from_json(s: &Session, doc: &Value) -> bool {
         && t.contains_key("triggerPos")
     {
         s.set_trigger_position(t["triggerPos"].as_f64().unwrap_or(0.0) as i32);
+        let ch_num = s
+            .config(key::TOTAL_CH_NUM, None)
+            .map_or(16, |v| v.get_i16() as usize);
+        s.state().adv_trigger.load_json(t, ch_num);
     }
 
     let mut have_decoders = false;
@@ -489,31 +493,6 @@ fn parse_colour(s: &str) -> Option<[u8; 3]> {
     }
     let v = u32::from_str_radix(h, 16).ok()?;
     Some([(v >> 16) as u8, (v >> 8) as u8, v as u8])
-}
-
-/// `TriggerDock::get_session()` for the simple trigger.
-fn trigger_session(pos: i32) -> Value {
-    let xs = vec!["X"; 16].join(" ");
-    let mut t = Map::new();
-    t.insert("advTriggerMode".into(), false.into());
-    t.insert("triggerPos".into(), pos.into());
-    t.insert("triggerStages".into(), 0.into());
-    t.insert("triggerTab".into(), 0.into());
-    for i in 0..16 {
-        t.insert(format!("stageTriggerValue0{i}"), xs.clone().into());
-        t.insert(format!("stageTriggerValue1{i}"), xs.clone().into());
-        t.insert(format!("stageTriggerInv0{i}"), 0.into());
-        t.insert(format!("stageTriggerInv1{i}"), 0.into());
-        t.insert(format!("stageTriggerLogic{i}"), 1.into());
-        t.insert(format!("stageTriggerCount{i}"), 1.into());
-        t.insert(format!("stageTriggerContiguous{i}"), false.into());
-    }
-    for k in ["Start", "Stop", "Clock", "Data"] {
-        t.insert(format!("serialTrigger{k}"), xs.clone().into());
-    }
-    t.insert("serialTriggerChannel".into(), 0.into());
-    t.insert("serialTriggerBits".into(), 0.into());
-    Value::Object(t)
 }
 
 /// `MainWindow::gen_config_json`
@@ -580,7 +559,12 @@ pub fn session_json(s: &Session, version: &str) -> Value {
     }
     o.insert("channel".into(), chans.into());
     if mode == Mode::Logic as i32 {
-        o.insert("trigger".into(), trigger_session(s.trigger_position()));
+        let ch_num = s
+            .config(key::TOTAL_CH_NUM, None)
+            .map_or(16, |v| v.get_i16() as usize);
+        let pos = s.trigger_position();
+        let t = s.state().adv_trigger.session_json(pos, ch_num);
+        o.insert("trigger".into(), t);
     }
     o.insert("decoder".into(), decoders_json(s));
     Value::Object(o)

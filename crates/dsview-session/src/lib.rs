@@ -18,6 +18,7 @@ pub mod decode;
 pub mod library;
 pub mod session;
 pub mod store;
+pub mod trigger;
 
 pub use library::{Entry, Handle, Host, Kind, Library};
 pub use session::{Paths, Session};

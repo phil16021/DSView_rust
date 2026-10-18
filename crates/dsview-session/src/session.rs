@@ -258,6 +258,8 @@ pub struct State {
     pub captures: u64,
     pub cursors: Vec<u64>,
     pub region: Option<(u64, u64)>,
+    /// The trigger dock's advanced and serial settings.
+    pub adv_trigger: crate::trigger::AdvTrigger,
 }
 
 /// The captured data (`SessionData`): one store per signal type.
@@ -949,9 +951,18 @@ impl Session {
         } else {
             (depth as f64 * MAX_TRIG_PERCENT as f64 / limit as f64).ceil() as i32
         };
+        let virt = self
+            .state()
+            .device
+            .as_ref()
+            .is_some_and(|d| d.is_demo() || d.is_file());
         let mut st = self.state();
         st.trig_pos_max = max.max(MIN_TRIG_POS);
         st.trig_pos = st.trig_pos.clamp(MIN_TRIG_POS, st.trig_pos_max);
+        // virtual devices and streams have the simple trigger only
+        if virt || stream {
+            st.adv_trigger.advanced = false;
+        }
     }
 
     /// The trigger position slider (`set_session(["triggerPos"])`): clamped
@@ -1324,12 +1335,19 @@ impl Session {
         st.repeat_interval = repeat_interval.max(0.0);
     }
 
-    /// `TriggerDock::try_commit_trigger()` with the simple trigger.
+    /// `TriggerDock::try_commit_trigger()`: the dock's advanced or serial
+    /// trigger, else the channels' simple ones.
     fn commit_trigger(&self) {
         let mut t = Trigger::default();
+        let ch_num = self
+            .config(key::TOTAL_CH_NUM, None)
+            .map_or(16, |v| v.get_i16() as usize)
+            .clamp(1, dsview_core::MAX_TRIGGER_PROBES);
         let st = self.state();
-        if st.setup.mode == Mode::Logic as i32 && !st.instant {
-            t.trigger_pos = st.trig_pos as u16;
+        if st.setup.mode == Mode::Logic as i32
+            && !st.instant
+            && !st.adv_trigger.commit(&mut t, st.trig_pos as u16, ch_num)
+        {
             let stage = dsview_core::TRIGGER_STAGES;
             for s in st.signals.iter().filter(|s| s.ty == channel_type::LOGIC) {
                 let c = match s.trig {
