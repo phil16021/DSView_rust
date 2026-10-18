@@ -310,3 +310,70 @@ fn annotation_number_formats() {
     assert_eq!(st.format(), Format::Dec);
     s.exit();
 }
+
+/// A hardware device's settings go to `<driver><mode>.ses.dsc`, the file
+/// Qt DSView uses; without it the per-language file of an older DSView is
+/// read.
+#[test]
+fn hardware_profile_names() {
+    use dsview_usb::Speed;
+    use dsview_usb::sim::{Hub, SimBackend, SimConfig};
+    let (_g, _demo) = session("Demo Logic");
+    _demo.exit();
+    let dir = std::env::temp_dir().join(format!("dsv-hwprof-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let open = || {
+        let hub = Arc::new(Mutex::new(Hub::new(SimConfig::new(
+            0x2A0E,
+            0x0034,
+            Speed::High,
+        ))));
+        let sim = Arc::new(SimBackend::new(
+            hub,
+            Arc::new(|d: Duration| std::thread::sleep(d)),
+        ));
+        let s = Session::new(
+            Paths {
+                data_dir: root().join("DSView"),
+                profile_dir: Some(dir.clone()),
+                version: "test".into(),
+            },
+            sim,
+        );
+        let (list, _) = s.devices();
+        let e = list
+            .iter()
+            .find(|e| matches!(e.kind, Kind::Usb { .. }))
+            .expect("simulated DSLogic");
+        assert!(s.set_device(e.handle));
+        s
+    };
+    let logic = dsview_core::channel_type::LOGIC;
+    let name3 = |s: &Session| {
+        s.state()
+            .signals
+            .iter()
+            .find(|x| x.index == 3)
+            .map(|x| x.name.clone())
+            .unwrap()
+    };
+    let s = open();
+    s.set_signal_name(3, logic, "MOSI");
+    s.save_config();
+    s.exit();
+    let files: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(files.len(), 1, "{files:?}");
+    assert!(files[0].ends_with("0.ses.dsc"), "{files:?}");
+    assert_eq!(name3(&open()), "MOSI");
+    // only an older per-language profile
+    let legacy = files[0].replace(".ses.dsc", ".ses25.dsc");
+    std::fs::rename(dir.join(&files[0]), dir.join(&legacy)).unwrap();
+    let s = open();
+    assert_eq!(name3(&s), "MOSI");
+    s.exit();
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -671,14 +671,37 @@ impl Session {
     }
 
     /// The hardware profile of the active device and mode
-    /// (`gen_config_file_path`): `<profile dir>/<driver><mode>.dsc`.
+    /// (`gen_config_file_path(true)`): `<profile dir>/<driver><mode>.ses.dsc`,
+    /// the file Qt DSView uses too.
     fn profile_path(&self) -> Option<PathBuf> {
         let d = self.state().device.clone()?;
         if !d.is_hardware() {
             return None;
         }
         let dir = self.0.profile_dir.as_ref()?;
-        Some(dir.join(format!("{}{}.dsc", d.driver, self.mode())))
+        Some(dir.join(format!("{}{}.ses.dsc", d.driver, self.mode())))
+    }
+
+    /// `gen_config_file_path(false)`: the profile of DSView versions that
+    /// kept one per language, `<driver><mode>.ses<language>.dsc`. The
+    /// language is Qt's setting, unknown here: the first such file by name.
+    fn legacy_profile_path(&self) -> Option<PathBuf> {
+        let d = self.state().device.clone()?;
+        let dir = self.0.profile_dir.as_ref()?;
+        let prefix = format!("{}{}.ses", d.driver, self.mode());
+        let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
+            .ok()?
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .and_then(|n| n.strip_prefix(&prefix))
+                    .and_then(|n| n.strip_suffix(".dsc"))
+                    .is_some_and(|l| !l.is_empty() && l.bytes().all(|b| b.is_ascii_digit()))
+            })
+            .collect();
+        found.sort();
+        found.into_iter().next()
     }
 
     /// `MainWindow::load_config_from_file`: a `.dsc` profile chosen by the
@@ -734,19 +757,21 @@ impl Session {
 
     /// `MainWindow::load_device_config()`:
     /// - hardware: the user's profile for the device and mode, else the one
-    ///   shipped in `res/` (`<driver><mode>.def.dsc`);
+    ///   of an older DSView kept per language, else the one shipped in
+    ///   `res/` (`<driver><mode>.def.dsc`);
     /// - a demo: the profile shipped for its mode (`res/virtual-demo<mode>.dsc`,
     ///   only DSO has one).
-    ///
-    /// Profiles of DSView versions that kept one per language
-    /// (`<driver><mode>.ses<lang>.dsc`) are not read.
     fn load_device_config(&self) {
         let Some(d) = self.state().device.clone() else {
             return;
         };
         let res = dsview_drivers::sys::res_dir();
         let file = if d.is_hardware() {
-            match self.profile_path().filter(|p| p.is_file()) {
+            match self
+                .profile_path()
+                .filter(|p| p.is_file())
+                .or_else(|| self.legacy_profile_path())
+            {
                 Some(p) => p,
                 None => res.join(format!("{}{}.def.dsc", d.driver, self.mode())),
             }
