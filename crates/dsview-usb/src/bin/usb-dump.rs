@@ -3,7 +3,10 @@
 //! by destination, bulk OUT (the DSL_setting block, FPGA bitstream), and bulk
 //! IN runs summarised.
 //!
-//! usage: usb-dump <capture.pcapng> [--all]
+//! usage: usb-dump <capture.pcapng> [--all | --dev ADDRESS]
+//!
+//! Without options it shows the first device that receives a vendor
+//! request; `--dev` picks another one (a replugged device gets a new address).
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -47,16 +50,26 @@ fn hex(d: &[u8], max: usize) -> String {
 }
 
 fn main() {
+    const USAGE: &str = "usage: usb-dump <capture.pcapng> [--all | --dev ADDRESS]";
     let mut args = std::env::args().skip(1);
-    let path = PathBuf::from(
-        args.next()
-            .expect("usage: usb-dump <capture.pcapng> [--all]"),
-    );
-    let all = args.next().as_deref() == Some("--all");
+    let path = PathBuf::from(args.next().expect(USAGE));
+    let mut all = false;
+    let mut want: Option<u8> = None;
+    while let Some(a) = args.next() {
+        match a.as_str() {
+            "--all" => all = true,
+            "--dev" => want = Some(args.next().and_then(|v| v.parse().ok()).expect(USAGE)),
+            _ => panic!("{USAGE}"),
+        }
+    }
     let urbs = trace::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     let dev = urbs
         .iter()
-        .find(|u| u.xfer == Xfer::Control && u.setup.is_some_and(|s| s[0] & 0x60 == 0x40))
+        .find(|u| {
+            u.xfer == Xfer::Control
+                && u.setup.is_some_and(|s| s[0] & 0x60 == 0x40)
+                && want.is_none_or(|d| d == u.dev)
+        })
         .map(|u| (u.bus, u.dev));
     let submits: HashMap<u64, &Urb> = HashMap::new();
     let mut submits = submits;

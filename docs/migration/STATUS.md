@@ -5,7 +5,7 @@
 | 0 Infrastructure, oracle, baselines | **done, one item deferred** | Deferred: performance baselines (moved to Phase 1b/2, see DEVIATIONS.md). USB traces recorded 2026-10-17 |
 | 1 Formats + store | **done**: 1a formats behind `DSVIEW_IMPL_FORMATS`, 1b sample stores behind `DSVIEW_IMPL_STORE`; Rust becomes the default after one release of A/B | See "Phase 1a" and "Phase 1b" below |
 | 2 Decoder engine | **done**: Rust/PyO3 engine behind `DSVIEW_IMPL_DECODE`; Rust becomes the default after one release of A/B | See "Phase 2" below |
-| 3 Drivers | **done except hardware steps**: 3a demo, 3b file, 3c USB layer, 3d DSLogic, 3e DSCope/MSO-E8 (`DSVIEW_IMPL_DRV_DEMO` / `_FILE` / `_DSLOGIC` / `_DSCOPE`). Open: DSLogic replug and nightly runs, one DSCope/E8 hardware confirmation | See "Phase 3" below |
+| 3 Drivers | **done except hardware steps**: 3a demo, 3b file, 3c USB layer, 3d DSLogic (replug tests passed 2026-10-18), 3e DSCope/MSO-E8 (`DSVIEW_IMPL_DRV_DEMO` / `_FILE` / `_DSLOGIC` / `_DSCOPE`). Open: a firmware upload from the host, the nightly runs, one DSCope/E8 hardware confirmation | See "Phase 3" below |
 | 4 Session + control API | not started | |
 | 5 Rust GUI | not started | Parity checklist: PARITY.md |
 | 6 Removal + packaging | not started | |
@@ -398,10 +398,35 @@ protocol.demo playback, channel keys without a channel, analog overruns and DSO 
   and the control transcript is identical with everything in Rust (the DSLogic attached and scanned
   by the Rust driver).
 
-**Open for 3d (each needs someone at the device):**
-- firmware upload and FPGA configuration from cold (the device had both loaded; that needs a
-  replug);
-- unplug and replug during a capture with the Rust driver;
+**Replug tests (2026-10-18, DSLogic Plus, staged DSView headless, usbmon recording):**
+- **Cold start.** The device was plugged in while DSView ran with `DSVIEW_IMPL=rust`. The Rust
+  driver found it through lib_main's attach event, DSView activated it, and the driver configured
+  the cold FPGA (530,620 bytes). A 5 M-sample capture followed.
+  - The same after a restart with the device freshly replugged, and with the C driver after a
+    replug.
+  - `usb-dump --dev` of the two cold opens plus captures: C and Rust send the same steps. The
+    exceptions are F22's unset header offsets, and the kernel's SET_CONFIGURATION, which was
+    recorded only on the side whose capture started before the plug-in.
+- **Firmware upload: not testable with this device.** This DSLogic Plus boots its FX2 firmware
+  from its own flash, so after a power cycle it comes up as "USB-based DSL Instrument v2"
+  (firmware 2.2), and neither driver uploads anything.
+- **Unplug during a stream capture, with Rust and with C:**
+  - the outstanding transfers fail (a transfer error, then stalls);
+  - the driver ends the capture (SR_DF_END) and keeps the data so far;
+  - the final FORCE_RDY fails with "device disconnected";
+  - the collect thread ends, lib_main handles the detach, and the device leaves the list;
+  - DSView stays responsive and asks to save the data.
+
+  Both drivers take the same steps in the same order; neither hangs.
+- **Replug after that.** The device is found again at its new address. DSView activates it only
+  after its "Save captured data?" dialog is closed, in C as well. That dialog cannot be closed over
+  the control API, so the capture after the replug ran after a restart (above).
+- Live stop in the middle of a stream, repeated with the 3e build: `usb-diff` reports the same
+  protocol (53 vs 55 transfers before the stop).
+
+**Open for 3d:**
+- the firmware upload path (needs a DSLogic that loads its firmware from the host, e.g. an
+  original DSLogic or a Pro);
 - the three nightly hardware runs the plan asks for.
 
 **Left for later in Phase 3:**
@@ -479,5 +504,5 @@ protocol.demo playback, channel keys without a channel, analog overruns and DSO 
 **Open:**
 - A DSCope or MSO-E8 owner runs the Rust driver once (`DSVIEW_IMPL_DRV_DSCOPE=rust`) before it
   becomes the default (plan, Phase 3 exit).
-- 3d's replug and nightly hardware steps.
+- 3d's firmware-upload and nightly hardware steps.
 
