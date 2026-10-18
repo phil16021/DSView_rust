@@ -137,6 +137,8 @@ pub struct TimeView {
     /// once per capture (the capture it was done for).
     pub trig_in_middle: bool,
     trig_centred: u64,
+    /// The logic ruler's smallest tick period, for hover snapping.
+    min_period: std::cell::Cell<f64>,
     /// The capture the view was fitted to.
     fitted_capture: u64,
     pub vertical_scroll_is_zoom: bool,
@@ -273,6 +275,7 @@ impl Default for TimeView {
             decoder_font_width: None,
             trig_in_middle: true,
             trig_centred: 0,
+            min_period: std::cell::Cell::new(0.0),
             fitted_capture: u64::MAX,
             vertical_scroll_is_zoom: true,
             quick_scroll: true,
@@ -1836,6 +1839,7 @@ impl TimeView {
             self.show_samples,
             &m,
         );
+        self.min_period.set(ticks.min_period);
         let fg = Color32::from_gray(170);
         for t in &ticks.ticks {
             let x = rect.left() + t.x as f32;
@@ -1863,10 +1867,13 @@ impl TimeView {
             }
         }
         // hover arrow
-        if let Some(p) = painter.ctx().pointer_hover_pos()
+        if let Some(mut p) = painter.ctx().pointer_hover_pos()
             && p.x >= rect.left()
             && p.x <= rect.right()
         {
+            if s.mode() == dsview_core::Mode::Logic as i32 {
+                p.x = self.snapped_hover(p.x, rect.left());
+            }
             let b = rect.bottom();
             painter.add(egui::Shape::convex_polygon(
                 vec![
@@ -2160,7 +2167,7 @@ impl TimeView {
             ));
         };
         dashed(
-            p.x,
+            self.snapped_hover(p.x, area.left()),
             area.top(),
             area.bottom(),
             Color32::from_rgba_unmultiplied(220, 220, 220, 140),
@@ -2273,6 +2280,17 @@ impl TimeView {
     pub fn show_region(&mut self, s: &Session, start: u64, end: u64) {
         let tb = timebase(s);
         self.vp.show_region(start, end, self.map_zoom_fixed, &tb);
+    }
+
+    /// `_hover_point`'s x in logic mode: snapped to the ruler's smallest
+    /// period nearby (`left`: the view's left edge on screen).
+    fn snapped_hover(&self, x: f32, left: f32) -> f32 {
+        left + ruler::snap_hover(
+            (x - left) as f64,
+            self.vp.x_offset,
+            self.vp.scale,
+            self.min_period.get(),
+        ) as f32
     }
 
     /// A trace font `px` points at the default font size.

@@ -519,3 +519,40 @@ mod tests {
         assert!(!s.visible());
     }
 }
+
+/// `View::eventFilter`: in logic mode the hover point snaps to the nearest
+/// multiple of the ruler's smallest period (`get_min_period`, `_min_period
+/// / MinPeriodScale`) within 10 px. `x` is relative to the view.
+pub fn snap_hover(x: f64, x_offset: i64, scale: f64, min_period: f64) -> f64 {
+    let period = min_period / MIN_PERIOD_SCALE as f64;
+    if period <= 0.0 || scale <= 0.0 {
+        return x;
+    }
+    let periods = (x + x_offset as f64) * scale / period;
+    // C assigns to an int
+    let snapped = (periods.round() * period / scale - x_offset as f64) as i64 as f64;
+    if (x - snapped).abs() < 10.0 {
+        snapped
+    } else {
+        x
+    }
+}
+
+#[cfg(test)]
+mod hover_tests {
+    use super::*;
+
+    #[test]
+    fn hover_snaps_within_ten_pixels() {
+        // a 1 µs smallest period at 10 ns per pixel: every 100 px
+        let (scale, min_period) = (10e-9, 10e-6);
+        assert_eq!(snap_hover(103.0, 0, scale, min_period), 100.0);
+        assert_eq!(snap_hover(149.0, 0, scale, min_period), 149.0);
+        assert_eq!(snap_hover(195.0, 0, scale, min_period), 200.0);
+        // with the view scrolled by 30 px
+        assert_eq!(snap_hover(72.0, 30, scale, min_period), 70.0);
+        // periods 25 px apart: 12 px off stays, 8 px off snaps
+        assert_eq!(snap_hover(112.0, 0, 40e-9, 10e-6), 112.0);
+        assert_eq!(snap_hover(108.0, 0, 40e-9, 10e-6), 100.0);
+    }
+}
