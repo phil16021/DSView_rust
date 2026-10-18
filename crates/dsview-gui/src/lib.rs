@@ -5,6 +5,7 @@
 pub mod analogview;
 pub mod analysisdlg;
 pub mod app;
+pub mod deviceoptions;
 pub mod dsotrigger;
 pub mod dsoview;
 pub mod fftview;

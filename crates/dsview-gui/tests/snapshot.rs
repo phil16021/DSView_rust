@@ -470,18 +470,17 @@ fn search_dock() {
     view.search = Some((0, false));
     dock.pattern.insert(0, b'R');
     let ctx = egui::Context::default();
-    let run =
-        |dock: &mut dsview_gui::searchdock::SearchDock, view: &mut TimeView, next: bool| {
-            dock.search(&s, view, next);
-            let t0 = std::time::Instant::now();
-            while dock.busy() {
-                assert!(t0.elapsed() < Duration::from_secs(30));
-                let mut out = ctx.run_ui(Default::default(), |ui| dock.poll(ui.ctx(), &s, view));
-                out.textures_delta.clear();
-                std::thread::sleep(Duration::from_millis(5));
-            }
-            view.search.unwrap()
-        };
+    let run = |dock: &mut dsview_gui::searchdock::SearchDock, view: &mut TimeView, next: bool| {
+        dock.search(&s, view, next);
+        let t0 = std::time::Instant::now();
+        while dock.busy() {
+            assert!(t0.elapsed() < Duration::from_secs(30));
+            let mut out = ctx.run_ui(Default::default(), |ui| dock.poll(ui.ctx(), &s, view));
+            out.textures_delta.clear();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        view.search.unwrap()
+    };
     let (a, hit) = run(&mut dock, &mut view, true);
     assert!(hit);
     let (b, _) = run(&mut dock, &mut view, true);
@@ -496,6 +495,30 @@ fn search_dock() {
     assert_eq!(c, a);
     assert_eq!(dock.message.take(), None);
     s.exit();
+}
+
+fn options_snapshot(s: Session, name: &str) {
+    let mut d = dsview_gui::deviceoptions::DeviceOptions::new(&s);
+    let s2 = s.clone();
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(560.0, 560.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            d.show(ui.ctx(), &s2);
+        });
+    harness.run();
+    harness.snapshot(name);
+    s.exit();
+}
+
+#[test]
+fn device_options_logic() {
+    options_snapshot(demo_session(), "device_options_logic");
+}
+
+#[test]
+fn device_options_analog() {
+    options_snapshot(demo_in_mode(dsview_core::Mode::Analog), "device_options_analog");
 }
 
 #[test]

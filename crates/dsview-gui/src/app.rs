@@ -385,6 +385,9 @@ impl eframe::App for App {
                     });
                 });
         }
+        if let Some(m) = self.bar.message.take() {
+            self.message = Some(m);
+        }
         if let Some(m) = self.trigger.message.take() {
             self.message = Some(m);
         }

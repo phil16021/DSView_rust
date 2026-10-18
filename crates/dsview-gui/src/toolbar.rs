@@ -11,6 +11,13 @@ pub struct SamplingBar {
     pub collect: CollectMode,
     pub repeat_interval: f64,
     channels_open: bool,
+    /// The device options dialog while open.
+    pub options: Option<crate::deviceoptions::DeviceOptions>,
+    /// "Manual Calibration" was chosen: the app opens the calibration.
+    pub calibrate: bool,
+    /// "Auto Calibration": waiting for the user's confirmation.
+    pub confirm_zero: bool,
+    pub message: Option<String>,
 }
 
 impl Default for SamplingBar {
@@ -19,6 +26,10 @@ impl Default for SamplingBar {
             collect: CollectMode::Single,
             repeat_interval: 1.0,
             channels_open: false,
+            options: None,
+            calibrate: false,
+            confirm_zero: false,
+            message: None,
         }
     }
 }
@@ -50,6 +61,7 @@ impl SamplingBar {
     }
 
     pub fn show(&mut self, ui: &mut Ui, s: &Session) {
+        self.options_dialog(ui.ctx(), s);
         let working = s.is_working();
         ui.horizontal(|ui| {
             // device
@@ -90,6 +102,14 @@ impl SamplingBar {
                                 }
                             }
                         });
+                }
+                if ui
+                    .button("Options")
+                    .on_hover_text("Device options")
+                    .clicked()
+                    && self.options.is_none()
+                {
+                    self.options = Some(crate::deviceoptions::DeviceOptions::new(s));
                 }
                 if ui.button("Channels").clicked() {
                     self.channels_open = !self.channels_open;
@@ -220,6 +240,60 @@ impl SamplingBar {
                     });
                 });
             self.channels_open = open;
+        }
+    }
+}
+
+impl SamplingBar {
+    /// The device options dialog and what follows OK
+    /// (`SamplingBar::on_configure`).
+    fn options_dialog(&mut self, ctx: &egui::Context, s: &Session) {
+        use crate::deviceoptions::Outcome;
+        if let Some(d) = &mut self.options {
+            let out = d.show(ctx, s);
+            if let Some(m) = d.message.take() {
+                self.message = Some(m);
+            }
+            match out {
+                Outcome::Open => {}
+                Outcome::Cancelled => self.options = None,
+                Outcome::Accepted | Outcome::AutoCalibration | Outcome::ManualCalibration => {
+                    self.options = None;
+                    if !s.have_view_data() {
+                        s.commit_settings();
+                    }
+                    // DSV_MSG_DEVICE_OPTIONS_UPDATED: the session reloads
+                    s.reload_signals();
+                    s.device_updated();
+                    match out {
+                        Outcome::AutoCalibration => self.confirm_zero = true,
+                        Outcome::ManualCalibration => {
+                            s.set_config(
+                                dsview_core::key::CALI,
+                                dsview_core::ConfValue::Bool(true),
+                                None,
+                            );
+                            self.calibrate = true;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        if self.confirm_zero {
+            egui::Window::new("Auto Calibration").collapsible(false).show(ctx, |ui| {
+                ui.label("Auto Calibration program will be started. Don't connect any probes. \nIt can take a while!");
+                ui.horizontal(|ui| {
+                    if ui.button("OK").clicked() {
+                        s.set_config(dsview_core::key::ZERO, dsview_core::ConfValue::Bool(true), None);
+                        self.confirm_zero = false;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        s.set_config(dsview_core::key::ZERO, dsview_core::ConfValue::Bool(false), None);
+                        self.confirm_zero = false;
+                    }
+                });
+            });
         }
     }
 }
