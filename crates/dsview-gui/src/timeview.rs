@@ -1361,32 +1361,6 @@ impl TimeView {
         }
         drop(store);
 
-        // keyboard: PgUp/PgDn pan a view width, arrows zoom (MainWindow)
-        let (pgup, pgdn, left, right) = ui.input(|i| {
-            (
-                i.key_pressed(egui::Key::PageUp),
-                i.key_pressed(egui::Key::PageDown),
-                i.key_pressed(egui::Key::ArrowLeft),
-                i.key_pressed(egui::Key::ArrowRight),
-            )
-        });
-        let w = self.vp.width as i64;
-        if pgup {
-            changed |= self
-                .vp
-                .set_scale_offset(self.vp.scale, self.vp.x_offset - w, tb);
-        }
-        if pgdn {
-            changed |= self
-                .vp
-                .set_scale_offset(self.vp.scale, self.vp.x_offset + w, tb);
-        }
-        if left {
-            changed |= self.vp.zoom(1.0, self.vp.width / 2, tb);
-        }
-        if right {
-            changed |= self.vp.zoom(-1.0, self.vp.width / 2, tb);
-        }
         changed
     }
 
@@ -2286,6 +2260,43 @@ impl TimeView {
     /// A trace font `px` points at the default font size.
     pub(crate) fn font(&self, px: f32) -> egui::FontId {
         egui::FontId::proportional(px * self.font_scale)
+    }
+
+    /// PgUp/PgDn and ←/→ (`MainWindow::eventFilter`): pan by one view
+    /// width, zoom one step around the middle (in DSO mode a timebase step).
+    pub fn key(&mut self, s: &Session, k: input::Shortcut) -> bool {
+        let tb = timebase(s);
+        let w = self.vp.width as i64;
+        let dso = s.mode() == dsview_core::Mode::Dso as i32;
+        match k {
+            input::Shortcut::PageLeft => {
+                self.vp
+                    .set_scale_offset(self.vp.scale, self.vp.x_offset - w, &tb)
+            }
+            input::Shortcut::PageRight => {
+                self.vp
+                    .set_scale_offset(self.vp.scale, self.vp.x_offset + w, &tb)
+            }
+            input::Shortcut::ZoomIn | input::Shortcut::ZoomOut => {
+                let steps = if k == input::Shortcut::ZoomIn {
+                    1.0
+                } else {
+                    -1.0
+                };
+                if dso {
+                    self.dso_key_zoom(s, steps)
+                } else {
+                    self.vp.zoom(steps, self.vp.width / 2, &tb)
+                }
+            }
+            input::Shortcut::Dial(n) if dso => {
+                self.toggle_dial(s, n);
+                true
+            }
+            input::Shortcut::DialUp if dso => self.step_active_dial(s, true),
+            input::Shortcut::DialDown if dso => self.step_active_dial(s, false),
+            _ => false,
+        }
     }
 
     /// The logic traces in view order with their centres' screen y.

@@ -67,7 +67,7 @@ impl LissajousState {
                         (self.enabled, self.x, self.y, self.percent) = (en, x, y, percent);
                         keep = false;
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui.button("Cancel").clicked() || crate::msgbox::esc(ui.ctx()) {
                         keep = false;
                     }
                 });

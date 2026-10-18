@@ -185,3 +185,66 @@ fn about_window() {
     assert!(h.query_by_label_contains("DSView test (").is_none());
     s.exit();
 }
+
+/// MainWindow's shortcuts: keys with Ctrl are ignored, a second key within
+/// 200 ms too; T/D/M/R toggle only the docks the work mode offers, and
+/// each mode keeps its own; O opens the device options.
+#[test]
+fn shortcuts_and_docks_per_mode() {
+    let s = dslogic_session();
+    let (mut h, app) = harness(&s);
+    h.run();
+    let press = |h: &mut Harness<'_>, k: egui::Key, m: egui::Modifiers| {
+        std::thread::sleep(Duration::from_millis(220));
+        h.key_press_modifiers(m, k);
+        h.run();
+    };
+    let docks = |app: &Arc<Mutex<Option<App>>>| {
+        let a = app.lock().unwrap();
+        let f = &a.as_ref().unwrap().options.frame;
+        (f.logic_dock.clone(), f.dso_dock.clone())
+    };
+    let none = egui::Modifiers::NONE;
+    // logic: D opens the protocol dock
+    press(&mut h, egui::Key::D, none);
+    assert!(docks(&app).0.decode);
+    // Ctrl+D is not a shortcut
+    press(&mut h, egui::Key::D, egui::Modifiers::CTRL);
+    assert!(docks(&app).0.decode);
+    // two keys within 200 ms: the second is dropped
+    h.key_press(egui::Key::M);
+    h.run();
+    h.key_press(egui::Key::M);
+    h.run();
+    assert!(docks(&app).0.measure);
+    // the oscilloscope: no protocol dock; M is its own
+    let dso = s
+        .devices()
+        .0
+        .iter()
+        .find(|e| e.name == "Demo Oscilloscope")
+        .unwrap()
+        .handle;
+    assert!(s.set_device(dso));
+    h.run();
+    press(&mut h, egui::Key::D, none);
+    press(&mut h, egui::Key::T, none);
+    let (logic, dso_docks) = docks(&app);
+    assert!(!dso_docks.decode && dso_docks.trigger && !dso_docks.measure);
+    assert!(logic.decode && logic.measure && !logic.trigger);
+    // 0 makes channel 0's dial active, ↑ steps its V/div
+    use dsview_core::key;
+    let vdiv = |s: &Session| s.config(key::PROBE_VDIV, Some(0)).map(|v| v.get_u64());
+    let before = vdiv(&s);
+    press(&mut h, egui::Key::ArrowUp, none);
+    assert_eq!(vdiv(&s), before, "no active dial yet");
+    press(&mut h, egui::Key::Num0, none);
+    press(&mut h, egui::Key::ArrowUp, none);
+    assert_ne!(vdiv(&s), before);
+    press(&mut h, egui::Key::ArrowDown, none);
+    assert_eq!(vdiv(&s), before);
+    // O: the device options
+    press(&mut h, egui::Key::O, none);
+    h.get_by_label("Device Options");
+    s.exit();
+}

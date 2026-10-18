@@ -70,6 +70,11 @@ pub struct App {
     log_options: Option<crate::log::LogOptions>,
     /// The About window is open.
     about: bool,
+    /// The shortcuts' modifier filter and debounce.
+    keys: dsview_viewmodel::input::KeyGate,
+    started: Instant,
+    /// The work mode whose docks are shown.
+    dock_mode: Option<i32>,
     /// The restored window was checked against the screen.
     window_checked: bool,
     pub bench: Option<Bench>,
@@ -130,6 +135,95 @@ impl App {
             return true;
         }
         false
+    }
+
+    /// One shortcut (`MainWindow::eventFilter`). T/D/M/R toggle only the
+    /// docks the work mode offers (`TrigBar::*_clicked`).
+    pub fn shortcut(&mut self, sc: dsview_viewmodel::input::Shortcut) {
+        use dsview_viewmodel::input::{Shortcut as K, dock_offered};
+        let mode = self.session.mode();
+        match sc {
+            K::RunStop => self.bar.run_stop(&self.session, false),
+            K::Instant => self.bar.run_stop(&self.session, true),
+            K::Trigger | K::Protocol | K::Measure | K::Search => {
+                if dock_offered(mode, sc) {
+                    let open = self.dock_flag(sc);
+                    *open = !*open;
+                }
+            }
+            K::DeviceOptions => {
+                if self.bar.options.is_none() {
+                    self.bar.options =
+                        Some(crate::deviceoptions::DeviceOptions::new(&self.session));
+                }
+            }
+            _ => {
+                self.view.key(&self.session, sc);
+            }
+        }
+    }
+
+    /// The open flag of a dock.
+    fn dock_flag(&mut self, dock: dsview_viewmodel::input::Shortcut) -> &mut bool {
+        use dsview_viewmodel::input::Shortcut as K;
+        match dock {
+            K::Trigger => &mut self.dso_trigger.open,
+            K::Protocol => &mut self.protocol.open,
+            K::Measure => &mut self.measure.open,
+            _ => &mut self.search.open,
+        }
+    }
+
+    /// The saved docks of a work mode (0 logic, 1 DSO, 2 analog).
+    fn mode_docks(&mut self, mode: i32) -> &mut crate::options::DockOptions {
+        match mode {
+            1 => &mut self.options.frame.dso_dock,
+            2 => &mut self.options.frame.analog_dock,
+            _ => &mut self.options.frame.logic_dock,
+        }
+    }
+
+    const DOCKS: [dsview_viewmodel::input::Shortcut; 4] = [
+        dsview_viewmodel::input::Shortcut::Trigger,
+        dsview_viewmodel::input::Shortcut::Protocol,
+        dsview_viewmodel::input::Shortcut::Measure,
+        dsview_viewmodel::input::Shortcut::Search,
+    ];
+
+    /// `TrigBar::reload` on a mode change: a dock is open when the mode
+    /// offers it and it was open when this mode was last left.
+    fn load_docks(&mut self) {
+        let mode = self.session.mode();
+        if self.dock_mode == Some(mode) {
+            return;
+        }
+        self.dock_mode = Some(mode);
+        let mut saved = self.mode_docks(mode).clone();
+        for d in Self::DOCKS {
+            let want = dsview_viewmodel::input::dock_offered(mode, d) && *saved.flag(d);
+            *self.dock_flag(d) = want;
+        }
+    }
+
+    /// Keeps the docks opened or closed in this mode (Qt saves each toggle,
+    /// `SaveFrame`); a dock the mode does not offer stays closed and keeps
+    /// its saved state.
+    fn store_docks(&mut self) {
+        let Some(mode) = self.dock_mode else {
+            return;
+        };
+        let mut docks = self.mode_docks(mode).clone();
+        for d in Self::DOCKS {
+            if dsview_viewmodel::input::dock_offered(mode, d) {
+                *docks.flag(d) = *self.dock_flag(d);
+            } else {
+                *self.dock_flag(d) = false;
+            }
+        }
+        if *self.mode_docks(mode) != docks {
+            *self.mode_docks(mode) = docks;
+            self.options.save();
+        }
     }
 
     /// Records the window state while it is normal (Qt keeps the normal
@@ -277,6 +371,9 @@ impl App {
             close_now: false,
             log_options: None,
             about: false,
+            keys: Default::default(),
+            started: Instant::now(),
+            dock_mode: None,
             window_checked: false,
             bench: None,
             soak: None,
@@ -525,36 +622,35 @@ impl App {
         if devices {
             self.hotplug();
         }
-        // S and I: run/stop and single; T, D, M, R: the trigger, protocol,
-        // measure and search docks (MainWindow's shortcuts)
-        let (key_s, key_i, key_t, key_d, key_m, key_r) = ctx.input(|i| {
-            (
-                i.key_pressed(egui::Key::S),
-                i.key_pressed(egui::Key::I),
-                i.key_pressed(egui::Key::T),
-                i.key_pressed(egui::Key::D),
-                i.key_pressed(egui::Key::M),
-                i.key_pressed(egui::Key::R),
-            )
-        });
+        // the docks of this work mode, as last left (`TrigBar::reload`)
+        self.load_docks();
+        // `MainWindow::eventFilter`: the shortcuts, outside text fields
         if !ctx.egui_wants_keyboard_input() {
-            if key_t {
-                self.dso_trigger.open = !self.dso_trigger.open;
-            }
-            if key_d {
-                self.protocol.open = !self.protocol.open;
-            }
-            if key_m {
-                self.measure.open = !self.measure.open;
-            }
-            if key_r {
-                self.search.open = !self.search.open;
-            }
-            if key_s {
-                self.bar.run_stop(&self.session, false);
-            }
-            if key_i {
-                self.bar.run_stop(&self.session, true);
+            let keys: Vec<(egui::Key, egui::Modifiers)> = ctx.input(|i| {
+                i.events
+                    .iter()
+                    .filter_map(|e| match e {
+                        egui::Event::Key {
+                            key,
+                            pressed: true,
+                            modifiers,
+                            ..
+                        } => Some((*key, *modifiers)),
+                        _ => None,
+                    })
+                    .collect()
+            });
+            for (k, m) in keys {
+                let now = self.started.elapsed().as_millis() as u64;
+                if !self
+                    .keys
+                    .accept(now, m.ctrl || m.command || m.shift || m.alt)
+                {
+                    continue;
+                }
+                if let Some(sc) = dsview_viewmodel::input::shortcut(k.name()) {
+                    self.shortcut(sc);
+                }
             }
         }
         self.file_jobs();
@@ -646,10 +742,19 @@ impl App {
                     }
                 });
                 ui.menu_button("View", |ui| {
-                    ui.checkbox(&mut self.dso_trigger.open, "Trigger (T)");
-                    ui.checkbox(&mut self.protocol.open, "Protocol (D)");
-                    ui.checkbox(&mut self.measure.open, "Measure (M)");
-                    ui.checkbox(&mut self.search.open, "Search (R)");
+                    // only the docks this mode offers (`TrigBar::reload`)
+                    use dsview_viewmodel::input::{Shortcut as K, dock_offered};
+                    let mode = self.session.mode();
+                    for (d, label) in [
+                        (K::Trigger, "Trigger (T)"),
+                        (K::Protocol, "Protocol (D)"),
+                        (K::Measure, "Measure (M)"),
+                        (K::Search, "Search (R)"),
+                    ] {
+                        if dock_offered(mode, d) {
+                            ui.checkbox(self.dock_flag(d), label);
+                        }
+                    }
                     ui.checkbox(&mut self.view.dso.split, "Split DSO channels");
                     ui.horizontal(|ui| {
                         let l = ui.label("DSO persistence");
@@ -973,6 +1078,7 @@ impl App {
             self.about = false;
         }
 
+        self.store_docks();
         if let Some(soak) = &mut self.soak {
             if !self.session.is_working() {
                 println!("soak: the capture stopped");

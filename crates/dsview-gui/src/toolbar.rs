@@ -223,7 +223,7 @@ impl SamplingBar {
             }
         });
         if self.channels_open {
-            let mut open = true;
+            let mut open = !crate::msgbox::esc(ui.ctx());
             egui::Window::new("Channels")
                 .open(&mut open)
                 .resizable(false)
@@ -319,7 +319,7 @@ impl SamplingBar {
                         self.confirm_zero = false;
                         self.zero = Some(crate::zerocal::ZeroCal::start(s));
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui.button("Cancel").clicked() || crate::msgbox::esc(ui.ctx()) {
                         s.set_config(dsview_core::key::ZERO, dsview_core::ConfValue::Bool(false), None);
                         self.confirm_zero = false;
                     }

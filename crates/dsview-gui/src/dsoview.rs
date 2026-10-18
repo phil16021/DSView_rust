@@ -54,6 +54,8 @@ enum Drag {
 
 #[derive(Default)]
 pub struct DsoState {
+    /// The DSO channel whose V/div dial ↑/↓ steps (`vDialActive`, keys 0/1).
+    pub active_dial: Option<u16>,
     chans: [Chan; 4],
     zoom: WheelAccumulator,
     drag: Option<Drag>,
@@ -270,6 +272,35 @@ fn channel_layout(
         .find(|p| p.slot == signals.len())
         .map(|p| p.v_offset as i32);
     (out, math_y)
+}
+
+impl TimeView {
+    /// Keys 0/1: channel `index`'s dial becomes the active one, or none if
+    /// it was; a disabled channel's dial cannot be active
+    /// (`set_vDialActive`).
+    pub fn toggle_dial(&mut self, s: &Session, index: u16) {
+        let enabled = s
+            .channels()
+            .iter()
+            .any(|c| c.ty == channel_type::DSO && c.index == index && c.enabled);
+        self.dso.active_dial = if self.dso.active_dial == Some(index) || !enabled {
+            None
+        } else {
+            Some(index)
+        };
+    }
+
+    /// ↑/↓: the active dial one V/div step up or down (`go_vDialNext`/`Pre`).
+    pub fn step_active_dial(&mut self, s: &Session, up: bool) -> bool {
+        let Some(index) = self.dso.active_dial else {
+            return false;
+        };
+        let chans = channel_views(s, 1000, 600, &self.dso);
+        let Some(c) = chans.iter().find(|c| c.sig.index == index && c.enabled) else {
+            return false;
+        };
+        step_vdiv(s, &mut self.dso, c, up)
+    }
 }
 
 /// `go_vDialPre` / `go_vDialNext`: one step of the V/div dial; while
@@ -611,6 +642,21 @@ impl TimeView {
             return false;
         }
         let knob = self.dso.zoom.take(steps, now_ms);
+        self.dso_timebase_steps(s, knob, px)
+    }
+
+    /// ←/→ in DSO mode: one timebase step around the middle.
+    pub(crate) fn dso_key_zoom(&mut self, s: &Session, steps: f64) -> bool {
+        if s.is_working() && s.state().instant {
+            return false;
+        }
+        let px = self.vp.width / 2;
+        self.dso_timebase_steps(s, steps.signum() as i32, px)
+    }
+
+    /// `knob` timebase steps (positive: shorter, zoomed in) around pixel
+    /// `px`.
+    fn dso_timebase_steps(&mut self, s: &Session, knob: i32, px: i32) -> bool {
         if knob == 0 {
             return false;
         }
@@ -1296,7 +1342,7 @@ impl TimeView {
         }
         // the chooser (`DsoMeasure`): a tab per channel, the twenty types
         if let Some(i) = self.dso.measure_pick {
-            let mut open = true;
+            let mut open = !crate::msgbox::esc(ui.ctx());
             let mut done = false;
             egui::Window::new(format!("Measure{i}"))
                 .collapsible(false)

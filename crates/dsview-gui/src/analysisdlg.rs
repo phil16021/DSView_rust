@@ -149,7 +149,7 @@ fn channel_combo(ui: &mut Ui, id: &str, label: &str, v: &mut u16, chans: &[ChanV
 impl AnalysisDialogs {
     pub(crate) fn show(&mut self, ctx: &egui::Context, s: &Session, chans: &[ChanView]) {
         if let Some((mut ch, mut volts)) = self.histogram {
-            let mut open = true;
+            let mut open = !crate::msgbox::esc(ctx);
             egui::Window::new("Histogram")
                 .open(&mut open)
                 .default_width(420.0)
@@ -217,7 +217,7 @@ impl AnalysisDialogs {
             self.histogram = open.then_some((ch, volts));
         }
         if let Some((mut a, mut b)) = self.chan_measure {
-            let mut open = true;
+            let mut open = !crate::msgbox::esc(ctx);
             egui::Window::new("Channel-to-channel measure")
                 .open(&mut open)
                 .show(ctx, |ui| {

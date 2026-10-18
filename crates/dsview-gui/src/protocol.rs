@@ -502,7 +502,7 @@ impl ProtocolDock {
         if !self.list_opts {
             return;
         }
-        let mut open = true;
+        let mut open = !crate::msgbox::esc(ctx);
         egui::Window::new("Protocol List Viewer")
             .open(&mut open)
             .collapsible(false)
@@ -712,7 +712,7 @@ impl ProtocolDock {
                 if ui.button("OK").clicked() {
                     ok = true;
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button("Cancel").clicked() || crate::msgbox::esc(ui.ctx()) {
                     keep = false;
                 }
             });
@@ -926,7 +926,7 @@ impl ProtocolDock {
         self.export = match job {
             Export::Options { mut txt, mut rows } => {
                 let mut go = None;
-                let mut open = true;
+                let mut open = !crate::msgbox::esc(ctx);
                 egui::Window::new("Protocol Export")
                     .open(&mut open)
                     .collapsible(false)
@@ -953,7 +953,7 @@ impl ProtocolDock {
                             if ui.button("OK").clicked() {
                                 go = Some(true);
                             }
-                            if ui.button("Cancel").clicked() {
+                            if ui.button("Cancel").clicked() || crate::msgbox::esc(ui.ctx()) {
                                 go = Some(false);
                             }
                         });
@@ -1045,7 +1045,7 @@ impl ProtocolDock {
                                     .desired_width(260.0)
                                     .text(format!("{p}%")),
                             );
-                            if ui.button("Cancel").clicked() {
+                            if ui.button("Cancel").clicked() || crate::msgbox::esc(ui.ctx()) {
                                 cancel.store(true, Ordering::Relaxed);
                             }
                         });

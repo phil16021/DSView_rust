@@ -41,3 +41,9 @@ pub fn confirm(ctx: &egui::Context, id: &str, text: &str) -> Option<bool> {
     });
     answer
 }
+
+/// Esc was pressed this frame: dialogs close as with Cancel (QDialog's
+/// default).
+pub fn esc(ctx: &egui::Context) -> bool {
+    ctx.input(|i| i.key_pressed(egui::Key::Escape))
+}

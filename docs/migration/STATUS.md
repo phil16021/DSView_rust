@@ -996,3 +996,29 @@ the demo transcript is unchanged.
   - the log's Clear.
 - **Tests:** the manual lookup, and About through the window.
 
+**Step 4, shortcuts, and docks per work mode from step 5 (done 2026-10-19):**
+- **One key path, as `MainWindow::eventFilter`:**
+  - the table is `dsview_viewmodel::input::shortcut`;
+  - `KeyGate` drops keys with Ctrl, Shift or Alt and any key less than 200 ms after the last one
+    taken;
+  - nothing reacts while a text field has the keyboard.
+- **Keys:**
+  - S, I: run/stop, instant;
+  - T, D, M, R: the docks;
+  - O: device options;
+  - PgUp/PgDn: one view width;
+  - ←/→: zoom, a timebase step in DSO mode;
+  - 0/1: the active DSO V/div dial, only on an enabled channel;
+  - ↑/↓: that dial.
+  - The time view no longer reads keys itself.
+- **Docks per work mode (`TrigBar::reload`):**
+  - logic offers trigger, protocol, measure and search; analog only measure; DSO trigger and
+    measure;
+  - T/D/M/R and the View menu touch only the offered docks;
+  - each mode reopens the docks it was left with, saved in the settings.
+- **Esc** closes every dialog: Cancel buttons and windows with a close button.
+- **Tests:**
+  - the key table, the gate and the dock table;
+  - a window test on the simulated DSLogic and the demo oscilloscope: Ctrl ignored, debounce, docks
+    per mode, 0/↑/↓ on the V/div, O.
+

@@ -43,7 +43,7 @@ impl RefState {
     /// The dialog: channel, save, clear all, count.
     pub(crate) fn dialog(&mut self, ctx: &egui::Context, s: &Session, chans: &[ChanView]) {
         let Some(mut ch) = self.dialog else { return };
-        let mut open = true;
+        let mut open = !crate::msgbox::esc(ctx);
         egui::Window::new("Reference Waveforms")
             .collapsible(false)
             .resizable(false)

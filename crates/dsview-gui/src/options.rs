@@ -61,6 +61,19 @@ pub struct DockOptions {
     pub search: bool,
 }
 
+impl DockOptions {
+    /// The flag of the dock a shortcut opens (T, D, M, R).
+    pub fn flag(&mut self, dock: dsview_viewmodel::input::Shortcut) -> &mut bool {
+        use dsview_viewmodel::input::Shortcut as K;
+        match dock {
+            K::Trigger => &mut self.trigger,
+            K::Protocol => &mut self.decode,
+            K::Measure => &mut self.measure,
+            _ => &mut self.search,
+        }
+    }
+}
+
 /// `FrameOptions`: theme, language, the normal window rectangle and the
 /// docks per work mode.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -473,7 +486,7 @@ impl AppOptions {
             if ui.button("OK").clicked() {
                 done = Some(true);
             }
-            if ui.button("Cancel").clicked() {
+            if ui.button("Cancel").clicked() || crate::msgbox::esc(ui.ctx()) {
                 done = Some(false);
             }
         });

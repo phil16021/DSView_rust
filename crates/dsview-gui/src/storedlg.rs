@@ -146,7 +146,7 @@ impl StoreDialog {
                     if ui.button("OK").clicked() {
                         out = self.accept(s, cursors, logic, version);
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui.button("Cancel").clicked() || crate::msgbox::esc(ui.ctx()) {
                         out = Outcome::Done;
                     }
                 });

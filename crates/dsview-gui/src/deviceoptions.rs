@@ -461,7 +461,7 @@ impl DeviceOptions {
         if now != self.built_for {
             self.build_channels(s);
         }
-        let mut open = true;
+        let mut open = !crate::msgbox::esc(ctx);
         egui::Window::new("Device Options")
             .collapsible(false)
             .open(&mut open)

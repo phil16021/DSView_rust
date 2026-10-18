@@ -322,3 +322,115 @@ mod pinch_tests {
         assert!((p.feed(&[1.1]).unwrap() - 0.2).abs() < 1e-6);
     }
 }
+
+/// `MainWindow::eventFilter`'s keys.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Shortcut {
+    /// S, I: run/stop, instant.
+    RunStop,
+    Instant,
+    /// T, D, M, R: the trigger, protocol, measure and search docks.
+    Trigger,
+    Protocol,
+    Measure,
+    Search,
+    /// O: the device options.
+    DeviceOptions,
+    /// PgUp/PgDn: one view width to the left/right.
+    PageLeft,
+    PageRight,
+    /// ←/→: zoom in/out around the middle.
+    ZoomIn,
+    ZoomOut,
+    /// 0/1: makes DSO channel N's V/div dial the active one (or none).
+    Dial(u16),
+    /// ↑/↓: the active dial's next/previous V/div.
+    DialUp,
+    DialDown,
+}
+
+/// The shortcut of a key, by its name (egui's `Key::name()`).
+pub fn shortcut(key: &str) -> Option<Shortcut> {
+    Some(match key {
+        "S" => Shortcut::RunStop,
+        "I" => Shortcut::Instant,
+        "T" => Shortcut::Trigger,
+        "D" => Shortcut::Protocol,
+        "M" => Shortcut::Measure,
+        "R" => Shortcut::Search,
+        "O" => Shortcut::DeviceOptions,
+        "PageUp" => Shortcut::PageLeft,
+        "PageDown" => Shortcut::PageRight,
+        "Left" | "ArrowLeft" => Shortcut::ZoomIn,
+        "Right" | "ArrowRight" => Shortcut::ZoomOut,
+        "0" => Shortcut::Dial(0),
+        "1" => Shortcut::Dial(1),
+        "Up" | "ArrowUp" => Shortcut::DialUp,
+        "Down" | "ArrowDown" => Shortcut::DialDown,
+        _ => return None,
+    })
+}
+
+/// The filter in front of the shortcuts: keys with Ctrl, Shift or Alt are
+/// dropped, and so is a key less than 200 ms after the last one taken.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct KeyGate {
+    last_ms: Option<u64>,
+}
+
+impl KeyGate {
+    pub const DEBOUNCE_MS: u64 = 200;
+
+    pub fn accept(&mut self, now_ms: u64, with_modifier: bool) -> bool {
+        if with_modifier {
+            return false;
+        }
+        if self
+            .last_ms
+            .is_some_and(|l| now_ms.saturating_sub(l) < Self::DEBOUNCE_MS)
+        {
+            return false;
+        }
+        self.last_ms = Some(now_ms);
+        true
+    }
+}
+
+/// The docks a work mode offers (`TrigBar::reload`): logic all four,
+/// analog the measure dock, DSO trigger and measure. Mode: 0 logic,
+/// 1 DSO, 2 analog.
+pub fn dock_offered(mode: i32, dock: Shortcut) -> bool {
+    matches!(
+        (mode, dock),
+        (
+            0,
+            Shortcut::Trigger | Shortcut::Protocol | Shortcut::Measure | Shortcut::Search
+        ) | (2, Shortcut::Measure)
+            | (1, Shortcut::Trigger | Shortcut::Measure)
+    )
+}
+
+#[cfg(test)]
+mod key_tests {
+    use super::*;
+
+    #[test]
+    fn keys_gate_and_docks() {
+        assert_eq!(shortcut("S"), Some(Shortcut::RunStop));
+        assert_eq!(shortcut("1"), Some(Shortcut::Dial(1)));
+        assert_eq!(shortcut("ArrowDown"), Some(Shortcut::DialDown));
+        assert_eq!(shortcut("Q"), None);
+        let mut g = KeyGate::default();
+        assert!(g.accept(1000, false));
+        assert!(!g.accept(1100, false));
+        // a dropped key does not restart the 200 ms
+        assert!(g.accept(1200, false));
+        assert!(!g.accept(1500, true));
+        assert!(g.accept(1500, false));
+        assert!(dock_offered(0, Shortcut::Search));
+        assert!(!dock_offered(1, Shortcut::Protocol));
+        assert!(dock_offered(1, Shortcut::Trigger));
+        assert!(!dock_offered(2, Shortcut::Trigger));
+        assert!(dock_offered(2, Shortcut::Measure));
+    }
+}

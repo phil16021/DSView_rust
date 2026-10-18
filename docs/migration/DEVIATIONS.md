@@ -542,6 +542,8 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
 | Ranged `.dsl` save (F29) | Full capture length; first block starts mid-block | Whole blocks of the range, its length, trigger position moved by the start | M6e ✔ |
 | Region dialog (F29) | Built, never opened | Not ported | M6e ✔ |
 | Settings storage | `QSettings` INI (`DSView.conf`); `windowState` as Qt's dock blob | JSON (`dsview-rs.json`), the Qt file imported once on the first start; `windowState` is not imported (egui has no equivalent) | M6f ✔ |
+| Esc in dialogs | Closes the focused dialog | Closes every open dialog window (egui has no focused window) | M6f ✔ |
+| Shortcuts while a dialog is open | The filter sits on the view, bars and docks, so keys in a dialog are not shortcuts | Shortcuts work unless a text field has the keyboard | M6f ✔ |
 | Screen check of the restored window | All screens' geometry | The current monitor's size (egui knows no others before the window exists) | M6f ✔ |
 | Decoder dynamic font width | `QFont::setStretch` between the minimum and maximum percent | A smaller font down to the minimum percent; never wider than the font (egui has no stretch, and a larger font would not fit the row) | M6e ✔ |
 | Y-scale badge | Reset glyph U+27F2 | A painted arrow (no egui font has the glyph) | M6e ✔ |

@@ -225,7 +225,7 @@ impl SearchDock {
                         }
                         keep = false;
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui.button("Cancel").clicked() || crate::msgbox::esc(ui.ctx()) {
                         keep = false;
                     }
                 });

@@ -144,7 +144,7 @@ impl MathState {
                         self.rebuild = true;
                         keep = false;
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui.button("Cancel").clicked() || crate::msgbox::esc(ui.ctx()) {
                         keep = false;
                     }
                 });
