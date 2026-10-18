@@ -108,6 +108,15 @@ pub struct Signal {
     /// Logic signals: the simple trigger (`trig::*`).
     pub trig: i32,
     pub view_index: i32,
+    /// The user's colour (`Trace::set_colour`), none for the default.
+    pub colour: Option<[u8; 3]>,
+}
+
+/// A trace of the view: a signal, or decoder trace `i`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TraceRef {
+    Signal { index: u16, ty: i32 },
+    Decoder(usize),
 }
 
 /// A decoder trace (`view::DecodeTrace`): a named stack.
@@ -806,10 +815,81 @@ impl Session {
                     name: c.name.clone(),
                     trig: trig::NONE,
                     view_index: -1,
+                    colour: None,
                 },
             });
         }
         drop(st);
+        self.notify();
+    }
+
+    /// Renames signal `index` (`Header` rename: the trace and the channel).
+    pub fn set_signal_name(&self, index: u16, ty: i32, name: &str) {
+        if let Some(sig) = self
+            .state()
+            .signals
+            .iter_mut()
+            .find(|x| x.index == index && x.ty == ty)
+        {
+            sig.name = name.to_owned();
+        }
+        self.set_channel_name(index, name);
+        self.notify();
+    }
+
+    /// Sets signal `index`'s colour (none: the default).
+    pub fn set_signal_colour(&self, index: u16, ty: i32, colour: Option<[u8; 3]>) {
+        if let Some(sig) = self
+            .state()
+            .signals
+            .iter_mut()
+            .find(|x| x.index == index && x.ty == ty)
+        {
+            sig.colour = colour;
+        }
+        self.notify();
+    }
+
+    /// The header's drag reorder: new view indexes for signals and decoder
+    /// traces, in the order given (`Header::mouseReleaseEvent`).
+    pub fn set_view_order(&self, order: &[TraceRef]) {
+        let mut st = self.state();
+        for (vi, r) in order.iter().enumerate() {
+            match *r {
+                TraceRef::Signal { index, ty } => {
+                    if let Some(sig) = st
+                        .signals
+                        .iter_mut()
+                        .find(|x| x.index == index && x.ty == ty)
+                    {
+                        sig.view_index = vi as i32;
+                    }
+                }
+                TraceRef::Decoder(i) => {
+                    if let Some(t) = st.decoders.get(i) {
+                        *lock(&t.view_index) = vi as i32;
+                    }
+                }
+            }
+        }
+        drop(st);
+        self.notify();
+    }
+
+    /// The simple trigger of one logic signal (header trigger squares).
+    pub fn set_signal_trigger(&self, index: u16, t: i32) {
+        if let Some(sig) = self
+            .state()
+            .signals
+            .iter_mut()
+            .find(|x| x.index == index && x.ty == channel_type::LOGIC)
+        {
+            sig.trig = if (trig::RISING..=trig::EDGE).contains(&t) {
+                t
+            } else {
+                trig::NONE
+            };
+        }
         self.notify();
     }
 

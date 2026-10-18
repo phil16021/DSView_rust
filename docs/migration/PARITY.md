@@ -53,7 +53,7 @@ Milestones: **a** viewer, **b** logic capture, **c** decoders, **d** DSO/analog,
 - [ ] (f) i18n: cn/en/de from `lang/*.json`, runtime switching, CJK font
 - [ ] (f) Themes: dark, light, frappé, latte; about 250 SVG icons
 - [ ] (f) Help: user guide PDFs, bug-report and release URLs, open log file
-- [ ] (a) Control API (`--mcp`) hosted natively: the 31 methods and `testdata/control/demo-scenario.json` pass
+- [x] (a) Control API (`--mcp`) hosted natively: the 31 methods and `testdata/control/demo-scenario.json` pass
 - [ ] (f) Command line: `-l`, `-v`, `-s`, `--mcp`, file to open
 - [ ] (f) Accessibility: AccessKit audit
 

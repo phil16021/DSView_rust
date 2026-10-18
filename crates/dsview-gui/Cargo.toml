@@ -7,15 +7,26 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[lib]
+path = "src/lib.rs"
+
 [[bin]]
 name = "dsview"
 path = "src/main.rs"
 
 [dependencies]
+dsview-control = { path = "../dsview-control" }
 dsview-core = { path = "../dsview-core" }
 dsview-decode = { path = "../dsview-decode" }
+dsview-drivers = { path = "../dsview-drivers" }
+dsview-formats = { path = "../dsview-formats" }
 dsview-session = { path = "../dsview-session" }
 dsview-store = { path = "../dsview-store" }
 dsview-usb = { path = "../dsview-usb" }
 dsview-viewmodel = { path = "../dsview-viewmodel" }
+rfd = "0.17"
+egui = "0.37"
 eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "wgpu", "x11", "wayland"] }
+
+[dev-dependencies]
+egui_kittest = { version = "0.37", features = ["wgpu", "snapshot"] }

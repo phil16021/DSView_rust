@@ -710,3 +710,42 @@ the demo transcript is unchanged.
 - Results on this VM over xrdp are in PLAN.md §5.1. The decision is glow, logic traces as
   rectangle meshes without feathering, 13 frames/s at 1080p. Presenting an empty window alone
   allows 17.5.
+
+### M6a viewer: core done
+
+**`dsview-viewmodel`** (18 tests): each module was ported from the Qt code path.
+- `ruler`: the tick algorithm and time, sample and frequency formats.
+- `measure`: the pulse under the mouse, edge counts, edge snapping (`View::Unknown_Str` is
+  `########`).
+- `cursors`: numbered by position, Qt's hue table, drag with snapping to an edge within 10 px.
+- `layout`: row height fitting, view-index order.
+- `input`: wheel mapping with the `verticalScrollIsZoom` swap, Ctrl+Shift vertical zoom,
+  horizontal pan, kinetic scroll after a swipe, right-drag rubber-band zoom.
+
+**`dsview` (Rust GUI):**
+- Opens `.dsl`/`.demo` files (File menu, native dialog through the xdg portal) or a file given on
+  the command line.
+- Saves `.dsl`, exports CSV/VCD.
+- Logic traces with Qt's default colours, channel dividers, sample dots.
+- The ruler with time labels relative to the trigger, and the hover arrow.
+- The header: colour swatch (colour picker), name (double-click renames), the five trigger
+  squares, drag to reorder (view indexes).
+- Zoom at the pointer, pan, kinetic scroll, rubber band, right double-click for full/previous view,
+  PgUp/PgDn, ←/→.
+- Cursors:
+  - left double-click adds one, snapped to an edge within 10 px;
+  - drag on the trace or the ruler label;
+  - right-click on the label deletes it.
+- Mouse measurement in the status bar (width, period, frequency, duty).
+- Clicks: on an edge, a jump measurement to the next edge clicked; elsewhere, edge counting to
+  the pointer.
+- **Control API:** `dsview --mcp` passes `cargo xtask control check` (38 steps). `show_region` and
+  `set_cursors` drive the view; an open file dialog refuses mutating calls with Qt's message.
+- **Snapshot:** `tests/snapshot.rs` renders the protocol.demo view off-screen (egui_kittest, wgpu)
+  and compares it with `tests/snapshots/protocol_demo_view.png`.
+
+**Still to come in M6a's area:**
+- cursor time labels in the ruler (Qt prints the time next to the number);
+- the ruler's cursor-selector strips;
+- the Y-scale badge;
+- a vertical scroll bar (the wheel scrolls already).

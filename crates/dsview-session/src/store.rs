@@ -450,6 +450,7 @@ pub fn load_config_from_json(s: &Session, doc: &Value) -> bool {
                     name = sig.index.to_string();
                 }
                 sig.name = name;
+                sig.colour = o.get("colour").and_then(Value::as_str).and_then(parse_colour);
                 if sig.ty == channel_type::LOGIC {
                     let t = o.get("strigger").and_then(Value::as_f64).unwrap_or(0.0) as i32;
                     sig.trig = if (1..=5).contains(&t) { t } else { 0 };
@@ -475,6 +476,16 @@ pub fn load_config_from_json(s: &Session, doc: &Value) -> bool {
     }
     load_channel_view_indexes(s, doc);
     have_decoders
+}
+
+/// `QColor(string)` for "#rrggbb"; none for "default" or anything else.
+fn parse_colour(s: &str) -> Option<[u8; 3]> {
+    let h = s.strip_prefix('#')?;
+    if h.len() != 6 {
+        return None;
+    }
+    let v = u32::from_str_radix(h, 16).ok()?;
+    Some([(v >> 16) as u8, (v >> 8) as u8, v as u8])
 }
 
 /// `TriggerDock::get_session()` for the simple trigger.
@@ -551,7 +562,12 @@ pub fn session_json(s: &Session, version: &str) -> Value {
         c.insert("type".into(), sig.ty.into());
         c.insert("enabled".into(), enabled.into());
         c.insert("name".into(), sig.name.clone().into());
-        c.insert("colour".into(), "default".into());
+        c.insert(
+            "colour".into(),
+            sig.colour
+                .map_or("default".to_owned(), |[r, g, b]| format!("#{r:02x}{g:02x}{b:02x}"))
+                .into(),
+        );
         if sig.ty == channel_type::LOGIC {
             c.insert("strigger".into(), sig.trig.into());
         }
