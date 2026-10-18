@@ -359,8 +359,45 @@ fn dso_x_measure() {
     h.run();
     let m = view.borrow().dso.xm.unwrap();
     assert!(m.is_complete());
-    assert!(m.index[0] < m.index[1] && m.index[1] < m.index[2], "{:?}", m.index);
+    assert!(
+        m.index[0] < m.index[1] && m.index[1] < m.index[2],
+        "{:?}",
+        m.index
+    );
     h.snapshot("dso_x_measure");
+    s.exit();
+}
+
+/// A new frame leaves the old one as a ghost; a V/div step drops it.
+#[test]
+fn dso_persistence() {
+    use dsview_core::{ConfValue, key};
+    let s = demo_in_mode(dsview_core::Mode::Dso);
+    let view = std::rc::Rc::new(std::cell::RefCell::new(TimeView::default()));
+    view.borrow_mut().dso.persist.ms = 5000;
+    let (v2, s2) = (view.clone(), s.clone());
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 640.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            v2.borrow_mut().show(ui, &s2);
+        });
+    h.run();
+    assert_eq!(view.borrow().dso.persist.ghost_count(), 0);
+    let ended = s.state().ended_seq;
+    assert!(s.start_capture(true));
+    assert!(s.wait(Duration::from_secs(60), |st| st.ended_seq > ended
+        && !st.working));
+    h.run();
+    assert_eq!(view.borrow().dso.persist.ghost_count(), 1);
+    let pos = s
+        .channels()
+        .iter()
+        .position(|c| c.index == 0 && c.ty == dsview_core::channel_type::DSO)
+        .unwrap();
+    s.set_config(key::PROBE_VDIV, ConfValue::U64(2000), Some(pos));
+    h.run();
+    assert_eq!(view.borrow().dso.persist.ghost_count(), 0);
     s.exit();
 }
 

@@ -252,6 +252,15 @@ impl eframe::App for App {
                     ui.checkbox(&mut self.dso_trigger.open, "Trigger (T)");
                     ui.checkbox(&mut self.protocol.open, "Protocol (D)");
                     ui.checkbox(&mut self.view.dso.split, "Split DSO channels");
+                    ui.horizontal(|ui| {
+                        let l = ui.label("DSO persistence");
+                        ui.add(
+                            egui::DragValue::new(&mut self.view.dso.persist.ms)
+                                .range(0..=10000)
+                                .suffix(" ms"),
+                        )
+                        .labelled_by(l.id);
+                    });
                 });
                 let dso = self.session.mode() == dsview_core::Mode::Dso as i32;
                 ui.add_enabled_ui(dso, |ui| {

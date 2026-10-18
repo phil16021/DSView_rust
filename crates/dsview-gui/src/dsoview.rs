@@ -79,6 +79,8 @@ pub struct DsoState {
     pub refs: crate::refview::RefState,
     /// The X measurement (double click, then two clicks).
     pub xm: Option<dso::XMeasure>,
+    /// Persistence of the frames before (`dsoPersistenceMs`).
+    pub persist: Persist,
     /// The math trace's header row (`get_y()`), when shown.
     math_y: Option<i32>,
 }
@@ -664,7 +666,7 @@ impl TimeView {
     }
 
     fn paint_dso_traces(
-        &self,
+        &mut self,
         p: &egui::Painter,
         s: &Session,
         area: Rect,
@@ -689,6 +691,7 @@ impl TimeView {
         store.enable_envelope(envelope);
         let num_channels = store.channel_num().max(1) as usize;
         let o = |x: f32, y: f32| pos2(area.left() + x, area.top() + y);
+        let mut frame: Vec<egui::Shape> = Vec::new();
         for c in chans.iter().filter(|c| c.enabled) {
             if !store.has_data(c.sig.index as i32) {
                 continue;
@@ -720,7 +723,7 @@ impl TimeView {
                             col,
                         );
                     }
-                    p.add(egui::Shape::mesh(mesh));
+                    frame.push(egui::Shape::mesh(mesh));
                 }
                 Some(TraceShape::Envelope(rects)) => {
                     let mut mesh = egui::Mesh::default();
@@ -728,18 +731,25 @@ impl TimeView {
                         let (y0, y1) = if h >= 0.0 { (t, t + h) } else { (t + h, t) };
                         mesh.add_colored_rect(Rect::from_min_max(o(x, y0), o(x + w, y1)), col);
                     }
-                    p.add(egui::Shape::mesh(mesh));
+                    frame.push(egui::Shape::mesh(mesh));
                 }
                 Some(TraceShape::Polyline { points, dots, dot }) => {
                     let pts: Vec<Pos2> = points.iter().map(|&(x, y)| o(x, y)).collect();
                     for &q in pts.iter().take(dots) {
-                        p.circle_filled(q, dot as f32 / 2.0, col);
+                        frame.push(egui::Shape::circle_filled(q, dot as f32 / 2.0, col));
                     }
-                    p.add(egui::Shape::line(pts, Stroke::new(1.0, col)));
+                    frame.push(egui::Shape::line(pts, Stroke::new(1.0, col)));
                 }
                 None => {}
             }
         }
+        drop(store);
+        // persistence: the frames before fade out under the current one
+        let seq = s.state().dso_seq;
+        let sig = persist_signature(chans, area);
+        self.dso
+            .persist
+            .paint(p, area, seq, sig, self.vp.scale, self.vp.x_offset, frame);
     }
 
     /// `paint_fore`: zero lines, trigger levels and the hover point.
@@ -1276,5 +1286,133 @@ impl TimeView {
             .and_then(|v| v.as_str())
             .unwrap_or("--")
             .to_owned()
+    }
+}
+
+/// One frame kept for persistence: when it was replaced, the horizontal
+/// view it was drawn at, and its shapes.
+struct Ghost {
+    t: std::time::Instant,
+    scale: f64,
+    x_offset: i64,
+    shapes: Vec<egui::Shape>,
+}
+
+/// The DSO persistence (`Viewport`'s `_persist_pixmap`): each replaced
+/// frame stays as a ghost fading with exp(-age / ms); zoom and pan remap
+/// the ghosts, any vertical change (V/div, zero, size) drops them.
+#[derive(Default)]
+pub struct Persist {
+    /// `dsoPersistenceMs`, 0 = off (0..=10000).
+    pub ms: u32,
+    ghosts: Vec<Ghost>,
+    last: Option<(u64, u64, Ghost)>,
+}
+
+/// `dso_persist_signature`: what makes old frames invalid.
+fn persist_signature(chans: &[ChanView], area: Rect) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (area.width() as i32, area.height() as i32).hash(&mut h);
+    for c in chans {
+        (
+            c.enabled,
+            c.vdiv,
+            c.zero_y(),
+            c.hw_offset,
+            c.geom.rect.y,
+            c.geom.rect.h,
+        )
+            .hash(&mut h);
+    }
+    h.finish()
+}
+
+impl Persist {
+    /// The frames fading out now.
+    pub fn ghost_count(&self) -> usize {
+        self.ghosts.len()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn paint(
+        &mut self,
+        p: &egui::Painter,
+        area: Rect,
+        seq: u64,
+        sig: u64,
+        scale: f64,
+        x_offset: i64,
+        frame: Vec<egui::Shape>,
+    ) {
+        let now = std::time::Instant::now();
+        if self.ms == 0 {
+            self.ghosts.clear();
+            self.last = None;
+        } else {
+            // a new frame: the one shown so far becomes a ghost
+            if let Some((last_seq, last_sig, g)) = self.last.take() {
+                if last_sig != sig {
+                    self.ghosts.clear();
+                } else if last_seq != seq {
+                    self.ghosts.push(Ghost { t: now, ..g });
+                } else {
+                    self.last = Some((last_seq, last_sig, g));
+                }
+            }
+            let ms = self.ms as f64;
+            self.ghosts
+                .retain(|g| (-(now - g.t).as_secs_f64() * 1000.0 / ms).exp() > 0.02);
+            for g in &self.ghosts {
+                let a = (-(now - g.t).as_secs_f64() * 1000.0 / ms).exp() as f32;
+                // pixel x maps to (x + x_offset) × scale in time
+                let k = (g.scale / scale) as f32;
+                let dx = (g.x_offset as f64 * g.scale / scale - x_offset as f64) as f32;
+                let left = area.left();
+                let map = |q: Pos2| pos2(left + dx + (q.x - left) * k, q.y);
+                for sh in &g.shapes {
+                    p.add(remap(sh, &map, a));
+                }
+            }
+            if self.last.is_none() {
+                self.last = Some((
+                    seq,
+                    sig,
+                    Ghost {
+                        t: now,
+                        scale,
+                        x_offset,
+                        shapes: frame.clone(),
+                    },
+                ));
+            }
+        }
+        p.extend(frame);
+    }
+}
+
+/// A ghost's shape moved by `map` with its alpha scaled by `a`.
+fn remap(sh: &egui::Shape, map: &impl Fn(Pos2) -> Pos2, a: f32) -> egui::Shape {
+    let fade = |c: Color32| c.gamma_multiply(a);
+    match sh {
+        egui::Shape::Mesh(m) => {
+            let mut m = (**m).clone();
+            for v in &mut m.vertices {
+                v.pos = map(v.pos);
+                v.color = fade(v.color);
+            }
+            egui::Shape::mesh(m)
+        }
+        egui::Shape::Path(path) => {
+            let pts: Vec<Pos2> = path.points.iter().map(|&q| map(q)).collect();
+            let colour = match path.stroke.color {
+                egui::epaint::ColorMode::Solid(c) => c,
+                _ => Color32::GRAY,
+            };
+            let st = Stroke::new(path.stroke.width, fade(colour));
+            egui::Shape::line(pts, st)
+        }
+        egui::Shape::Circle(c) => egui::Shape::circle_filled(map(c.center), c.radius, fade(c.fill)),
+        other => other.clone(),
     }
 }
