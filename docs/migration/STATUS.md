@@ -508,7 +508,7 @@ protocol.demo playback, channel keys without a channel, analog overruns and DSO 
 
 ## Phase 4 (session + control API): status
 
-### 4a acquisition library: done (a replug through DSView with it is open)
+### 4a acquisition library: done
 
 **`crates/dsview-session`, `Library`** (= `lib_main.c` and the part of `session.c` the drivers
 use):
@@ -555,4 +555,12 @@ It uses the Rust drivers for every kind of device.
   - with the DSLogic Plus, the startup and a user stop in the middle of a stream give the same
     USB protocol as C (`usb-diff`; 52 vs 53 transfers before the stop).
 
-**Open:** unplug and replug with the Rust library through DSView (needs someone at the device).
+- **Replug with the Rust library through DSView** (2026-10-18, DSLogic Plus):
+  - Unplugging during a stream capture: nusb's hotplug stream reported it, and the capture ended
+    with SR_DF_END, keeping its 20.7 million samples. The collect thread stopped, the device was
+    closed and left the list 500 ms later (delayed destruction of the active device). DSView stayed
+    idle and asked to save.
+  - Plugging it back in: the attach event, a rescan, the device listed at its new address.
+    Activation waits for the save dialog, as with C.
+  - After a restart, the freshly powered device opened with its FPGA configured cold (530,620
+    bytes), and a 10 M-sample capture followed.
