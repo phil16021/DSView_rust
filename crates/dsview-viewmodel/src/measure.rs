@@ -11,7 +11,7 @@ use dsview_store::logic::LogicStore;
 use crate::ruler::{format_freq, format_real_time, format_samples};
 
 /// `View::Unknown_Str`
-pub const UNKNOWN: &str = "--";
+pub const UNKNOWN: &str = "########";
 
 fn pixel_index(spp: f64, x_offset: i64, x: f64) -> u64 {
     (spp * (x_offset as f64 + x)) as u64

@@ -9,8 +9,12 @@
 //! * [`ruler`]: ticks, labels and number formats (`Ruler`)
 //! * [`measure`]: the pulse under the mouse, edge counts, edge snapping
 //! * [`cursors`]: time cursors
+//! * [`layout`]: trace heights and order (`View::signals_changed`)
+//! * [`input`]: wheel actions, kinetic scroll, rubber-band zoom
 
 pub mod cursors;
+pub mod input;
+pub mod layout;
 pub mod logic;
 pub mod measure;
 pub mod ruler;

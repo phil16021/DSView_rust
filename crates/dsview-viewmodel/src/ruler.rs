@@ -38,11 +38,11 @@ pub fn format_time(t: f64, prefix: i32, precision: usize) -> String {
     format!("{sign}{v:.precision$}{p}s")
 }
 
-/// `Ruler::format_freq(period, precision)`; `--` for no period
-/// (`View::Unknown_Str`).
+/// `Ruler::format_freq(period, precision)`; `View::Unknown_Str` for no
+/// period.
 pub fn format_freq(period: f64, precision: usize) -> String {
     if period <= 0.0 {
-        return "--".into();
+        return crate::measure::UNKNOWN.into();
     }
     let order = (period as f32).log10().ceil() as i32;
     let prefix = ((order - FIRST_SI_PREFIX_POWER) as f32 / 3.0).ceil() as i32;
@@ -266,7 +266,7 @@ mod tests {
         assert_eq!(format_real_time(1, 25_000_000), "+40ns");
         assert_eq!(format_real_time(0, 25_000_000), "0");
         assert_eq!(format_freq(1e-6, 2), "1.00MHz");
-        assert_eq!(format_freq(0.0, 2), "--");
+        assert_eq!(format_freq(0.0, 2), "########");
     }
 
     #[test]
