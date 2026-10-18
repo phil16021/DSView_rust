@@ -54,7 +54,7 @@ cargo build --release -p dsview-mcp      # workspace build; binary in target/rel
 |---|---|---|
 | `DSVIEW_MCP_ALLOWED_DIRS` | `~/DSView` | Colon-separated directories that `open_file`, `save_session` and `export_data` may use. Relative paths resolve against the first one. |
 | `DSVIEW_MCP_SOCKET` | `$XDG_RUNTIME_DIR/dsview/mcp.sock` | Control socket path. It must be the same for DSView and dsview-mcp. |
-| `DSVIEW_BIN` | `DSView` | Executable to launch when DSView isn't running. |
+| `DSVIEW_BIN` | `DSView` | Executable to launch when DSView isn't running. A `dsview-cli` binary is started as `dsview-cli serve --mcp` (DSView without a GUI). |
 | `DSVIEW_MCP_NO_LAUNCH` | unset | Set to `1` to never launch DSView. |
 
 ## Security model

@@ -40,7 +40,13 @@ fn select(s: &Session, device: &str) -> bool {
 
 /// Runs the soak; true when it passed (the capture ran throughout, the
 /// memory trend stays under 1 %). `samples_file` receives "seconds rss_kib" lines.
-pub fn run(s: &Session, mode: &str, minutes: f64, device: &str, samples_file: Option<&str>) -> bool {
+pub fn run(
+    s: &Session,
+    mode: &str,
+    minutes: f64,
+    device: &str,
+    samples_file: Option<&str>,
+) -> bool {
     if !select(s, device) {
         eprintln!("soak: no {device} device");
         return false;

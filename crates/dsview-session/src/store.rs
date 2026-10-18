@@ -713,8 +713,8 @@ fn export_kind(ty: i32) -> ChannelKind {
     }
 }
 
-/// `StoreSession::export_exec` for logic and DSO data (whole capture,
-/// changes only, like DSView's default).
+/// `StoreSession::export_exec` for logic, DSO and analog data (whole
+/// capture; logic rows only where a value changes, DSView's default).
 pub fn export(s: &Session, path: &Path, format: Format) -> Result<(), String> {
     let mode = s.mode();
     let kind = match mode {
@@ -722,9 +722,6 @@ pub fn export(s: &Session, path: &Path, format: Format) -> Result<(), String> {
         2 => ChannelKind::Analog,
         _ => ChannelKind::Logic,
     };
-    if kind == ChannelKind::Analog {
-        return Err("analog export is not supported yet".into());
-    }
     if !s.have_view_data() {
         return Err("No data to export.".into());
     }
@@ -814,6 +811,48 @@ pub fn export(s: &Session, path: &Path, format: Format) -> Result<(), String> {
                         data: &xbuf[..size * unitsize],
                         unitsize,
                         export_original: false,
+                    })
+                    .map_err(|e| e.to_string())?,
+                )?;
+                i += USIZE;
+            }
+        }
+    } else if kind == ChannelKind::Analog {
+        let store = s.data().analog.lock().unwrap_or_else(|e| e.into_inner());
+        let n = store.sample_count();
+        emit(
+            ex.receive(&ExportPacket::Meta {
+                samplerate: Some(rate),
+                limit_samples: Some(n),
+                ref_min,
+                ref_max,
+            })
+            .map_err(|e| e.to_string())?,
+        )?;
+        // the ring from its oldest sample: [ring_start..n), then [0..ring_start)
+        let ring_start = if n < store.total_sample_count() {
+            0
+        } else {
+            store.ring_sample_count()
+        };
+        // C steps by channel count only: one byte per sample and channel
+        let ch = store.channel_num() as usize;
+        let data = store.data();
+        const USIZE: u64 = 8192;
+        for (from, count) in [(ring_start, n - ring_start), (0, ring_start)] {
+            if count == 0 {
+                break;
+            }
+            let mut i = 0;
+            while i < count {
+                let size = USIZE.min(count - i) as usize;
+                let at = ((from + i) as usize).saturating_mul(ch);
+                let chunk = data.get(at..).unwrap_or(&[]);
+                let chunk = &chunk[..(size * ch).min(chunk.len())];
+                emit(
+                    ex.receive(&ExportPacket::Analog {
+                        data: chunk,
+                        num_samples: size,
                     })
                     .map_err(|e| e.to_string())?,
                 )?;

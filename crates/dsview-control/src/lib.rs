@@ -1,9 +1,13 @@
 //! DSView's control API without Qt: the local socket server of
 //! `pv/mcp/controlserver.cpp` ([`server`]) and the JSON conventions of its
-//! answers ([`json`]). What answers the calls is a [`ControlBackend`].
+//! answers ([`json`]). What answers the calls is a [`ControlBackend`]; with
+//! the `api` feature (default), [`api::Api`] answers them on the Rust capture
+//! session.
 
+#[cfg(feature = "api")]
 pub mod api;
 pub mod json;
+#[cfg(feature = "api")]
 pub mod measure;
 pub mod server;
 

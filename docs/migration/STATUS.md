@@ -564,3 +564,84 @@ It uses the Rust drivers for every kind of device.
     Activation waits for the save dialog, as with C.
   - After a restart, the freshly powered device opened with its FPGA configured cold (530,620
     bytes), and a 10 M-sample capture followed.
+
+### 4b capture session, control server, `dsview-cli serve`: done
+
+**`dsview-session::Session`**: DSView's GUI capture logic without the GUI. It covers
+`SigSession` with the parts of `DeviceAgent`, `SamplingBar` and `TriggerDock` that drive it:
+- **Devices:** device selection (fresh signals per device), mode switch, signals per mode, and
+  `reload()`, which keeps the names and triggers of the signals that remain.
+- **Sampling bar:** the rate and depth selectors. The depth list starts at `hw_depth / rate` and
+  steps down 5-2-1. `commit_settings` rounds up to 1024 samples (1000000 → 1000448). DSO
+  horizontal resolution comes from the timebase.
+- **Trigger:** the simple trigger per logic signal, with the dock's position range (1..90, or
+  less when the depth is short) put into `ds_trigger` before each capture.
+- **Capture:** single, instant, repeat and loop.
+  - Repeat mode captures into a second buffer while the first is shown and decoded (C's two
+    `SessionData`).
+  - Loop mode streams into the logic store's ring.
+- **Datafeed:** into the logic/DSO/analog stores, with the trigger position, the error states and
+  the DSO status block.
+- **Decoding:** a decode queue on its own thread; the decoders run when a logic capture ends.
+
+**`dsview-session::decode::DecoderStack`**, the `pv/data/decoderstack.cpp` part:
+- rows and their titles;
+- annotations routed by (decoder, class);
+- text interning (`AnnotationResTable`);
+- the `{$}` number with the hex default;
+- progress, error messages, the chunking over the store's leaves.
+
+**`dsview-session::store`**:
+- the decoder JSON of `.dsl`/`.demo` files (`StoreSession::load_decoders` with its option typing,
+  `gen_decoders_json`);
+- a capture file's session (`load_config_from_json`) and generating it (`gen_config_json`);
+- the demo patterns' decoders;
+- saving `.dsl` (logic and DSO);
+- CSV/VCD export of logic data, CSV export of DSO and analog data.
+
+**`dsview-control`**:
+- `server`: the socket of `controlserver.cpp`. Same rules: path from `DSVIEW_MCP_SOCKET` or the
+  XDG/home default, a 107-byte limit, the directory owner-only, never taking over a socket another
+  instance listens on, one JSON-RPC 2.0 request per line, 1 MiB per line, the same error codes and
+  messages. Numbers are written the way Qt writes its doubles.
+- `api`: all 31 methods of `controlapi.cpp`, with the same parameters, checks, messages and answers.
+  Methods run one at a time, as on Qt's GUI thread. Captures, decoding and saving wait outside that
+  lock.
+- `measure`: the DSO measurements of `DsoSignal::get_measure`. They come from the device's status
+  block when it is valid, else from the software fallback over the samples.
+
+**`dsview-cli`**:
+- `serve --mcp`: DSView without Qt, behind the same socket. `dsview-mcp` drives it like the GUI.
+- `soak`: long loop or repeat captures, with the resident memory logged every minute.
+
+**Checks:**
+- **Control transcript** (`testdata/control/demo-scenario.json`, 38 steps, all 31 methods):
+  - `dsview-cli serve` passes `cargo xtask control check`.
+  - The Qt GUI on the Rust core (`DSVIEW_IMPL=rust`) produces the same transcript, every step
+    identical. That includes the four DSO steps, which the check compares only by shape: same
+    waveform millivolts, same measurement strings.
+  - The Qt GUI on the C core differs only in the order of `list_decoders`: the decoder load order
+    (F25, below).
+  - The transcript was re-recorded from the Qt GUI for this. The old one had the decoder and row
+    order of an earlier install of the decoder directory.
+- `crates/dsview-control/tests/transcript.rs` runs the same transcript in-process over a real
+  socket: the repository's demo files and decoders, no USB.
+- `crates/dsview-session/tests/session.rs` covers:
+  - the depth rounding;
+  - a single capture with the four protocol.demo decoders (405/517/5192/2265 annotations, as in
+    the Qt GUI);
+  - repeat mode until stopped;
+  - loop mode into the ring;
+  - a DSO single shot.
+- **DSLogic Plus through `dsview-cli serve`:** a 10 MHz capture of 1000448 samples (16 channels).
+- **`dsview-mcp` against `dsview-cli serve`:** the MCP tools run unchanged: device selection, a
+  capture with the demo decoders, annotations, measurements. With `DSVIEW_BIN=dsview-cli`,
+  `dsview-mcp` starts the headless DSView itself (`dsview-cli serve --mcp`).
+- `dsview-mcp` takes the socket path from `dsview-control` (the `api` feature off, so no session and
+  no Python in it).
+- **DSO by hand:** a continuous capture until `stop_capture`, V/div stepping, coupling, saving as
+  `.dsl`, CSV export, and reopening the saved file.
+- **Analog by hand:** a capture stopped after 3 s, then its CSV export (1,000,448 rows).
+- **Soak:**
+  - SOAK_LOOP
+  - SOAK_REPEAT

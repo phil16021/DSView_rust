@@ -457,6 +457,7 @@ name = "dsview-mcp"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "dsview-control",
  "rmcp",
  "schemars",
  "serde",

@@ -348,6 +348,46 @@ running the C driver against the simulated device.
 - **Re-opening an open device** claims the interface again and repeats the FPGA and security checks.
   Ported as is.
 
+### F25. GUI session and decoder-stack defects (Phase 4b)
+Found while porting `SigSession`, `DecoderStack`, `SamplingBar` and `DsoSignal` for
+`dsview-cli serve`.
+- **Decoder order depends on the install.** `srd_decoder_load_all()` loads in directory order
+  (`g_dir_read_name`). On ext4 that order follows a per-directory hash, so two installs of the
+  same decoders list them differently.
+  - It also changes the row order of decoder stacks. `DecoderStack` keys its rows by
+    `srd_decoder` address, and the decoders are allocated in load order.
+  - On this machine the control transcript recorded in Phase 0 no longer matched the Qt GUI after
+    a reinstall, with C or Rust decoding (`list_decoders`, and the rows of the I²C + EEPROM stack).
+- **Decoder text used as a printf format.** For an annotation with a number,
+  `Annotation::annotations()` replaces `{$}` with `%s` and passes the decoder's text to `sprintf`
+  as the format. Any other `%` in the text is a conversion with no argument: `%s` reads a stray
+  pointer, `%n` writes through one. Decoders build their texts from the decoded data, so the
+  data can reach the format string.
+- **Interning by concatenated text.** `AnnotationResTable` keys an annotation by all of its texts
+  run together. `["ab", "c"]` and `["a", "bc"]` share one entry, so the second shows the first one's
+  texts.
+- **Dropped annotations are counted.** An annotation of a class that no row lists is counted in
+  `get_result_count()`, then dropped with only a log line.
+- **Decode progress.**
+  - It divides by the last sample index, so a one-sample capture divides by zero (SIGFPE).
+  - Progress can briefly exceed 100.
+  - When there is no data, it stays at 0 with `_is_decoding` set.
+- **Burst width of DSO channel 1** (`DsoSignal::paint_mid`). It is computed from
+  `ch1_cyc_flen + ch1_cyc_llen`; channel 0 uses `ch0_cyc_tlen + ch0_cyc_llen`. A copy-paste
+  slip: channel 1's burst width is a fall time plus a tail. Ported as is, marked in
+  `dsview-control/src/measure.rs`.
+- **View indexes past the end.** `load_channel_view_indexs` assigns the saved positions to the
+  signals by position. When the file lists fewer channels than there are signals, it reads past
+  the vector.
+- **Uninitialised software depth on non-x86.** `update_sample_count_selector` sets `sw_depth` only
+  under `__x86_64__`/`__i386`. On aarch64 a stream or RLE capture computes its depth list from
+  garbage.
+- **Capture progress with no sample limit.** `get_capture_status` divides by the limit, so a limit
+  of 0 gives an infinite double cast to `int`.
+- **First probe by pointer order.** `Decoder::first_probe_index()` takes the first entry of a map
+  keyed by `srd_channel*`. Which bound channel's signal supplies the capture therefore depends on
+  heap addresses.
+
 ## Planned behaviour deviations (Rust intentionally differs)
 
 | Area | C behaviour | Rust behaviour | Phase |
@@ -401,6 +441,16 @@ running the C driver against the simulated device.
 | Library with `DSVIEW_IMPL_ACQ=rust` | — | Every device runs on its Rust driver (`DSVIEW_IMPL_DRV_*` apply to the C library only) | 4a ✔ |
 | DSLogic DSO and DAQ modes | Code in `dslogic.c`, unreachable: no DSLogic profile offers them (F24) | Not ported; setting such a mode fails | 3e ✔ |
 | DSLogic/DSCope common key without its channel (`PROBE_VDIV` etc. with `ch` NULL) | SR_ERR_NA (the driver's own switch is tried after `dsl_config_get()` fails) | Same (3d answered SR_ERR) | 3e ✔ |
+| Decoder load order (F25) | Directory order | Name order, so the decoder list and stack row order are the same on every install | 4b ✔ |
+| Decoder stack row order | By `srd_decoder` address (in practice the load order) | By load order | 4b ✔ |
+| Annotation text with a number (F25) | Decoder text used as a `sprintf` format | `{$}` and the first `%s` take the number, `%%` is `%`; any other `%` is kept as written | 4b ✔ |
+| Decode progress, one-sample capture (F25) | Division by zero | Progress 100 | 4b ✔ |
+| Decoder's capture signal (F25) | First bound channel by pointer order | First bound channel in declaration order (required, then optional) | 4b ✔ |
+| View indexes from a session with fewer channels (F25) | Reads past the vector | Extra signals keep theirs | 4b ✔ |
+| Single capture in stream mode (demo, files, DSLogic stream) | Decoders start with the capture and decode while it runs | Decoders run when the capture ends; same results, progress jumps at the end | 4b ✔ |
+| DSO voltages in `measure_dso`/`read_waveform` | `DsoSignal` scales by the view height, the dial and the snapshot's measure factor and data scale | Per code `vdiv × probe factor × 10 / (ref_max − ref_min)`, the same as Qt when the data scale is 1 (the demo: every value in the transcript identical); a hardware data scale other than 1 is not applied yet | 4b ✔ |
+| DSO data lock, feed timer, trigger-check timer | Throttle the display; poll the hardware's trigger flag every 200 ms | Not needed without a display; `triggered` comes from the first data, as with demo and file devices in C | 4b ✔ |
+| Control methods in `dsview-cli serve` | Run on the GUI thread; waiting replies answered from the event loop | One method at a time under a lock; captures, decoding and saving wait outside it | 4b ✔ |
 | DSO envelope, `cal_vrms`, `cal_vmean` | Implemented, never called | Not ported; under `DSVIEW_IMPL_STORE=rust`, `enable_envelope` is a no-op and the two return 0 | 1b ✔ |
 | Analog data/DSO frames/envelopes before they are written | `malloc`: uninitialised | Zeroed | 1b ✔ |
 
@@ -439,3 +489,8 @@ running the C driver against the simulated device.
 | Phase 3: DSCope Rust default | Still opt-in (`DSVIEW_IMPL_DRV_DSCOPE=rust`) | As planned: the default flips after a hardware confirmation |
 | Phase 4: `compat/ds_api_rs.c`, `DeviceManager` | `libsigrok4DSL/ds_api_rs.c` over `dsview_session::Library` | Same place as the other shims; the library is lib_main.c's device manager and capture thread in one |
 | Phase 4: CaptureSession state machine, DecodeScheduler | Moved to 4b (with the control server and `dsview-cli serve`) | They replace Qt's SigSession, which stays for the Qt GUI; 4a replaces what is under it |
+| Phase 4: CaptureSession state machine with Arming/WaitTrigger/... states | `Session` with C's flags (`working`, the device's running state, `instant`, the collect mode) and start/end counters | The control API and the transcript depend on C's flags; separate states would only rename them |
+| Phase 4: `dsview-control` on tokio, `ControlBackend` async | A thread per connection, a synchronous `ControlBackend` | The core crates use threads (§1.4); one connection waiting on a capture must not block the others, which threads give without a runtime |
+| Phase 4: transcripts pass "against Qt and `dsview-cli serve`" | The transcript was re-recorded from the Qt GUI on the Rust core | The stored one had the decoder and row order of an earlier install of the decoder directory (F25); every response other than that order was unchanged |
+| Phase 4: 1 h loop soak, RSS growth under 1 % | `dsview-cli soak`: 1 h loop mode on the demo's random pattern, 1 h repeat mode with the four protocol.demo decoders, 15 min loop mode on the DSLogic Plus in stream mode. The growth is the least-squares trend of RSS samples taken every 5 s after a 5-minute warm-up | First value against last value is not a usable measure here. A loop capture's ring holds one row of leaves more or less depending on its position (16 channels × 2 MiB: the RSS alternates between two levels 32 MiB apart). Repeat captures allocate and free per round (single samples between 70 and 170 MB, no trend) |
+| Phase 4 gaps for Phase 5 | Not in the Rust session yet: the user's `.dsc` profiles (the demo's shipped `res/virtual-demo1.dsc` is loaded, as `load_device_config` does), advanced/serial trigger, DSO trigger settings, zero calibration prompt, math/spectrum, cursor ranges for save/export | Only the Qt GUI uses them today; they arrive with the GUI that shows them |

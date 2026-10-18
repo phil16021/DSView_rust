@@ -148,7 +148,13 @@ fn main() {
     );
     session.set_default_device();
     if cmd == "soak" {
-        let ok = soak::run(&session, &soak_mode, minutes, &device, samples_file.as_deref());
+        let ok = soak::run(
+            &session,
+            &soak_mode,
+            minutes,
+            &device,
+            samples_file.as_deref(),
+        );
         session.exit();
         std::process::exit(if ok { 0 } else { 1 });
     }

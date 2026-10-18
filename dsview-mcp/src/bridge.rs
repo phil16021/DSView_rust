@@ -28,14 +28,7 @@ pub struct Bridge {
 
 /// Same lookup order as `ControlServer::default_socket_path()` in DSView.
 pub fn default_socket_path() -> PathBuf {
-    if let Some(custom) = std::env::var_os("DSVIEW_MCP_SOCKET").filter(|v| !v.is_empty()) {
-        return PathBuf::from(custom);
-    }
-    let base = std::env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .filter(|p| p.is_dir())
-        .unwrap_or_else(|| home_dir().join(".local/state"));
-    base.join("dsview/mcp.sock")
+    dsview_control::default_socket_path()
 }
 
 pub fn home_dir() -> PathBuf {
@@ -142,8 +135,17 @@ impl Bridge {
 fn launch(bin: &str) -> Result<(), String> {
     use std::os::unix::process::CommandExt;
 
+    // the Qt GUI takes `--mcp`; DSView without a GUI is `dsview-cli serve --mcp`
+    let headless = std::path::Path::new(bin)
+        .file_name()
+        .is_some_and(|n| n == "dsview-cli");
+    let args: &[&str] = if headless {
+        &["serve", "--mcp"]
+    } else {
+        &["--mcp"]
+    };
     let mut child = Command::new(bin)
-        .arg("--mcp")
+        .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
