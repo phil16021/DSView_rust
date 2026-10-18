@@ -51,11 +51,30 @@ pub const MUTATING: &[&str] = &[
     "set_cursors",
 ];
 
+/// What a GUI adds to the control API: its view and its dialogs. Without a
+/// GUI (`dsview-cli serve`) the defaults apply: no dialog is ever open, and
+/// the region and cursors are only recorded in the session.
+pub trait ViewHooks: Send + Sync {
+    /// The open modal dialog's text (`modal_dialog_text()`), if any. Methods
+    /// in [`MUTATING`] are refused while one is open.
+    fn dialog_open(&self) -> Option<String> {
+        None
+    }
+    /// `View::show_region(start, end, false)`.
+    fn show_region(&self, _start: u64, _end: u64) {}
+    /// `clear_cursors`, `add_cursor` for each sample, `show_cursors`.
+    fn set_cursors(&self, _samples: &[u64]) {}
+}
+
+struct NoView;
+impl ViewHooks for NoView {}
+
 /// DSView's control API on a [`Session`].
 pub struct Api {
     s: Session,
     gui: Mutex<()>,
     version: String,
+    view: Box<dyn ViewHooks>,
 }
 
 fn mode_name(mode: i32) -> &'static str {
@@ -170,10 +189,16 @@ fn check_options(d: &DecoderInfo, options: &Params) -> Result<(), String> {
 
 impl Api {
     pub fn new(s: Session, version: &str) -> Api {
+        Api::with_view(s, version, Box::new(NoView))
+    }
+
+    /// The API of a GUI showing `s`.
+    pub fn with_view(s: Session, version: &str, view: Box<dyn ViewHooks>) -> Api {
         Api {
             s,
             gui: Mutex::new(()),
             version: version.to_owned(),
+            view,
         }
     }
 
@@ -1551,6 +1576,7 @@ impl Api {
             return Err("no captured data".into());
         }
         self.s.state().region = Some((start, end));
+        self.view.show_region(start, end);
         Ok(json!({"shown": true}))
     }
 
@@ -1572,6 +1598,7 @@ impl Api {
             }
             self.s.state().cursors = cursors.clone();
         }
+        self.view.set_cursors(&cursors);
         Ok(json!({"cursors": samples.len()}))
     }
 
@@ -1600,6 +1627,14 @@ impl Api {
 
 impl ControlBackend for Api {
     fn call(&self, method: &str, p: &Map<String, Value>) -> Result<Value, String> {
+        if MUTATING.contains(&method)
+            && let Some(text) = self.view.dialog_open()
+        {
+            return Err(format!(
+                "DSView is showing a dialog ({text}); ask the user to close it in the DSView \
+                 window, then retry"
+            ));
+        }
         match method {
             // methods that wait take the GUI lock themselves
             "start_capture" => self.start_capture(p),

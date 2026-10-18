@@ -489,6 +489,17 @@ typedef struct dsv_dso_counts {
   bool out_of_range;
 } dsv_dso_counts;
 
+/**
+ * `DsoSnapshot::EnvelopeSection`; `samples` points at `length` (min, max)
+ * byte pairs.
+ */
+typedef struct dsv_dso_env_section {
+  uint64_t start;
+  uint32_t scale;
+  uint64_t length;
+  const uint8_t *samples;
+} dsv_dso_env_section;
+
 typedef struct dsv_analog_counts {
   uint64_t sample_count;
   uint64_t total_sample_count;
@@ -1332,6 +1343,7 @@ void dsv_dso_first_payload(const struct dsv_dso_store *p,
                            uint32_t n,
                            bool instant,
                            bool is_file,
+                           bool samplerate_tog,
                            struct dsv_dso_counts *out);
 
 /**
@@ -1341,7 +1353,27 @@ void dsv_dso_first_payload(const struct dsv_dso_store *p,
 void dsv_dso_append_payload(const struct dsv_dso_store *p,
                             const uint8_t *data,
                             int32_t num_samples,
+                            bool samplerate_tog,
                             struct dsv_dso_counts *out);
+
+/**
+ * `enable_envelope`
+ */
+void dsv_dso_enable_envelope(const struct dsv_dso_store *p, bool enable);
+
+/**
+ * `get_envelope_section`: `probe` is the channel's storage position. The
+ * pointer stays valid until the store changes.
+ *
+ * # Safety
+ * `out` writable.
+ */
+void dsv_dso_envelope_section(const struct dsv_dso_store *p,
+                              uint64_t start,
+                              uint64_t end,
+                              float min_length,
+                              int32_t probe,
+                              struct dsv_dso_env_section *out);
 
 /**
  * Channel `sig`'s samples from `start`; NULL for an unknown channel.

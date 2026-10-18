@@ -170,6 +170,7 @@ pub unsafe extern "C" fn dsv_dso_first_payload(
     n: u32,
     instant: bool,
     is_file: bool,
+    samplerate_tog: bool,
     out: *mut DsvDsoCounts,
 ) {
     // SAFETY: per the contract.
@@ -189,6 +190,7 @@ pub unsafe extern "C" fn dsv_dso_first_payload(
             &chans,
             instant,
             is_file,
+            samplerate_tog,
         );
         dso_report(s, out)
     });
@@ -201,15 +203,68 @@ pub unsafe extern "C" fn dsv_dso_append_payload(
     p: *const DsvDsoStore,
     data: *const u8,
     num_samples: i32,
+    samplerate_tog: bool,
     out: *mut DsvDsoCounts,
 ) {
     let samples = num_samples.max(0) as usize;
     with(dso(p), (), |s| {
         // SAFETY: per the contract.
         let data = unsafe { bytes(data, samples * s.channel_num() as usize) };
-        s.append_payload(data, samples as u64);
+        s.append_payload(data, samples as u64, samplerate_tog);
         dso_report(s, out)
     });
+}
+
+/// `DsoSnapshot::EnvelopeSection`; `samples` points at `length` (min, max)
+/// byte pairs.
+#[repr(C)]
+pub struct DsvDsoEnvSection {
+    pub start: u64,
+    pub scale: u32,
+    pub length: u64,
+    pub samples: *const u8,
+}
+
+/// `enable_envelope`
+#[unsafe(no_mangle)]
+pub extern "C" fn dsv_dso_enable_envelope(p: *const DsvDsoStore, enable: bool) {
+    with(dso(p), (), |s| s.enable_envelope(enable));
+}
+
+/// `get_envelope_section`: `probe` is the channel's storage position. The
+/// pointer stays valid until the store changes.
+///
+/// # Safety
+/// `out` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dsv_dso_envelope_section(
+    p: *const DsvDsoStore,
+    start: u64,
+    end: u64,
+    min_length: f32,
+    probe: i32,
+    out: *mut DsvDsoEnvSection,
+) {
+    let r = with(dso(p), None, |s| {
+        let e = s.get_envelope_section(start, end, min_length, probe.max(0) as usize);
+        Some(DsvDsoEnvSection {
+            start: e.start,
+            scale: e.scale,
+            length: e.length,
+            samples: e.samples.as_ptr().cast(),
+        })
+    });
+    if !out.is_null() {
+        // SAFETY: per the contract.
+        unsafe {
+            *out = r.unwrap_or(DsvDsoEnvSection {
+                start: 0,
+                scale: 0,
+                length: 0,
+                samples: std::ptr::null(),
+            });
+        }
+    }
 }
 
 /// Channel `sig`'s samples from `start`; NULL for an unknown channel.
@@ -521,6 +576,7 @@ mod tests {
                 [0u16, 1].as_ptr(),
                 [true, true].as_ptr(),
                 2,
+                false,
                 false,
                 false,
                 &mut c,

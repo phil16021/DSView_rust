@@ -237,8 +237,13 @@ const uint8_t *osdso_buffer(osdso *s, int order);
 const uint8_t *osdso_get_samples(osdso *s, uint64_t start, int sig);
 int osdso_max_min(osdso *s, int order, uint8_t *maxv, uint8_t *minv);
 void osdso_first_payload(osdso *s, const uint8_t *data, int num_samples, uint64_t total,
-                         const uint16_t *idx, const int *enabled, int n, int instant, int is_file);
-void osdso_append(osdso *s, const uint8_t *data, int num_samples);
+                         const uint16_t *idx, const int *enabled, int n, int instant, int is_file,
+                         int samplerate_tog);
+void osdso_append(osdso *s, const uint8_t *data, int num_samples, int samplerate_tog);
+void osdso_enable_envelope(osdso *s, int enable);
+void osdso_envelope_section(osdso *s, uint64_t start, uint64_t end, float min_length, int probe,
+                            uint64_t *out_start, unsigned *out_scale, uint64_t *out_length,
+                            const uint8_t **out_samples);
 
 osana *osana_new(void);
 void osana_free(osana *s);

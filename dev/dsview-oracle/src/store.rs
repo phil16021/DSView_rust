@@ -374,6 +374,7 @@ impl CDsoStore {
         (unsafe { osdso_max_min(self.s, order, &mut mx, &mut mn) } != 0).then_some((mx, mn))
     }
     /// `channels`: (index, enabled) of the device's DSO channels.
+    #[allow(clippy::too_many_arguments)]
     pub fn first_payload(
         &mut self,
         data: &[u8],
@@ -382,6 +383,7 @@ impl CDsoStore {
         channels: &[(u16, bool)],
         instant: bool,
         is_file: bool,
+        samplerate_tog: bool,
     ) {
         let idx: Vec<u16> = channels.iter().map(|c| c.0).collect();
         let en: Vec<c_int> = channels.iter().map(|c| c.1 as c_int).collect();
@@ -396,11 +398,38 @@ impl CDsoStore {
                 idx.len() as c_int,
                 instant as c_int,
                 is_file as c_int,
+                samplerate_tog as c_int,
             )
         }
     }
-    pub fn append_payload(&mut self, data: &[u8], num_samples: i32) {
-        unsafe { osdso_append(self.s, data.as_ptr(), num_samples) }
+    pub fn append_payload(&mut self, data: &[u8], num_samples: i32, samplerate_tog: bool) {
+        unsafe { osdso_append(self.s, data.as_ptr(), num_samples, samplerate_tog as c_int) }
+    }
+    pub fn enable_envelope(&mut self, enable: bool) {
+        unsafe { osdso_enable_envelope(self.s, enable as c_int) }
+    }
+    /// (start, scale, entries as (min, max)) of `get_envelope_section`.
+    pub fn envelope_section(
+        &self,
+        start: u64,
+        end: u64,
+        min_length: f32,
+        probe: i32,
+    ) -> (u64, u32, Vec<(u8, u8)>) {
+        let (mut s0, mut scale, mut len, mut p) = (0u64, 0u32, 0u64, std::ptr::null());
+        unsafe {
+            osdso_envelope_section(
+                self.s, start, end, min_length, probe, &mut s0, &mut scale, &mut len, &mut p,
+            )
+        };
+        let entries = if len == 0 || p.is_null() {
+            Vec::new()
+        } else {
+            // SAFETY: `len` (min, max) pairs from the C++ envelope.
+            let b = unsafe { std::slice::from_raw_parts(p, len as usize * 2) };
+            b.chunks(2).map(|c| (c[0], c[1])).collect()
+        };
+        (s0, scale, entries)
     }
 }
 

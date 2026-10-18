@@ -8,7 +8,7 @@ usize_is_size_t = true
 
 [export]
 prefix = ""
-include = ["DsvDslHeader", "DsvDslChannel", "DsvExportChannel", "DsvExportPacket", "DsvLogicCounts", "DsvDsoCounts", "DsvAnalogCounts", "DsvEnvelopeSection", "DsvValue", "DsvStrList", "DsvChannelMeta", "DsvOptionMeta", "DsvRowMeta", "DsvDecoderMeta", "DsvDecodeEvent", "DsvConf", "DsvDevInfo", "DsvChannel", "DsvPacket", "DsvUsbLocation", "DsvLibHost", "DsvLibEntry"]
+include = ["DsvDslHeader", "DsvDslChannel", "DsvExportChannel", "DsvExportPacket", "DsvLogicCounts", "DsvDsoCounts", "DsvAnalogCounts", "DsvEnvelopeSection", "DsvDsoEnvSection", "DsvValue", "DsvStrList", "DsvChannelMeta", "DsvOptionMeta", "DsvRowMeta", "DsvDecoderMeta", "DsvDecodeEvent", "DsvConf", "DsvDevInfo", "DsvChannel", "DsvPacket", "DsvUsbLocation", "DsvLibHost", "DsvLibEntry"]
 
 [export.rename]
 "DsvDsl" = "dsv_dsl"
@@ -23,6 +23,7 @@ include = ["DsvDslHeader", "DsvDslChannel", "DsvExportChannel", "DsvExportPacket
 "DsvDsoStore" = "dsv_dso_store"
 "DsvAnalogStore" = "dsv_analog_store"
 "DsvDsoCounts" = "dsv_dso_counts"
+"DsvDsoEnvSection" = "dsv_dso_env_section"
 "DsvAnalogCounts" = "dsv_analog_counts"
 "DsvEnvelopeSection" = "dsv_envelope_section"
 "DsvValue" = "dsv_value"

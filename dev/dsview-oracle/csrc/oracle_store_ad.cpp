@@ -158,23 +158,40 @@ int osdso_max_min(osdso *s, int order, uint8_t *maxv, uint8_t *minv)
 }
 
 void osdso_first_payload(osdso *s, const uint8_t *data, int num_samples, uint64_t total,
-                         const uint16_t *idx, const int *enabled, int n, int instant, int is_file)
+                         const uint16_t *idx, const int *enabled, int n, int instant, int is_file,
+                         int samplerate_tog)
 {
     std::vector<sr_channel> chans;
     GSList *list = channel_list(chans, SR_CHANNEL_DSO, idx, enabled, n);
     sr_datafeed_dso dso = {};
     dso.num_samples = num_samples;
     dso.data = (void *)data;
+    dso.samplerate_tog = samplerate_tog != 0;
     s->snap.first_payload(dso, total, list, instant != 0, is_file != 0);
     g_slist_free(list);
 }
 
-void osdso_append(osdso *s, const uint8_t *data, int num_samples)
+void osdso_append(osdso *s, const uint8_t *data, int num_samples, int samplerate_tog)
 {
     sr_datafeed_dso dso = {};
     dso.num_samples = num_samples;
     dso.data = (void *)data;
+    dso.samplerate_tog = samplerate_tog != 0;
     s->snap.append_payload(dso);
+}
+
+void osdso_enable_envelope(osdso *s, int enable) { s->snap.enable_envelope(enable != 0); }
+
+void osdso_envelope_section(osdso *s, uint64_t start, uint64_t end, float min_length, int probe,
+                            uint64_t *out_start, unsigned *out_scale, uint64_t *out_length,
+                            const uint8_t **out_samples)
+{
+    DsoSnapshot::EnvelopeSection e = {};
+    s->snap.get_envelope_section(e, start, end, min_length, probe);
+    *out_start = e.start;
+    *out_scale = e.scale;
+    *out_length = e.length;
+    *out_samples = (const uint8_t *)e.samples;
 }
 
 /* ------------------------------------------------------------ analog */

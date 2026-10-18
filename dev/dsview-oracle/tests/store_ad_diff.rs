@@ -123,6 +123,31 @@ fn check_dso(c: &CDsoStore, r: &DsoStore, ctx: &str) {
     }
 }
 
+/// The envelope sections DsoSignal would ask for: every channel, a few
+/// ranges and zoom levels.
+fn check_envelope(c: &CDsoStore, r: &DsoStore, rng: &mut Rng, ctx: &str) {
+    let n = r.sample_count();
+    for probe in 0..3usize {
+        for _ in 0..4 {
+            let end = rng.below(n + 1);
+            let start = rng.below(end + 1);
+            let min_length = rng.pick(&[1.0f32, 255.9, 256.0, 300.5, 65535.0, 65536.0, 70000.0, 1e7]);
+            let (cs, cscale, centries) = c.envelope_section(start, end, min_length, probe as i32);
+            let e = r.get_envelope_section(start, end, min_length, probe);
+            let rentries: Vec<(u8, u8)> = e.samples[..(e.length as usize).min(e.samples.len())]
+                .iter()
+                .map(|s| (s.min, s.max))
+                .collect();
+            assert_eq!(
+                (centries.len() as u64, cs, cscale),
+                (e.length, e.start, e.scale),
+                "envelope section {probe} {start}..{end} @{min_length} {ctx}"
+            );
+            assert_eq!(centries, rentries, "envelope entries {probe} {start}..{end} @{min_length} {ctx}");
+        }
+    }
+}
+
 fn dso_case(seed: u64) {
     let mut rng = Rng(seed);
     let mut c = CDsoStore::new();
@@ -145,9 +170,15 @@ fn dso_case(seed: u64) {
         c.set_ref_range(ref_max, ref_min);
         r.set_ref_range(ref_max, ref_min);
 
-        c.first_payload(&[], 0, total, &channels, instant, is_file);
+        c.first_payload(&[], 0, total, &channels, instant, is_file, false);
         c.zero();
-        r.first_payload(&[], 0, total, &rch, instant, is_file);
+        r.first_payload(&[], 0, total, &rch, instant, is_file, false);
+        // DsoSignal turns the envelope on when it draws at >= 256 samples/px
+        let envelope_at = rng.below(5);
+        if envelope_at == 0 {
+            c.enable_envelope(true);
+            r.enable_envelope(true);
+        }
         let ctx = format!(
             "[seed {seed}, capture {capture}, channels {channels:?}, file {is_file}, instant {instant}, total {total}]"
         );
@@ -163,9 +194,17 @@ fn dso_case(seed: u64) {
                 c.set_ref_range(mx, mn);
                 r.set_ref_range(mx, mn);
             }
-            c.append_payload(&data, n as i32);
-            r.append_payload(&data, n as u64);
-            check_dso(&c, &r, &format!("{ctx} frame {frame} of {n} samples"));
+            let tog = rng.chance(0.3);
+            c.append_payload(&data, n as i32, tog);
+            r.append_payload(&data, n as u64, tog);
+            if frame + 1 == envelope_at {
+                let on = rng.chance(0.8);
+                c.enable_envelope(on);
+                r.enable_envelope(on);
+            }
+            let fctx = format!("{ctx} frame {frame} of {n} samples, tog {tog}");
+            check_dso(&c, &r, &fctx);
+            check_envelope(&c, &r, &mut rng, &fctx);
         }
         c.capture_ended();
         r.capture_ended();

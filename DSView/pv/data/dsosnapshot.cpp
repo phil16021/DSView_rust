@@ -221,7 +221,8 @@ void DsoSnapshot::first_payload(const sr_datafeed_dso &dso, uint64_t total_sampl
         std::lock_guard<std::mutex> lock(_mutex);
         struct dsv_dso_counts c;
         dsv_dso_first_payload(RS, (const uint8_t *)dso.data, dso.num_samples, total_sample_count,
-                              idx.data(), (const bool *)en.data(), idx.size(), instant, isFile, &c);
+                              idx.data(), (const bool *)en.data(), idx.size(), instant, isFile,
+                              dso.samplerate_tog, &c);
         rs_sync(&c, true);
         return;
     }
@@ -325,7 +326,8 @@ void DsoSnapshot::append_payload(const sr_datafeed_dso &dso)
 #ifdef DSVIEW_RUST_CORE
     if (_rs) {
         struct dsv_dso_counts c;
-        dsv_dso_append_payload(RS, (const uint8_t *)dso.data, dso.num_samples, &c);
+        dsv_dso_append_payload(RS, (const uint8_t *)dso.data, dso.num_samples,
+                               dso.samplerate_tog, &c);
         rs_sync(&c, false);
         return;
     }
@@ -389,9 +391,7 @@ void DsoSnapshot::enable_envelope(bool enable)
     std::lock_guard<std::mutex> lock(_mutex);
 #ifdef DSVIEW_RUST_CORE
     if (_rs) {
-        // The Rust store has no DSO envelope (nothing in DSView enables it);
-        // get_envelope_section() keeps answering "none".
-        (void)enable;
+        dsv_dso_enable_envelope(RS, enable);
         return;
     }
 #endif
@@ -431,6 +431,18 @@ void DsoSnapshot::get_envelope_section(EnvelopeSection &s,
 	assert(end <= get_sample_count());
 	assert(start <= end);
 	assert(min_length > 0);
+
+#ifdef DSVIEW_RUST_CORE
+    if (_rs) {
+        struct dsv_dso_env_section e;
+        dsv_dso_envelope_section(RS, start, end, min_length, probe_index, &e);
+        s.start = e.start;
+        s.scale = e.scale;
+        s.length = e.length;
+        s.samples = (EnvelopeSample *)e.samples;
+        return;
+    }
+#endif
 
     if (!_envelope_done) {
         s.length = 0;

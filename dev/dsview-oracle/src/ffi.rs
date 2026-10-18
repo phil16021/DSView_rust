@@ -346,8 +346,21 @@ unsafe extern "C" {
         n: c_int,
         instant: c_int,
         is_file: c_int,
+        samplerate_tog: c_int,
     );
-    pub fn osdso_append(s: *mut OsDso, data: *const u8, num_samples: c_int);
+    pub fn osdso_append(s: *mut OsDso, data: *const u8, num_samples: c_int, samplerate_tog: c_int);
+    pub fn osdso_enable_envelope(s: *mut OsDso, enable: c_int);
+    pub fn osdso_envelope_section(
+        s: *mut OsDso,
+        start: u64,
+        end: u64,
+        min_length: f32,
+        probe: c_int,
+        out_start: *mut u64,
+        out_scale: *mut std::os::raw::c_uint,
+        out_length: *mut u64,
+        out_samples: *mut *const u8,
+    );
 
     pub fn osana_new() -> *mut OsAna;
     pub fn osana_free(s: *mut OsAna);

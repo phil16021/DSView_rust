@@ -142,10 +142,63 @@ pub struct Ann {
     pub text: Arc<str>,
 }
 
+/// One row's annotations (`RowData`) with an index for range queries: the
+/// positions sorted by start, and the longest annotation. An annotation
+/// that overlaps `start..` begins after `start - longest`, so a query only
+/// looks at the starts in that window.
+#[derive(Clone, Default)]
+struct RowData {
+    anns: Vec<Ann>,
+    /// Positions in `anns`, stably sorted by start sample.
+    by_start: Vec<u32>,
+    longest: u64,
+}
+
+impl RowData {
+    fn push(&mut self, a: Ann) {
+        let pos = self.anns.len() as u32;
+        self.longest = self.longest.max(a.end.saturating_sub(a.start));
+        // decoders mostly emit in order: appending is the common case
+        let at = if self
+            .by_start
+            .last()
+            .is_none_or(|&l| self.anns[l as usize].start <= a.start)
+        {
+            self.by_start.len()
+        } else {
+            self.by_start
+                .partition_point(|&i| self.anns[i as usize].start <= a.start)
+        };
+        self.anns.push(a);
+        self.by_start.insert(at, pos);
+    }
+
+    /// `get_annotation_subset`: `end > start_q && start <= end_q`, in
+    /// arrival order.
+    fn subset(&self, start_q: u64, end_q: u64) -> Vec<Ann> {
+        let from = start_q.saturating_sub(self.longest);
+        let lo = self
+            .by_start
+            .partition_point(|&i| self.anns[i as usize].start < from);
+        let hi = self
+            .by_start
+            .partition_point(|&i| self.anns[i as usize].start <= end_q);
+        let mut hits: Vec<u32> = self.by_start[lo..hi.max(lo)]
+            .iter()
+            .copied()
+            .filter(|&i| self.anns[i as usize].end > start_q)
+            .collect();
+        hits.sort_unstable();
+        hits.into_iter()
+            .map(|i| self.anns[i as usize].clone())
+            .collect()
+    }
+}
+
 #[derive(Default)]
 struct Results {
     /// Per row of [`DecoderStack::rows`].
-    rows: Vec<Vec<Ann>>,
+    rows: Vec<RowData>,
     count: u64,
     progress: i32,
     error: String,
@@ -216,7 +269,7 @@ impl DecoderStack {
             rows,
             class_rows,
             results: Arc::new(Mutex::new(Results {
-                rows: vec![Vec::new(); n],
+                rows: vec![RowData::default(); n],
                 ..Results::default()
             })),
             stop: Arc::new(AtomicBool::new(false)),
@@ -264,13 +317,18 @@ impl DecoderStack {
         self.results()
             .rows
             .get(row)
-            .map(|v| {
-                v.iter()
-                    .filter(|a| a.end > start && a.start <= end)
-                    .cloned()
-                    .collect()
-            })
+            .map(|r| r.subset(start, end))
             .unwrap_or_default()
+    }
+
+    /// Annotations of row `row` (all of them, in arrival order).
+    pub fn row_len(&self, row: usize) -> usize {
+        self.results().rows.get(row).map_or(0, |r| r.anns.len())
+    }
+
+    /// The `index`-th annotation of row `row` (`list_annotation`).
+    pub fn annotation_at(&self, row: usize, index: usize) -> Option<Ann> {
+        self.results().rows.get(row)?.anns.get(index).cloned()
     }
 
     /// Asks a running [`decode`](Self::decode) to stop.
@@ -282,7 +340,7 @@ impl DecoderStack {
     pub fn clear(&self) {
         let mut r = self.results();
         let n = r.rows.len();
-        r.rows = vec![Vec::new(); n];
+        r.rows = vec![RowData::default(); n];
         r.count = 0;
         r.error.clear();
         r.texts.clear();
@@ -628,6 +686,49 @@ pub fn opt_json(v: &OptValue) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn indexed_subset_matches_a_scan() {
+        let mut r = RowData::default();
+        let mut x = 7u64;
+        let mut next = || {
+            x = x
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            x >> 33
+        };
+        for _ in 0..3000 {
+            // mostly in order, sometimes earlier, some long ones
+            let start = r.anns.last().map_or(0, |a| a.start) + next() % 50;
+            let start = if next() % 10 == 0 {
+                start.saturating_sub(next() % 400)
+            } else {
+                start
+            };
+            let len = if next() % 50 == 0 {
+                next() % 5000
+            } else {
+                next() % 30
+            };
+            r.push(Ann {
+                start,
+                end: start + len,
+                text: "".into(),
+            });
+        }
+        for _ in 0..500 {
+            let a = next() % 80_000;
+            let b = a + next() % 3000;
+            let scan: Vec<(u64, u64)> = r
+                .anns
+                .iter()
+                .filter(|x| x.end > a && x.start <= b)
+                .map(|x| (x.start, x.end))
+                .collect();
+            let idx: Vec<(u64, u64)> = r.subset(a, b).iter().map(|x| (x.start, x.end)).collect();
+            assert_eq!(scan, idx, "{a}..{b}");
+        }
+    }
 
     #[test]
     fn printf_subset() {

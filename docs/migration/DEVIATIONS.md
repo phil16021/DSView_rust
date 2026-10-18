@@ -388,6 +388,27 @@ Found while porting `SigSession`, `DecoderStack`, `SamplingBar` and `DsoSignal` 
   keyed by `srd_channel*`. Which bound channel's signal supplies the capture therefore depends on
   heap addresses.
 
+### F26. The DSO envelope (and a gap in the Rust store)
+- **A Phase 1b mistake.**
+  - The Rust DSO store was built without the envelope, on the claim that nothing enables it.
+  - `DsoSignal::paint_mid` does enable it: from 256 samples per pixel it draws the frame from
+    `get_envelope_section`.
+  - With `DSVIEW_IMPL_STORE=rust`, deep frames (more than about 256k samples on a 1000 px trace)
+    were drawn empty when zoomed out.
+  - No test saw it: the demo oscilloscope's 10,000 samples never reach that zoom. Fixed in M6.0;
+    `store_ad_diff` now compares envelope sections.
+- **Stale entries after a shorter frame.** `append_payload_to_envelope_levels` computes only from
+  the previous length onwards.
+  - When a non-instant frame is shorter than the one before (and `samplerate_tog` is not set),
+    nothing is recomputed, and the shorter frame shows the previous frame's envelope.
+  - Ported as is.
+- **One short channel ends the update for all.** If a channel has fewer than 256 samples, the
+  function returns before the other channels and before marking the envelope as built. Ported as
+  is.
+- **The section index is a storage position.** `get_envelope_section(probe_index)` indexes
+  channels by storage position. `DsoSignal` passes `index % enabled channels`, which matches only
+  while the enabled channels are numbered from 0.
+
 ## Planned behaviour deviations (Rust intentionally differs)
 
 | Area | C behaviour | Rust behaviour | Phase |
@@ -451,7 +472,8 @@ Found while porting `SigSession`, `DecoderStack`, `SamplingBar` and `DsoSignal` 
 | DSO voltages in `measure_dso`/`read_waveform` | `DsoSignal` scales by the view height, the dial and the snapshot's measure factor and data scale | Per code `vdiv × probe factor × 10 / (ref_max − ref_min)`, the same as Qt when the data scale is 1 (the demo: every value in the transcript identical); a hardware data scale other than 1 is not applied yet | 4b ✔ |
 | DSO data lock, feed timer, trigger-check timer | Throttle the display; poll the hardware's trigger flag every 200 ms | Not needed without a display; `triggered` comes from the first data, as with demo and file devices in C | 4b ✔ |
 | Control methods in `dsview-cli serve` | Run on the GUI thread; waiting replies answered from the event loop | One method at a time under a lock; captures, decoding and saving wait outside it | 4b ✔ |
-| DSO envelope, `cal_vrms`, `cal_vmean` | Implemented, never called | Not ported; under `DSVIEW_IMPL_STORE=rust`, `enable_envelope` is a no-op and the two return 0 | 1b ✔ |
+| DSO envelope | Built when `DsoSignal` draws at ≥ 256 samples per pixel | Ported in M6.0 (until then the Rust store had none, and the Qt GUI drew deep DSO frames empty with `DSVIEW_IMPL_STORE=rust`, F26); same entries, compared against the C++ class | M6.0 ✔ |
+| DSO `cal_vrms`, `cal_vmean` | Implemented, never called | Not ported | 1b ✔ |
 | Analog data/DSO frames/envelopes before they are written | `malloc`: uninitialised | Zeroed | 1b ✔ |
 
 ## Departures from PLAN.md

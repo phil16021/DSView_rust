@@ -62,6 +62,32 @@ pub mod trig {
     pub const EDGE: i32 = 5;
 }
 
+/// What changed in a session, for frontends (the messages `SigSession`
+/// broadcasts to its listeners). Data and decode progress are sent at most
+/// every [`EVENT_INTERVAL`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SessionEvent {
+    /// Another device is active (or the active one was reopened).
+    DeviceChanged,
+    /// Devices came or went.
+    DeviceListChanged,
+    ModeChanged,
+    CaptureStarted,
+    /// New samples in the capture buffer.
+    DataAppended,
+    /// The capture ended (a repeat capture between two rounds as well).
+    CaptureEnded,
+    /// Decoders made progress or finished one stack.
+    DecodeProgress,
+    /// The decode queue is empty.
+    DecodeDone,
+    /// `SigSession::get_error()` became non-zero.
+    Error(i32),
+}
+
+/// Minimum time between two `DataAppended`/`DecodeProgress` events (30 Hz).
+pub const EVENT_INTERVAL: Duration = Duration::from_millis(33);
+
 /// `DEVICE_COLLECT_MODE`: one capture, captures one after another, or
 /// one endless capture into a ring buffer (stream mode only).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -247,6 +273,9 @@ struct Inner {
     lib: Library,
     state: Mutex<State>,
     changed: Condvar,
+    subscribers: Mutex<Vec<std::sync::mpsc::Sender<SessionEvent>>>,
+    /// When `DataAppended`/`DecodeProgress` were last sent.
+    last_sent: Mutex<(Option<Instant>, Option<Instant>)>,
     /// Two buffers (`_data_list`): repeat mode captures into one while the
     /// other is shown and decoded.
     data: [Data; 2],
@@ -333,6 +362,8 @@ impl Session {
                 ..State::default()
             }),
             changed: Condvar::new(),
+            subscribers: Mutex::new(Vec::new()),
+            last_sent: Mutex::new((None, None)),
             data: [Data::new(), Data::new()],
             view: AtomicUsize::new(0),
             capture: AtomicUsize::new(0),
@@ -378,6 +409,31 @@ impl Session {
 
     fn notify(&self) {
         self.0.changed.notify_all();
+    }
+
+    /// Events from now on; the receiver may be dropped at any time.
+    pub fn subscribe(&self) -> std::sync::mpsc::Receiver<SessionEvent> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        lock(&self.0.subscribers).push(tx);
+        rx
+    }
+
+    fn emit(&self, ev: SessionEvent) {
+        let throttle = match ev {
+            SessionEvent::DataAppended => Some(0),
+            SessionEvent::DecodeProgress => Some(1),
+            _ => None,
+        };
+        if let Some(k) = throttle {
+            let now = Instant::now();
+            let mut last = lock(&self.0.last_sent);
+            let slot = if k == 0 { &mut last.0 } else { &mut last.1 };
+            if slot.is_some_and(|t| now.duration_since(t) < EVENT_INTERVAL) {
+                return;
+            }
+            *slot = Some(now);
+        }
+        lock(&self.0.subscribers).retain(|tx| tx.send(ev.clone()).is_ok());
     }
 
     /// Waits until `cond` holds or `timeout` passes; true if it holds.
@@ -588,6 +644,7 @@ impl Session {
         } else if desc.is_demo() && self.mode() == Mode::Logic as i32 {
             self.load_demo_decoders();
         }
+        self.emit(SessionEvent::DeviceChanged);
         let err = self.0.lib.last_error();
         // SR_ERR_DEVICE_FIRMWARE_VERSION_LOW .. SR_ERR_DEVICE_NO_DRIVER
         !(1000..1100).contains(&err)
@@ -714,6 +771,7 @@ impl Session {
         if demo && mode == Mode::Logic as i32 {
             self.load_demo_decoders();
         }
+        self.emit(SessionEvent::ModeChanged);
         true
     }
 
@@ -1304,6 +1362,7 @@ impl Session {
             st.started_seq += 1;
         }
         self.notify();
+        self.emit(SessionEvent::CaptureStarted);
         true
     }
 
@@ -1412,13 +1471,26 @@ impl Session {
             _ => {}
         }
         self.notify();
+        match ev {
+            event::COLLECT_TASK_END
+            | event::COLLECT_TASK_END_BY_ERROR
+            | event::COLLECT_TASK_END_BY_DETACHED => self.emit(SessionEvent::CaptureEnded),
+            event::NEW_DEVICE_ATTACH
+            | event::CURRENT_DEVICE_DETACH
+            | event::INACTIVE_DEVICE_DETACH => self.emit(SessionEvent::DeviceListChanged),
+            _ => {}
+        }
     }
 
     /// `SigSession::data_feed_in()`
     fn data_feed_in(&self, p: &Packet) {
+        let err_before = self.state().error;
         if !matches!(p.body, Body::End) && p.status != pkt_status::OK {
             sr_err!("Unexpected packet status: {}", p.status);
             self.state().error = error::PKT_DATA;
+            if err_before != error::PKT_DATA {
+                self.emit(SessionEvent::Error(error::PKT_DATA));
+            }
             return;
         }
         let setup = self.state().setup.clone();
@@ -1458,7 +1530,10 @@ impl Session {
                 }
             }
             Body::Dso {
-                num_samples, data, ..
+                num_samples,
+                data,
+                samplerate_tog,
+                ..
             } => {
                 let mut store = lock(&self.capture_data().dso);
                 if store.memory_failed() {
@@ -1480,9 +1555,17 @@ impl Session {
                     st.instant
                 };
                 if store.last_ended() {
-                    store.first_payload(data, n, setup.limit, &setup.dso, instant, setup.is_file);
+                    store.first_payload(
+                        data,
+                        n,
+                        setup.limit,
+                        &setup.dso,
+                        instant,
+                        setup.is_file,
+                        *samplerate_tog,
+                    );
                 } else {
-                    store.append_payload(data, n);
+                    store.append_payload(data, n, *samplerate_tog);
                 }
                 let first = self.state().dso_packets == 1;
                 if n != 0 && (!instant || first) {
@@ -1543,9 +1626,19 @@ impl Session {
                 }
             }
         }
-        if matches!(self.state().error, error::MALLOC | error::DATA_OVERFLOW) {
+        let err = self.state().error;
+        if matches!(err, error::MALLOC | error::DATA_OVERFLOW) {
             // MainWindow::on_session_error stops the capture
             self.0.lib.request_stop();
+        }
+        match &p.body {
+            Body::Logic { .. } | Body::Dso { .. } | Body::Analog { .. } => {
+                self.emit(SessionEvent::DataAppended)
+            }
+            _ => {}
+        }
+        if err != error::NONE && err != err_before {
+            self.emit(SessionEvent::Error(err));
         }
     }
 
@@ -1714,8 +1807,10 @@ impl Session {
                 last,
             );
             self.notify();
+            self.emit(SessionEvent::DecodeProgress);
         }
         self.notify();
+        self.emit(SessionEvent::DecodeDone);
     }
 
     /// Marks the session as saving (or done).

@@ -27,11 +27,59 @@ fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+fn init_decoders() {
+    static INIT: std::sync::Once = std::sync::Once::new();
+    INIT.call_once(|| {
+        dsview_decode::init(&[root().join("libsigrokdecode4DSL/decoders").as_path()])
+            .expect("decoders");
+        dsview_decode::load_all();
+    });
+}
+
+/// Sessions share the drivers' global state: one at a time.
+fn serial() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+#[test]
+fn a_dialog_blocks_mutating_methods() {
+    use dsview_control::ControlBackend;
+    use dsview_control::api::ViewHooks;
+    struct Dialog;
+    impl ViewHooks for Dialog {
+        fn dialog_open(&self) -> Option<String> {
+            Some("Device Options".into())
+        }
+    }
+    let _g = serial();
+    init_decoders();
+    let session = Session::new(
+        Paths {
+            data_dir: root().join("DSView"),
+            profile_dir: None,
+            version: "test".into(),
+        },
+        Arc::new(NoUsb),
+    );
+    session.set_default_device();
+    let api = Api::with_view(session.clone(), "test", Box::new(Dialog));
+    let p = serde_json::Map::new();
+    let e = api.call("set_mode", &p).unwrap_err();
+    assert!(
+        e.starts_with("DSView is showing a dialog (Device Options)"),
+        "{e}"
+    );
+    assert!(api.call("get_config", &p).is_ok());
+    assert_eq!(api.call("nope", &p).unwrap_err(), "unknown method: nope");
+    session.exit();
+}
+
 #[test]
 fn demo_transcript_matches_qt() {
+    let _g = serial();
     let root = root();
-    dsview_decode::init(&[root.join("libsigrokdecode4DSL/decoders").as_path()]).expect("decoders");
-    dsview_decode::load_all();
+    init_decoders();
     let session = Session::new(
         Paths {
             data_dir: root.join("DSView"),

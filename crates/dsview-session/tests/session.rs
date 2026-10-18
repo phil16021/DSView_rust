@@ -121,3 +121,25 @@ fn dso_single_shot() {
     assert_eq!(s.data().dso.lock().unwrap().sample_count(), 10_000);
     s.exit();
 }
+
+#[test]
+fn events_follow_a_capture() {
+    use dsview_session::session::SessionEvent;
+    let (_g, s) = session("Demo Logic");
+    let rx = s.subscribe();
+    assert!(s.start_capture(false));
+    wait(&s, "decoding done", |st| {
+        st.ended_seq > 0 && !st.working && !st.decoding
+    });
+    // the decode thread sends DecodeDone after clearing the flag
+    std::thread::sleep(Duration::from_millis(100));
+    let evs: Vec<SessionEvent> = rx.try_iter().collect();
+    let pos = |e: &SessionEvent| evs.iter().position(|x| x == e);
+    let started = pos(&SessionEvent::CaptureStarted).expect("started");
+    let data = pos(&SessionEvent::DataAppended).expect("data");
+    let ended = pos(&SessionEvent::CaptureEnded).expect("ended");
+    let done = pos(&SessionEvent::DecodeDone).expect("decoded");
+    assert!(started < data && data < ended, "{evs:?}");
+    assert!(done > data, "{evs:?}");
+    s.exit();
+}
