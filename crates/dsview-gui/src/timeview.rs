@@ -1174,6 +1174,19 @@ impl TimeView {
         }
         if resp.dragged() {
             let p = resp.interact_pointer_pos().unwrap_or_default();
+            // a dragged cursor's target: the sample under the pointer and the
+            // edges of the pulse there (`SnapMinSpace`)
+            let x = (p.x - area.left()) as f64;
+            let target = matches!(self.action, Action::Cursor(_) | Action::Search).then(|| {
+                let pos = self.vp.pixel_to_index(x, tb) as f64;
+                let pulse = self.row_at(rows, area, p.y).and_then(|r| {
+                    let (i0, i1, _, _) =
+                        measure::pulse_at(&store, r.sig.as_ref()?.index, spp, self.vp.x_offset, x)?;
+                    let px = |i| (self.vp.index_to_pixel(i, false, tb) - x).abs();
+                    Some(((i0, px(i0)), (i1, px(i1))))
+                });
+                (pos, pulse)
+            });
             match &mut self.action {
                 Action::Pan { last_x, last_t } => {
                     let dx = (*last_x - p.x) as i32;
@@ -1187,44 +1200,21 @@ impl TimeView {
                             .set_scale_offset(self.vp.scale, self.vp.x_offset + dx as i64, tb);
                 }
                 Action::Cursor(n) => {
-                    let n = *n;
-                    let x = (p.x - area.left()) as f64;
-                    let pos = self.vp.pixel_to_index(x, tb) as f64;
-                    let pulse = self.row_at(rows, area, p.y).and_then(|r| {
-                        let (i0, i1, _, _) = measure::pulse_at(
-                            &store,
-                            r.sig.as_ref()?.index,
-                            spp,
-                            self.vp.x_offset,
-                            x,
-                        )?;
-                        let px = |i| (self.vp.index_to_pixel(i, false, tb) - x).abs();
-                        Some(((i0, px(i0)), (i1, px(i1))))
-                    });
-                    self.cursors.drag(n, pos, pulse);
-                    changed = true;
+                    if let Some((pos, pulse)) = target {
+                        self.cursors.drag(*n, pos, pulse);
+                        changed = true;
+                    }
                 }
                 Action::Search => {
-                    let x = (p.x - area.left()) as f64;
-                    let pos = self.vp.pixel_to_index(x, tb) as f64;
-                    let pulse = self.row_at(rows, area, p.y).and_then(|r| {
-                        let (i0, i1, _, _) = measure::pulse_at(
-                            &store,
-                            r.sig.as_ref()?.index,
-                            spp,
-                            self.vp.x_offset,
-                            x,
-                        )?;
-                        let px = |i| (self.vp.index_to_pixel(i, false, tb) - x).abs();
-                        Some(((i0, px(i0)), (i1, px(i1))))
-                    });
                     // the same snapping as a cursor (`set_search_pos(.., false)`)
-                    let mut c = Cursors {
-                        samples: vec![pos as u64],
-                    };
-                    c.drag(1, pos, pulse);
-                    self.search = Some((c.samples[0], false));
-                    changed = true;
+                    if let Some((pos, pulse)) = target {
+                        let mut c = Cursors {
+                            samples: vec![pos as u64],
+                        };
+                        c.drag(1, pos, pulse);
+                        self.search = Some((c.samples[0], false));
+                        changed = true;
+                    }
                 }
                 _ => {}
             }
