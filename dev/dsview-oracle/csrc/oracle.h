@@ -300,6 +300,11 @@ int oracle_drv_enable(int ch, int enable);
 char *oracle_drv_state(void);
 int oracle_drv_capture(int stop_after, oracle_drv_packet_cb cb, void *user);
 
+/* spectrumstack.cpp's calc_fft on FFTW: `n` samples every `step`-th of
+ * `samples` (n * step of them), `n / 2 + 1` bins into `out`. 0 on success. */
+int osdsp_power_spectrum(const uint8_t *samples, uint64_t n, uint16_t step, int offset,
+                         uint64_t vdiv, uint64_t factor, int window, double *out);
+
 /* The virtual clock (Rust side) behind demo.c's timers. */
 int64_t oracle_clock_now_us(void);
 

@@ -203,6 +203,7 @@ fn build_store(root: &Path, manifest: &Path, includes: &[PathBuf], sanitize: boo
         root.join("DSView/pv/data/analogsnapshot.cpp"),
         manifest.join("csrc/oracle_store.cpp"),
         manifest.join("csrc/oracle_store_ad.cpp"),
+        manifest.join("csrc/oracle_dsp.cpp"),
     ];
     for src in &sources {
         println!("cargo:rerun-if-changed={}", src.display());
@@ -232,6 +233,8 @@ fn build_store(root: &Path, manifest: &Path, includes: &[PathBuf], sanitize: boo
             .flag("-fno-omit-frame-pointer");
     }
     build.files(&sources).compile("dsview_oracle_store");
+    // the spectrum oracle uses FFTW, as DSView does
+    println!("cargo:rustc-link-lib=fftw3");
 }
 
 /// The Python the C engine embeds: the interpreter PyO3 uses as well

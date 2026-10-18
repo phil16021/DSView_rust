@@ -350,6 +350,16 @@ unsafe extern "C" {
     );
     pub fn osdso_append(s: *mut OsDso, data: *const u8, num_samples: c_int, samplerate_tog: c_int);
     pub fn osdso_enable_envelope(s: *mut OsDso, enable: c_int);
+    pub fn osdsp_power_spectrum(
+        samples: *const u8,
+        n: u64,
+        step: u16,
+        offset: c_int,
+        vdiv: u64,
+        factor: u64,
+        window: c_int,
+        out: *mut f64,
+    ) -> c_int;
     pub fn osdso_envelope_section(
         s: *mut OsDso,
         start: u64,
