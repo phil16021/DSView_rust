@@ -13,6 +13,7 @@
 //!                                record DSLogic USB traffic per scenario (tools/usb/README.md)
 
 mod ab;
+mod mcp;
 mod usb;
 
 use std::path::{Path, PathBuf};
@@ -43,12 +44,15 @@ fn main() -> Result<()> {
         ["control", "check"] => control_run(&root, Mode::Check),
         ["control", "dump", out] => control_dump(Path::new(out)),
         ["control", "ab", rest @ ..] => ab::run(&root, rest),
+        ["mcp", "suite", bin] => mcp::suite(&root, bin, None),
+        ["mcp", "suite", bin, out] => mcp::suite(&root, bin, Some(Path::new(out))),
+        ["mcp", "compare", a, b] => mcp::compare(Path::new(a), Path::new(b)),
         ["usb", "record", rest @ ..] => usb::record(&root, rest),
         ["gen-header"] => gen_header(&root, false),
         ["gen-header", "--check"] => gen_header(&root, true),
         _ => {
             eprintln!(
-                "usage: cargo xtask <corpus init|corpus verify|golden gen|golden check|control record|control check|control ab|gen-header [--check]|usb record>"
+                "usage: cargo xtask <corpus init|corpus verify|golden gen|golden check|control record|control check|control ab|mcp suite BIN [OUT]|mcp compare A B|gen-header [--check]|usb record>"
             );
             std::process::exit(2);
         }

@@ -168,7 +168,7 @@ impl SamplingBar {
                     if self.collect == CollectMode::Repeat {
                         ui.add(
                             egui::DragValue::new(&mut self.repeat_interval)
-                                .range(0.0..=10.0)
+                                .range(0.1..=10.0)
                                 .speed(0.1)
                                 .suffix(" s"),
                         );
