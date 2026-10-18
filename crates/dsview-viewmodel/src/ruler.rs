@@ -239,6 +239,154 @@ pub fn logic_ticks(
     }
 }
 
+/// `Cursor::Offset`, `Cursor::ArrowSize`, `Cursor::CloseSize`,
+/// `View::LabelPadding`, `Ruler::CursorSelWidth`.
+pub const LABEL_OFFSET: f64 = 1.0;
+pub const ARROW_SIZE: f64 = 10.0;
+pub const CLOSE_SIZE: f64 = 10.0;
+pub const LABEL_PADDING: f64 = 4.0;
+pub const CURSOR_SEL_WIDTH: f64 = 20.0;
+
+/// A rectangle as Qt's `QRect`/`QRectF` gives it: left, top, width, height.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Bx {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+}
+
+impl Bx {
+    pub fn contains(&self, px: f64, py: f64) -> bool {
+        px >= self.x && px < self.x + self.w && py >= self.y && py < self.y + self.h
+    }
+}
+
+/// `Cursor::get_label_rect`: the label of a cursor at pixel `x` whose text
+/// measures `text_w` × `text_h`, in a ruler `ruler_h` high (integers, as
+/// `QRect`).
+pub fn cursor_label_rect(x: i64, text_w: f64, text_h: f64, ruler_h: f64) -> Bx {
+    let (w, h) = (
+        (text_w + LABEL_PADDING * 2.0).trunc(),
+        (text_h + LABEL_PADDING * 2.0).trunc(),
+    );
+    let top = (ruler_h - h - LABEL_OFFSET - ARROW_SIZE - 0.5).trunc();
+    Bx {
+        x: x as f64 - (w as i64 / 2) as f64,
+        y: top,
+        w,
+        h,
+    }
+}
+
+/// `Cursor::get_close_rect`: the delete box at the label's top right
+/// (`QRect::right()` is the last pixel column).
+pub fn cursor_close_rect(label: Bx) -> Bx {
+    Bx {
+        x: label.x + label.w - 1.0 - CLOSE_SIZE,
+        y: label.y,
+        w: CLOSE_SIZE,
+        h: CLOSE_SIZE,
+    }
+}
+
+/// `Ruler::get_cursor_sel_rect`: box `index` of the strip opened at
+/// `sel_x` (0: the new-cursor box, then one per cursor).
+pub fn cursor_sel_rect(sel_x: f64, index: usize, ruler_h: f64) -> Bx {
+    Bx {
+        x: sel_x - (0.5 - index as f64) * CURSOR_SEL_WIDTH,
+        y: ruler_h - 1.3 * CURSOR_SEL_WIDTH,
+        w: CURSOR_SEL_WIDTH,
+        h: CURSOR_SEL_WIDTH,
+    }
+}
+
+/// What a click on the ruler does to the cursors.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RulerAction {
+    None,
+    /// A new cursor at the strip's pixel.
+    Add(f64),
+    /// Cursor n (from 1) to the strip's pixel.
+    Move(usize, f64),
+    Delete(usize),
+    /// `set_cursor_middle`: cursor n to the middle of the view.
+    GoTo(usize),
+}
+
+/// The ruler's cursor strips (`_cursor_sel_visible`, `_cursor_go_visible`,
+/// `_cursor_sel_x`): a left click opens the selector (new cursor or move
+/// one here), a right click the go-to strip; in the selector a right click
+/// deletes a cursor.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct RulerStrips {
+    pub sel_x: Option<f64>,
+    pub sel_visible: bool,
+    pub go_visible: bool,
+}
+
+impl RulerStrips {
+    /// `in_cursor_sel_rect`: the strip box under the pointer.
+    pub fn hit(&self, px: f64, py: f64, cursors: usize, ruler_h: f64) -> Option<usize> {
+        let x = self.sel_x?;
+        (0..=cursors).find(|&i| cursor_sel_rect(x, i, ruler_h).contains(px, py))
+    }
+
+    pub fn visible(&self) -> bool {
+        self.sel_visible || self.go_visible
+    }
+
+    /// `mouseReleaseEvent`, left button, when no cursor label was hit.
+    pub fn left_release(&mut self, px: f64, py: f64, cursors: usize, ruler_h: f64) -> RulerAction {
+        if self.go_visible {
+            let over = self.hit(px, py, cursors, ruler_h);
+            self.go_visible = false;
+            return match over {
+                Some(n) if n > 0 => RulerAction::GoTo(n),
+                _ => RulerAction::None,
+            };
+        }
+        if !self.sel_visible {
+            self.sel_x = Some(px);
+            self.sel_visible = true;
+            return RulerAction::None;
+        }
+        self.sel_visible = false;
+        let x = self.sel_x.unwrap_or(px);
+        match self.hit(px, py, cursors, ruler_h) {
+            Some(0) => RulerAction::Add(x),
+            Some(n) => RulerAction::Move(n, x),
+            None => RulerAction::None,
+        }
+    }
+
+    /// `mouseReleaseEvent`, right button.
+    pub fn right_release(&mut self, px: f64, py: f64, cursors: usize, ruler_h: f64) -> RulerAction {
+        if !self.sel_visible {
+            if !self.go_visible {
+                self.sel_x = Some(px);
+                self.go_visible = true;
+            }
+            return RulerAction::None;
+        }
+        match self.hit(px, py, cursors, ruler_h) {
+            Some(n) if n > 0 => {
+                if cursors == 1 {
+                    self.sel_visible = false;
+                }
+                RulerAction::Delete(n)
+            }
+            _ => RulerAction::None,
+        }
+    }
+
+    /// `leaveEvent`
+    pub fn leave(&mut self) {
+        self.sel_visible = false;
+        self.go_visible = false;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -298,5 +446,76 @@ mod tests {
         // the prefix follows the whole view's span: 1830 px x 0.8 us = 1.46 ms
         assert_eq!(r.prefix, 4);
         assert!(majors[0].label.as_ref().unwrap().0.ends_with("ms"));
+    }
+
+    #[test]
+    fn cursor_labels() {
+        // "+1.2ms"-sized text in a 50 px ruler (Qt's)
+        let r = cursor_label_rect(100, 41.0, 14.0, 50.0);
+        assert_eq!(
+            r,
+            Bx {
+                x: 76.0,
+                y: 16.0,
+                w: 49.0,
+                h: 22.0
+            }
+        );
+        let c = cursor_close_rect(r);
+        assert_eq!(
+            c,
+            Bx {
+                x: 114.0,
+                y: 16.0,
+                w: 10.0,
+                h: 10.0
+            }
+        );
+        assert_eq!(
+            cursor_sel_rect(200.0, 0, 50.0),
+            Bx {
+                x: 190.0,
+                y: 24.0,
+                w: 20.0,
+                h: 20.0
+            }
+        );
+        assert_eq!(cursor_sel_rect(200.0, 2, 50.0).x, 230.0);
+    }
+
+    #[test]
+    fn strips() {
+        let h = 50.0;
+        let mut s = RulerStrips::default();
+        // left click opens the selector at x; its box 0 adds a cursor there
+        assert_eq!(s.left_release(300.0, 10.0, 2, h), RulerAction::None);
+        assert!(s.sel_visible);
+        assert_eq!(s.left_release(300.0, 30.0, 2, h), RulerAction::Add(300.0));
+        assert!(!s.sel_visible);
+        // box 2 moves cursor 2 to the selector's x
+        s.left_release(300.0, 10.0, 2, h);
+        assert_eq!(
+            s.left_release(345.0, 30.0, 2, h),
+            RulerAction::Move(2, 300.0)
+        );
+        // a click beside the boxes closes it
+        s.left_release(300.0, 10.0, 2, h);
+        assert_eq!(s.left_release(10.0, 30.0, 2, h), RulerAction::None);
+        assert!(!s.visible());
+        // right click deletes in the selector, stays open while cursors remain
+        s.left_release(300.0, 10.0, 2, h);
+        assert_eq!(s.right_release(325.0, 30.0, 2, h), RulerAction::Delete(1));
+        assert!(s.sel_visible);
+        assert_eq!(s.right_release(325.0, 30.0, 1, h), RulerAction::Delete(1));
+        assert!(!s.sel_visible);
+        // right click opens the go-to strip; a left click on box 1 goes there
+        assert_eq!(s.right_release(500.0, 10.0, 1, h), RulerAction::None);
+        assert!(s.go_visible);
+        assert_eq!(s.right_release(400.0, 10.0, 1, h), RulerAction::None);
+        assert_eq!(s.left_release(525.0, 30.0, 1, h), RulerAction::GoTo(1));
+        assert!(!s.visible());
+        s.right_release(500.0, 10.0, 1, h);
+        s.leave();
+        assert!(!s.visible());
     }
 }

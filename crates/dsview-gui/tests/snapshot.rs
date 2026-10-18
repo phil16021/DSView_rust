@@ -744,3 +744,82 @@ fn decoder_show_buttons() {
     assert!(!t2.stack.row_shown(k2));
     s.exit();
 }
+
+/// A press and a release of `button` at (x, y), one frame each.
+fn click_with(h: &mut Harness<'_>, x: f32, y: f32, button: egui::PointerButton) {
+    let pos = egui::pos2(x, y);
+    for pressed in [true, false] {
+        let ev = &mut h.input_mut().events;
+        ev.push(egui::Event::PointerMoved(pos));
+        ev.push(egui::Event::PointerButton {
+            pos,
+            button,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run();
+    }
+}
+
+/// The ruler's strips: a left click opens the selector, its first box adds
+/// a cursor there; a right click opens the go-to strip, whose boxes centre
+/// a cursor; in the selector a right click deletes one.
+#[test]
+fn ruler_cursor_strips() {
+    use egui::PointerButton::{Primary, Secondary};
+    let s = demo_session();
+    let view = Arc::new(std::sync::Mutex::new(TimeView::default()));
+    let (s2, v2) = (s.clone(), view.clone());
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1100.0, 640.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            let mut view = v2.lock().unwrap();
+            view.show(ui, &s2);
+            if view.cursors.samples.is_empty() {
+                view.show_region(&s2, 40_000, 60_000);
+                view.cursors.samples = vec![45_147, 50_223];
+            }
+        });
+    harness.run();
+    let header = dsview_gui::timeview::HEADER_WIDTH;
+    let h = dsview_gui::timeview::RULER_HEIGHT;
+    let box_y = h - 1.3 * 20.0 + 10.0;
+    // add at local x 450
+    click_with(&mut harness, header + 450.0, 10.0, Primary);
+    click_with(&mut harness, header + 450.0, box_y, Primary);
+    let added = {
+        let v = view.lock().unwrap();
+        assert_eq!(v.cursors.samples.len(), 3);
+        v.cursors.samples[2]
+    };
+    // go to cursor 1: it lands in the middle
+    click_with(&mut harness, header + 100.0, 10.0, Secondary);
+    click_with(&mut harness, header + 100.0 + 20.0, box_y, Primary);
+    {
+        let v = view.lock().unwrap();
+        let tb = dsview_gui::timeview::timebase(&s);
+        let x = v.vp.index_to_pixel(v.cursors.samples[0], false, &tb);
+        assert!(
+            (x - (v.vp.width / 2) as f64).abs() <= 1.0,
+            "cursor 1 at {x}"
+        );
+    }
+    // delete cursor 2 in the selector
+    click_with(&mut harness, header + 300.0, 10.0, Primary);
+    click_with(&mut harness, header + 300.0 + 40.0, box_y, Secondary);
+    {
+        let v = view.lock().unwrap();
+        assert_eq!(v.cursors.samples.len(), 2);
+        assert_eq!(v.cursors.samples[1], added);
+    }
+    // the selector open, for the picture
+    let pos = egui::pos2(header + 300.0 + 20.0, box_y);
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::PointerMoved(pos));
+    harness.run();
+    harness.snapshot("ruler_cursor_strips");
+    s.exit();
+}

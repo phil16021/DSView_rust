@@ -234,6 +234,9 @@ pub struct State {
     pub cur_samplelimits: u64,
     /// `_view_data->_trig_pos`
     pub trigger_pos: u64,
+    /// `_show_trig_cursor` of a logic view: a trigger arrived while one was
+    /// set, or from a virtual device.
+    pub trig_cursor: bool,
     /// Capture start, ms since the epoch.
     pub session_time_ms: i64,
     capture_work_time: u64,
@@ -1385,7 +1388,10 @@ impl Session {
         self.0.data[1].clear();
         let v = self.0.view.load(Ordering::Acquire);
         self.0.capture.store(v, Ordering::Release);
-        self.state().trigger_pos = 0;
+        let mut st = self.state();
+        st.trigger_pos = 0;
+        st.trig_cursor = false;
+        drop(st);
     }
 
     /// `set_collect_mode()`; also the interval between repeated captures.
@@ -1574,6 +1580,9 @@ impl Session {
             st.triged = false;
             st.trig_flag = false;
             st.trig_ch = 0;
+            if st.collect_mode != CollectMode::Repeat {
+                st.trig_cursor = false;
+            }
             st.error = crate::session::error::NONE;
             st.setup = setup;
             let logic = mode == Mode::Logic as i32;
@@ -1751,10 +1760,15 @@ impl Session {
         match &p.body {
             Body::Header { .. } => {}
             Body::Trigger(t) => {
+                let trigger_en = lock(&self.0.trigger).trigger_en != 0;
                 let mut st = self.state();
                 if setup.mode != Mode::Dso as i32 {
                     if t.status & 1 != 0 {
                         st.trigger_pos = u64::from(t.real_pos);
+                        let hardware = st.device.as_ref().is_some_and(DeviceDesc::is_hardware);
+                        if trigger_en || !hardware {
+                            st.trig_cursor = true;
+                        }
                     }
                 } else if setup.dso_enabled > 0 {
                     st.trigger_pos =

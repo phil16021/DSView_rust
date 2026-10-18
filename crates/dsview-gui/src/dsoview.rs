@@ -344,6 +344,7 @@ impl TimeView {
 
         let mut changed = self.dso_input(ui, s, &tb, area, rect, &chans);
         changed |= self.dso_header(ui, s, header, area, &chans);
+        changed |= self.ruler_input(ui, s, ruler_rect, area, &tb);
         changed |= self.math_header(ui, s, header, area, rect, self.dso.math_y);
 
         // paint
@@ -393,7 +394,7 @@ impl TimeView {
         self.dso.analysis = analysis;
         self.paint_dso_fore(&tpainter, area, rect, &tb, &chans);
         self.paint_ruler(&painter, ruler_rect, s, &tb);
-        self.paint_cursors(&painter, ruler_rect, area, &tb);
+        self.paint_cursors(&painter, s, ruler_rect, area, &tb);
         self.paint_dso_header(
             &painter,
             header,

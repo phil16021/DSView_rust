@@ -151,6 +151,7 @@ impl TimeView {
 
         let mut changed = self.analog_input(ui, s, &tb, area, &rows, &frame);
         changed |= self.analog_header(ui, s, header, area, &rows);
+        changed |= self.ruler_input(ui, s, ruler_rect, area, &tb);
 
         let painter = ui.painter_at(full);
         painter.rect_filled(full, 0.0, Color32::from_gray(24));
@@ -159,7 +160,7 @@ impl TimeView {
         let tp = ui.painter_at(area);
         self.paint_analog(&tp, s, area, &rows, &frame);
         self.paint_ruler(&painter, ruler_rect, s, &tb);
-        self.paint_cursors(&painter, ruler_rect, area, &tb);
+        self.paint_cursors(&painter, s, ruler_rect, area, &tb);
         self.paint_analog_header(&painter, header, area, &rows);
         changed
     }

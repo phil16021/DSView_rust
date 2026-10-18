@@ -138,6 +138,12 @@ pub struct TimeView {
     last_sample: u64,
     /// When the running capture started (`start_trigger_timer`).
     wait_since: Option<Instant>,
+    /// The ruler's cursor selector and go-to strips.
+    strips: ruler::RulerStrips,
+    /// The cursor whose ruler label is dragged (`_grabbed_marker`), and a
+    /// label or close box was pressed (`_hitCursor`).
+    ruler_grab: Option<usize>,
+    ruler_hit: bool,
 }
 
 impl Default for TimeView {
@@ -146,6 +152,9 @@ impl Default for TimeView {
             vp: Viewport::default(),
             map_zoom_fixed: false,
             wait_since: None,
+            strips: ruler::RulerStrips::default(),
+            ruler_grab: None,
+            ruler_hit: false,
             cursors: Cursors::default(),
             kinetic: Kinetic::default(),
             kinetic_last: None,
@@ -383,7 +392,7 @@ impl TimeView {
             .clamp(0.0, (content_h - area.height()).max(0.0));
 
         let mut changed = self.input(ui, s, &tb, area, &rows);
-        changed |= self.ruler_input(ui, ruler_rect, area, &tb);
+        changed |= self.ruler_input(ui, s, ruler_rect, area, &tb);
         changed |= self.header(ui, s, header, area, &rows);
 
         // paint
@@ -470,7 +479,7 @@ impl TimeView {
         drop(store);
 
         self.paint_ruler(&painter, ruler_rect, s, &tb);
-        self.paint_cursors(&painter, ruler_rect, area, &tb);
+        self.paint_cursors(&painter, s, ruler_rect, area, &tb);
         self.paint_actions(&tpainter, area, &tb);
         self.paint_header(&painter, header, area, &rows, &font_id);
         changed
@@ -1026,40 +1035,142 @@ impl TimeView {
 
     /// The cursor labels in the ruler: drag moves the cursor, a right click
     /// deletes it (Qt: the label's close mark).
-    fn ruler_input(&mut self, ui: &mut Ui, ruler: Rect, area: Rect, tb: &Timebase) -> bool {
+    /// The cursors' ruler labels (`Cursor::get_label_rect`): number and box
+    /// in ruler coordinates, with the text shown (time or samples from the
+    /// trigger).
+    fn cursor_labels(
+        &self,
+        painter: &egui::Painter,
+        s: &Session,
+        ruler: Rect,
+        tb: &Timebase,
+    ) -> Vec<(usize, ruler::Bx, String)> {
+        let trig = s.state().trigger_pos as i64;
+        let m = Font(painter, egui::FontId::proportional(11.0));
+        let (spp, width) = (tb.snap_samplerate * self.vp.scale, ruler.width() as f64);
+        self.cursors
+            .samples
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &smp)| {
+                // off the view: no label
+                let off = smp as f64 / spp;
+                let x0 = self.vp.x_offset as f64;
+                if off < x0 || off > x0 + width {
+                    return None;
+                }
+                let text = if self.show_samples {
+                    ruler::format_samples(smp as i64 - trig)
+                } else {
+                    ruler::format_real_time(smp as i64 - trig, tb.snap_samplerate as u64)
+                };
+                let x = self.vp.index_to_pixel(smp, false, tb) as i64;
+                let r = ruler::cursor_label_rect(
+                    x,
+                    m.width(&text) as f64,
+                    m.height() as f64,
+                    ruler.height() as f64,
+                );
+                Some((i + 1, r, text))
+            })
+            .collect()
+    }
+
+    /// `Ruler::mousePressEvent` / `mouseReleaseEvent` / `leaveEvent`: drag a
+    /// cursor by its label, delete it with its close box, or work the
+    /// cursor strips (left click: add or move a cursor here; right click: go
+    /// to a cursor, or delete one in the selector).
+    pub(crate) fn ruler_input(
+        &mut self,
+        ui: &mut Ui,
+        s: &Session,
+        ruler: Rect,
+        area: Rect,
+        tb: &Timebase,
+    ) -> bool {
+        let resp = ui.interact(
+            ruler,
+            ui.make_persistent_id("ruler"),
+            egui::Sense::click_and_drag(),
+        );
+        let h = ruler.height() as f64;
+        let Some(p) = ui.input(|i| i.pointer.interact_pos()) else {
+            return false;
+        };
+        let (lx, ly) = ((p.x - ruler.left()) as f64, (p.y - ruler.top()) as f64);
+        let n = self.cursors.samples.len();
+        let to_index = |x: f64| {
+            self.vp
+                .pixel_to_index(x.clamp(0.0, area.width() as f64), tb)
+        };
+        let (pressed, released, sec_released) = ui.input(|i| {
+            (
+                i.pointer.primary_pressed(),
+                i.pointer.primary_released(),
+                i.pointer.secondary_released(),
+            )
+        });
+        let mut act = ruler::RulerAction::None;
         let mut changed = false;
-        let mut delete = None;
-        let samples = self.cursors.samples.clone();
-        for (i, &smp) in samples.iter().enumerate() {
-            let x = area.left() + self.vp.index_to_pixel(smp, false, tb) as f32;
-            let label = Rect::from_center_size(pos2(x, ruler.bottom() - 8.0), vec2(18.0, 14.0));
-            let r = ui.interact(
-                label,
-                ui.make_persistent_id(("cursor", i)),
-                egui::Sense::click_and_drag(),
-            );
-            if r.secondary_clicked() {
-                delete = Some(i + 1);
+        if pressed && resp.hovered() && !self.strips.sel_visible && n > 0 {
+            let labels = self.cursor_labels(&ui.painter_at(ruler), s, ruler, tb);
+            for (k, r, _) in labels {
+                if ruler::cursor_close_rect(r).contains(lx, ly) {
+                    act = ruler::RulerAction::Delete(k);
+                    self.ruler_hit = true;
+                    break;
+                }
+                if r.contains(lx, ly) {
+                    self.ruler_grab = Some(k);
+                    self.strips.leave();
+                    self.ruler_hit = true;
+                    break;
+                }
             }
-            if r.drag_started() {
-                self.action = Action::Cursor(i + 1);
-            }
-            if r.dragged()
-                && let Some(p) = r.interact_pointer_pos()
-            {
-                let pos = self.vp.pixel_to_index((p.x - area.left()) as f64, tb) as f64;
-                self.cursors.drag(i + 1, pos, None);
+        }
+        if let Some(k) = self.ruler_grab
+            && ui.input(|i| i.pointer.primary_down())
+            && let Some(slot) = self.cursors.samples.get_mut(k - 1)
+        {
+            let at = to_index(lx);
+            if *slot != at {
+                *slot = at;
                 changed = true;
             }
-            if r.drag_stopped() {
-                self.action = Action::None;
+        }
+        if released {
+            if !self.ruler_hit && self.ruler_grab.is_none() && resp.hovered() {
+                act = self.strips.left_release(lx, ly, n, h);
+            }
+            self.ruler_grab = None;
+            self.ruler_hit = false;
+        }
+        if sec_released && resp.hovered() {
+            act = self.strips.right_release(lx, ly, n, h);
+        }
+        if !resp.hovered() && self.ruler_grab.is_none() && self.strips.visible() {
+            self.strips.leave();
+        }
+        match act {
+            ruler::RulerAction::None => {}
+            ruler::RulerAction::Add(x) => {
+                self.cursors.add(to_index(x));
+            }
+            ruler::RulerAction::Move(k, x) => {
+                if let Some(slot) = self.cursors.samples.get_mut(k - 1) {
+                    *slot = to_index(x);
+                }
+            }
+            ruler::RulerAction::Delete(k) => self.cursors.remove(k),
+            ruler::RulerAction::GoTo(k) => {
+                if let Some(&smp) = self.cursors.samples.get(k - 1) {
+                    let off = smp as f64 / (tb.snap_samplerate * self.vp.scale)
+                        - (self.vp.width / 2) as f64;
+                    self.vp.set_scale_offset(self.vp.scale, off as i64, tb);
+                }
             }
         }
-        if let Some(n) = delete {
-            self.cursors.remove(n);
-            changed = true;
-        }
-        changed
+        changed || act != ruler::RulerAction::None
     }
 
     /// The header: name (double-click renames), colour swatch (click picks),
@@ -1358,48 +1469,204 @@ impl TimeView {
         }
     }
 
+    /// The cursors (dashed lines, `TimeMarker::paint`), their ruler labels
+    /// (`Cursor::paint_label`), the trigger ("T") and search ("S") labels
+    /// (`paint_fix_label`) and the open cursor strip (`draw_cursor_sel`).
     pub(crate) fn paint_cursors(
         &self,
         painter: &egui::Painter,
+        s: &Session,
         ruler: Rect,
         area: Rect,
         tb: &Timebase,
     ) {
+        let hover = painter.ctx().pointer_hover_pos();
+        let local = |p: Pos2| ((p.x - ruler.left()) as f64, (p.y - ruler.top()) as f64);
+        let rr = |b: ruler::Bx| {
+            Rect::from_min_size(
+                pos2(ruler.left() + b.x as f32, ruler.top() + b.y as f32),
+                vec2(b.w as f32, b.h as f32),
+            )
+        };
+        let orange = Color32::from_rgb(238, 178, 17);
+        let red = Color32::from_rgb(213, 15, 37);
+        let blue = Color32::from_rgb(17, 133, 209);
+        let font = egui::FontId::proportional(11.0);
+        let dashed = |x: f32, c: Color32, w: f32| {
+            painter.extend(egui::Shape::dashed_line(
+                &[pos2(x, area.top()), pos2(x, area.bottom())],
+                Stroke::new(w, c),
+                4.0,
+                2.0,
+            ));
+        };
+        // the label's arrow down to the ruler's bottom and the text under it
+        let arrow = |r: Rect, c: Color32, below: &str, below_c: Color32| {
+            let a = ruler::ARROW_SIZE as f32;
+            painter.add(egui::Shape::convex_polygon(
+                vec![
+                    pos2(r.center().x - a, r.bottom()),
+                    pos2(r.center().x + a, r.bottom()),
+                    pos2(r.center().x, ruler.bottom()),
+                ],
+                c,
+                Stroke::NONE,
+            ));
+            painter.text(
+                pos2(r.center().x, r.bottom() + a / 2.0),
+                egui::Align2::CENTER_CENTER,
+                below,
+                font.clone(),
+                below_c,
+            );
+        };
         for (i, &smp) in self.cursors.samples.iter().enumerate() {
             let x = area.left() + self.vp.index_to_pixel(smp, false, tb) as f32;
-            if x < area.left() || x > area.right() {
-                continue;
+            if x >= area.left() && x <= area.right() {
+                let grabbed = self.ruler_grab == Some(i + 1)
+                    || matches!(self.action, Action::Cursor(n) if n == i + 1);
+                let c = hsva(i + 1);
+                if grabbed {
+                    dashed(x, c.gamma_multiply(1.5), 2.0);
+                } else {
+                    dashed(x, c, 1.0);
+                }
             }
-            let c = hsva(i + 1);
-            painter.vline(x, area.y_range(), Stroke::new(1.0, c));
-            let label = Rect::from_center_size(pos2(x, ruler.bottom() - 8.0), vec2(18.0, 14.0));
-            painter.rect_filled(label, 2.0, c);
+        }
+        for (k, b, text) in self.cursor_labels(painter, s, ruler, tb) {
+            let r = rr(b);
+            let close = rr(ruler::cursor_close_rect(b));
+            let (in_close, in_label) = hover.map_or((false, false), |p| {
+                let (x, y) = local(p);
+                (ruler::cursor_close_rect(b).contains(x, y), b.contains(x, y))
+            });
+            let c = hsva(k);
+            let fill = if !in_close && in_label { orange } else { c };
+            painter.rect_filled(r, 0.0, fill);
+            arrow(r, fill, &k.to_string(), Color32::BLACK);
+            painter.rect_filled(close, 0.0, if in_close { red } else { orange });
+            let st = Stroke::new(1.0, Color32::BLACK);
+            painter.line_segment([close.min + vec2(2.0, 2.0), close.max - vec2(2.0, 2.0)], st);
+            painter.line_segment(
+                [
+                    pos2(close.left() + 2.0, close.bottom() - 2.0),
+                    pos2(close.right() - 2.0, close.top() + 2.0),
+                ],
+                st,
+            );
             painter.text(
-                label.center(),
+                r.center(),
                 egui::Align2::CENTER_CENTER,
-                (i + 1).to_string(),
-                egui::FontId::proportional(10.0),
+                text,
+                font.clone(),
                 Color32::BLACK,
             );
         }
-        // the search cursor: blue on a hit, grey otherwise ("S")
+        // fixed labels: the trigger (logic after a trigger, DSO always) and
+        // the search cursor (blue on a hit), with the time for the latter
+        let dso = s.mode() == dsview_core::Mode::Dso as i32;
+        let (trig, show_trig) = {
+            let st = s.state();
+            (st.trigger_pos, st.trig_cursor)
+        };
+        let m = Font(painter, font.clone());
+        let mut fixed = Vec::new();
+        if show_trig || dso {
+            fixed.push((
+                trig,
+                'T',
+                Color32::from_rgba_unmultiplied(213, 15, 37, 200),
+                None,
+            ));
+        }
         if let Some((pos, hit)) = self.search {
-            let x = area.left() + self.vp.index_to_pixel(pos, false, tb) as f32;
-            if x >= area.left() && x <= area.right() {
-                let c = if hit {
-                    Color32::from_rgb(17, 133, 209)
-                } else {
-                    Color32::from_rgba_unmultiplied(220, 220, 220, 100)
-                };
-                painter.vline(x, area.y_range(), Stroke::new(1.0, c));
-                let label = Rect::from_center_size(pos2(x, ruler.bottom() - 8.0), vec2(18.0, 14.0));
-                painter.rect_filled(label, 2.0, c);
+            let c = if hit {
+                blue
+            } else {
+                Color32::from_rgba_unmultiplied(220, 220, 220, 100)
+            };
+            let text = if self.show_samples {
+                ruler::format_samples(pos as i64)
+            } else {
+                ruler::format_real_time(pos as i64, tb.snap_samplerate as u64)
+            };
+            fixed.push((pos, 'S', c, Some(text)));
+        }
+        for (smp, label, c, text) in fixed {
+            let x = self.vp.index_to_pixel(smp, false, tb);
+            if x < 0.0 || x > area.width() as f64 {
+                continue;
+            }
+            // the box is as wide as the time text even where none is shown
+            let t = ruler::format_real_time(smp as i64, tb.snap_samplerate as u64);
+            let b = ruler::cursor_label_rect(
+                x as i64,
+                m.width(text.as_deref().unwrap_or(&t)) as f64,
+                m.height() as f64,
+                ruler.height() as f64,
+            );
+            let r = rr(b);
+            let ax = area.left() + x as f32;
+            dashed(ax, c, 1.0);
+            painter.rect_filled(r, 0.0, c);
+            arrow(r, c, &label.to_string(), Color32::WHITE);
+            if let Some(text) = text {
                 painter.text(
-                    label.center(),
+                    r.center(),
                     egui::Align2::CENTER_CENTER,
-                    "S",
-                    egui::FontId::proportional(10.0),
+                    text,
+                    font.clone(),
                     Color32::WHITE,
+                );
+            }
+        }
+        // the strip: box 0 adds (or, for go-to, points back), then a box per
+        // cursor; orange under the pointer
+        if self.strips.visible()
+            && let Some(sx) = self.strips.sel_x
+        {
+            let h = ruler.height() as f64;
+            let n = self.cursors.samples.len();
+            let over = hover.and_then(|p| {
+                let (x, y) = local(p);
+                self.strips.hit(x, y, n, h)
+            });
+            let b0 = ruler::cursor_sel_rect(sx, 0, h);
+            let o = |x: f64, y: f64| pos2(ruler.left() + x as f32, ruler.top() + y as f32);
+            let (l, t, r, btm) = (b0.x, b0.y, b0.x + b0.w, b0.y + b0.h);
+            let pts = if self.strips.go_visible {
+                let w = ruler::CURSOR_SEL_WIDTH;
+                vec![
+                    o(sx + w / 2.0, t + w / 2.0),
+                    o((l + r) / 2.0, t),
+                    o(l, t),
+                    o(l, btm),
+                    o((l + r) / 2.0, btm),
+                ]
+            } else {
+                vec![o(sx, h), o(l, btm), o(l, t), o(r, t), o(r, btm)]
+            };
+            let fill0 = if over == Some(0) { orange } else { blue };
+            painter.add(egui::Shape::convex_polygon(pts, fill0, Stroke::NONE));
+            for k in 1..=n {
+                let br = rr(ruler::cursor_sel_rect(sx, k, h));
+                let fill = if over == Some(k) { orange } else { hsva(k) };
+                painter.rect_filled(br, 0.0, fill);
+                painter.extend(egui::Shape::dashed_line(
+                    &[
+                        pos2(br.left(), br.top() + 3.0),
+                        pos2(br.left(), br.bottom() - 3.0),
+                    ],
+                    Stroke::new(1.0, Color32::BLACK),
+                    1.0,
+                    1.0,
+                ));
+                painter.text(
+                    br.center(),
+                    egui::Align2::CENTER_CENTER,
+                    k.to_string(),
+                    font.clone(),
+                    Color32::BLACK,
                 );
             }
         }
