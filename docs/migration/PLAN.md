@@ -450,24 +450,19 @@ Critical path: P0 → P1a → P2 → P3d → P4 → P5. With two developers, P1b
 | Missing crates offline (nusb, pyo3, egui_dock, cbindgen, criterion not cached) | First fetch needs network; optionally `cargo vendor` |
 
 ## 6. Immediate next step
-*Updated 2026-10-18; Phases 0-4 are done (STATUS.md).*
+*Updated 2026-10-18; Phases 0-4 and M6.0-M6d are done (STATUS.md).*
 
-**M6.0, the prerequisites of the Rust GUI:**
-1. **DSO envelope in `dsview-store`.** Port `DsoSnapshot`'s envelope (256× per level, 10 levels,
-   `enable_envelope`, `get_envelope_section`). Test it differentially against the C++ class in the
-   oracle and enable it behind the FFI, so the Qt GUI draws deep DSO frames again with
-   `DSVIEW_IMPL_STORE=rust`.
-2. **Annotation interval index** in `DecoderStack`: range queries in O(log n + k), replacing the
-   linear scan. `get_annotations` stays byte-identical.
-3. **`SessionEvent` channel**, so frontends get notified instead of polling.
-   **`ViewHooks` for `dsview-control::api`**: `show_region`, `set_cursors`, and the "dialog open"
-   refusal.
-4. **Skeletons** of `dsview-viewmodel` (viewport, ruler, layout first) and `dsview-dsp`.
-   **An in-app renderer spike** (`dsview` showing protocol.demo) on this VM over xrdp, with glow
-   and wgpu frame times logged. Its result decides the rendering gate in §5.1.
+**M6e, docks and dialogs, after which the Rust GUI becomes the default:**
+1. **Advanced and serial trigger** (16 stages, the trigger dock's position slider) in the session
+   and the dock.
+2. **Measure and search docks** (cursor list, per-channel measurements, search pattern dialog).
+3. **Device options** generated from the driver's option list; calibration (with the start-up
+   prompt for DSO hardware); store progress (cursor range, compressed or original).
+4. **Application options** that M6a-d left in menus (persistence, line widths, wheel).
+5. **The full MCP suite** against `dsview --mcp`, then the default flip.
 
-Then M6a. Each milestone ends with a commit, STATUS/DEVIATIONS updates, and a report before the
-next one starts.
+Each milestone ends with a commit, STATUS/DEVIATIONS updates, and a report before the next one
+starts.
 
 ## Verification of this plan's own claims
 Every phase gate above can be checked by commands: `cargo nextest run`, `cargo xtask golden check`, `cargo fuzz run <t> -- -max_total_time=60`, `cargo bench`, the `hw-dslogic` runner, and the MCP end-to-end scenarios. No phase is declared done on inspection alone.

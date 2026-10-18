@@ -13,7 +13,7 @@ Milestones: **a** viewer, **b** logic capture, **c** decoders, **d** DSO/analog,
 - [ ] (b) Hardware buffer vs stream mode
 - [ ] (b) Device sources: hardware, demo, file; hot-plug with a "switch device?" prompt and auto-save
 - [ ] (b) Sampling bar: device list, options, sample count/duration, sample rate, start/stop, instant
-- [ ] (d) Auto calibration entry
+- [ ] (d→e) Auto calibration entry (with the calibration dialog in M6e)
 
 ## Views
 - [ ] (a) Logic traces: edge rendering, sample dots when zoomed in, line width, channel dividers, Y-scale badge, auto-scroll while streaming
@@ -21,16 +21,16 @@ Milestones: **a** viewer, **b** logic capture, **c** decoders, **d** DSO/analog,
 - [ ] (a) Zoom/scroll: wheel (configurable), PgUp/PgDn, inertial drag, pinch, `show_region` fit/fixed
 - [ ] (a) Numbered time cursors (add, delete, drag, labels), trigger cursor, search cursor; delta and measurement readouts
 - [ ] (c) Decode traces: multiple rows, row show/hide, colours, best-fit text, adaptive font width, "zoom in for details", progress, errors, start/end cursor range
-- [ ] (d) DSO: envelope and polyline, persistence/DPO fade, split layout, V/div and timebase dials, AC/DC, probe ×1/×10/×100, zero-offset drag, trigger level/position drag, auto-set, out-of-range warning, hover value, X/Y cursors
-- [ ] (d) Analog: envelope or polyline, value mapping
-- [ ] (d) Spectrum/FFT: windows (rect, Hann, Hamming, Blackman, flat-top), length, interval, DC ignore, dBV or linear, range
-- [ ] (d) Math trace (11 operations, filter window), lissajous (X/Y, size), reference waveforms
+- [x] (d) DSO: envelope and polyline, persistence/DPO fade, split layout, V/div and timebase dials, AC/DC, probe ×1/×10/×100, zero-offset drag, trigger level/position drag, auto-set, out-of-range warning, hover value, X/Y cursors
+- [x] (d) Analog: envelope or polyline, value mapping
+- [x] (d) Spectrum/FFT: windows (rect, Hann, Hamming, Blackman, flat-top), length, interval, DC ignore, dBV or linear, range
+- [x] (d) Math trace (11 operations, filter window), lissajous (X/Y, size), reference waveforms
 
 ## Docks
 - [ ] (c) Protocol: searchable decoder picker; decoder list (format, settings, delete); annotation table (virtualised, 100k+ rows); search with previous/next and match count; click to jump; export CSV/TXT
 - [ ] (b) Trigger, simple
 - [ ] (e) Trigger, advanced: 16 stages (X/0/1/R/F/C, and/or, invert, counter, contiguous) and serial trigger; trigger position
-- [ ] (d) DSO trigger: source, edge, position, hold-off, sensitivity, auto
+- [x] (d) DSO trigger: source, edge, position, hold-off, sensitivity, auto
 - [ ] (e) Measure: mouse measurement, cursor distances, per-channel width/period/frequency/duty, edge counts
 - [ ] (e) Search (bottom panel): per-channel pattern, previous/next
 
@@ -41,7 +41,7 @@ Milestones: **a** viewer, **b** logic capture, **c** decoders, **d** DSO/analog,
 - [ ] (e) Device options, generated at runtime from the device's option list; channel enable and layout
 - [ ] (c) Decoder options, generated at runtime; channel binding; start/end cursor; stacked decoders
 - [ ] (e) Calibration (VGAIN, VOFF, VCOMB; save, reset, reload)
-- [ ] (d) FFT, math and lissajous options; DSO measurements; histogram/jitter; channel-to-channel delay/skew/phase
+- [x] (d) FFT, math and lissajous options; DSO measurements; histogram/jitter; channel-to-channel delay/skew/phase
 - [ ] (e) Reference, interval, region and search options; store progress (cursor range, compressed or original); protocol export and list
 - [ ] (f) Application options: antialiasing, quick scroll, wheel action, font size, ruler units, line widths, persistence time, decoder font widths, profile in bar, trigger position in middle, don't ask to save
 - [ ] (f) About, message box, waiting dialog
@@ -67,7 +67,7 @@ These are existing Qt features found in the Phase 5 analysis, not new features.
 - [ ] (b) Trigger-wait animation and progress while waiting for the hardware trigger
 - [ ] (c) Decode region markers (start/end), search-hit marker, type-2xx annotations marking the bound logic channels, "Unshown" row for a hidden decoder
 - [ ] (c) Per-decoder number format (hex/dec/oct/bin/ascii) kept per decoder id; protocol list viewer (choose stack, map zoom)
-- [ ] (d) Deep DSO frames (≥ 256 samples per pixel) drawn from the envelope; per-column min/max bars between 2 and 256 samples per pixel; trigger sub-sample offset
-- [ ] (d) X/Y cursor measurements (XM: width/period/frequency/duty from three clicks; YM: voltage delta)
+- [x] (d) Deep DSO frames (≥ 256 samples per pixel) drawn from the envelope; per-column min/max bars between 2 and 256 samples per pixel; trigger sub-sample offset
+- [x] (d) X/Y cursor measurements (XM: width/period/frequency/duty from three clicks; YM: voltage delta — unreachable in Qt, not ported, DEVIATIONS F28)
 - [ ] (e) Measure dock: cursor list with go-to/delete and per-mode rows; search dock with pattern dialog and cancel
 - [ ] (f) Dock layout kept per work mode; help-documents dialog and driver hint at start-up; log options (save to file, append, level)

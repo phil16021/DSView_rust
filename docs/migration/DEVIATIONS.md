@@ -409,6 +409,31 @@ Found while porting `SigSession`, `DecoderStack`, `SamplingBar` and `DsoSignal` 
   channels by storage position. `DsoSignal` passes `index % enabled channels`, which matches only
   while the enabled channels are numbered from 0.
 
+### F27. Quirks of the Qt time view (ported as they are)
+The Rust GUI's viewmodel reproduces these for parity; they are candidates for fixing after M6e.
+- **Integer view offset.** `View::_x_offset` is a whole pixel count, so each zoom step loses the
+  sub-pixel position and repeated zooming drifts away from the point under the mouse.
+- **Kinetic scroll stops abruptly.** The swipe's strength is an integer number of pixels per tick;
+  the damping rounds it to 0 after a few ticks instead of easing out.
+- **Cursor numbers are list positions.** Deleting a cursor renumbers (and recolours) every cursor
+  after it.
+- **Ruler labels.** The tick spacing is a multiple of 10 samples that leaves room for a label, not
+  a 1-2-5 sequence (`ScaleUnits` is declared and unused), so labels are not round numbers.
+
+### F28. Oscilloscope view findings (M6d)
+- **The Y measurement is unreachable.** `Viewport::onDsoMouseRelease` starts `DSO_YM` only when
+  `_hover_hit` is set, and `paintMeasure` only ever sets it to false. The painting code exists;
+  no user can reach it. Not ported.
+- **Stale math envelope levels.** `MathStack::append_to_envelope_level(true)` rebuilds level 0
+  but the higher levels only from their previous length on, unless the length is unchanged. When
+  a frame's length changes, the upper levels keep entries of the previous frame. Rust rebuilds
+  every level per frame (identical when the length is unchanged, the normal case).
+- **Auto-set writes the trigger level twice.** When auto-V ends inside `auto_set`, `autoV_end`
+  sets the level and the same pass sets it again from the same values. Ported (harmless).
+- **The demo's last DSO sample.** In instant mode the C demo's last packet reads past its buffer
+  (F18); the Rust demo pads with zeros. The histogram and the Lissajous figure show that sample
+  (code 0, +5 V on the demo's range) as an outlier.
+
 ## Planned behaviour deviations (Rust intentionally differs)
 
 | Area | C behaviour | Rust behaviour | Phase |
@@ -474,6 +499,10 @@ Found while porting `SigSession`, `DecoderStack`, `SamplingBar` and `DsoSignal` 
 | Control methods in `dsview-cli serve` | Run on the GUI thread; waiting replies answered from the event loop | One method at a time under a lock; captures, decoding and saving wait outside it | 4b ✔ |
 | DSO envelope | Built when `DsoSignal` draws at ≥ 256 samples per pixel | Ported in M6.0 (until then the Rust store had none, and the Qt GUI drew deep DSO frames empty with `DSVIEW_IMPL_STORE=rust`, F26); same entries, compared against the C++ class | M6.0 ✔ |
 | DSO `cal_vrms`, `cal_vmean` | Implemented, never called | Not ported | 1b ✔ |
+| DSO Y measurement (F28) | Unreachable (`_hover_hit` never set) | Not ported | M6d ✔ |
+| Math envelope after a frame of another length (F28) | Upper levels keep the previous frame's entries | All levels rebuilt | M6d ✔ |
+| DSO persistence | A pixmap of the old frames, faded in coarse steps (×0.92 at a time) | The old frames' shapes kept and drawn with alpha exp(−age / time); same remapping on zoom/pan and the same reset on vertical changes | M6d ✔ |
+| DSO voltages in the view | `get_voltage` from the snapshot's measure factor and data scale, set at `set_cur_snap_samplerate` | The same factors, taken when a capture starts (the view does not change them between frames) | M6d ✔ |
 | Analog data/DSO frames/envelopes before they are written | `malloc`: uninitialised | Zeroed | 1b ✔ |
 
 ## Departures from PLAN.md

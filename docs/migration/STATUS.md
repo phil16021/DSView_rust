@@ -7,7 +7,7 @@
 | 2 Decoder engine | **done**: Rust/PyO3 engine behind `DSVIEW_IMPL_DECODE`; Rust becomes the default after one release of A/B | See "Phase 2" below |
 | 3 Drivers | **done except hardware steps**: 3a demo, 3b file, 3c USB layer, 3d DSLogic (replug tests passed 2026-10-18), 3e DSCope/MSO-E8 (`DSVIEW_IMPL_DRV_DEMO` / `_FILE` / `_DSLOGIC` / `_DSCOPE`). Open: a firmware upload from the host, the nightly runs, one DSCope/E8 hardware confirmation | See "Phase 3" below |
 | 4 Session + control API | **done**: 4a acquisition library in Rust behind `DSVIEW_IMPL_ACQ`; 4b capture session, control server, `dsview-cli serve --mcp` (transcript identical to the Qt GUI, 1 h soaks passed) | See "Phase 4" below |
-| 5 Rust GUI | **in progress**: M6.0 prerequisites | Plan revised 2026-10-18 (PLAN.md §5) |
+| 5 Rust GUI | **in progress**: M6.0, M6a viewer (core), M6b logic capture, M6c decoders, M6d DSO/analog done; next M6e docks and dialogs | Plan revised 2026-10-18 (PLAN.md §5) |
 | 6 Removal + packaging | not started | |
 
 ## Phase 0 deliverables
@@ -750,7 +750,7 @@ the demo transcript is unchanged.
 - the Y-scale badge;
 - a vertical scroll bar (the wheel scrolls already).
 
-### M6b logic capture: done (the GUI soak result follows)
+### M6b logic capture: done
 - **Sampling bar:**
   - device list, work mode, channel enable (8 per row);
   - duration list (the depth steps, "(RLE)" or "/ div" as in Qt) @ rate list;
@@ -769,6 +769,9 @@ the demo transcript is unchanged.
   - all 11 baseline scenarios give the same USB protocol as the C driver under Qt (`usb-diff`);
   - stopping a stream midway gives the same protocol, with 56 vs 52 transfers before the stop
     (timing).
+- **GUI soak** (`dsview --soak 60`, the demo's random pattern in loop mode with the window
+  open): RSS trend +0.15 % over 55 minutes (gate 1 %); the ring's two levels (190 and 228 MB)
+  alternate as in the 4b soaks.
 
 ### M6c decoders: done
 - **Decoder traces in the view:**
@@ -797,3 +800,56 @@ the demo transcript is unchanged.
   - All 8,379 demo annotations remain identical to the C GUI's.
 - **Snapshots:** the protocol.demo view with the decoder rows and the protocol dock
   (`tests/snapshots`).
+
+### M6d DSO and analog: done (no oscilloscope hardware here)
+- **DSO traces** (`dsview-viewmodel::dso`, a port of `DsoSignal`):
+  - a polyline up to 2 samples per pixel, with dots from 10 pixels per sample;
+  - one bar per pixel column up to 256;
+  - the store's envelope above.
+  - Coordinates follow the C++ float/int types, so shapes match pixel for pixel; unit tests
+    cover each path, the grid and the header geometry.
+- **The view:**
+  - grid with the zoom marker; split bands (View menu);
+  - zero lines (drag the label in the header) and trigger levels (drag the square);
+  - the trigger's sub-sample offset;
+  - wheel zoom through the timebase list (`WheelAccumulator`);
+  - the value under the mouse;
+  - the X measurement (double click, two clicks: width, period, frequency, duty);
+  - "Out off range!" on hardware.
+- **Header per channel:** V/div dial (click or wheel on its right half; the trace stretches while
+  stopped), probe ×1/×10/×100, EN/DIS, AC/DC, AUTO (hardware).
+- **Auto-set** (`dsview-viewmodel::autoset`): Qt's state machine. Timebase and V/div steps, the
+  MSO-E8 attenuator, the clip back-off, three frames' lock after each step, a 10 s timeout. Unit
+  tests only: AUTO shows on hardware, and the DSLogic Plus here has no DSO mode.
+- **Persistence:** faded ghosts of the frames before, remapped on zoom/pan (setting in the View
+  menu; off by default as in Qt).
+- **Analog (DAQ):** rows with the value rule, polyline or envelope over the loop ring, zero drag,
+  value under the mouse.
+- **Docks and panels:**
+  - DSO trigger dock (T): position, source with the auto channel, slope, hold-off, sensitivity;
+  - measurement bar: ten slots, channel and type chooser, the twenty measurements shared with
+    the control API (`dso_measurements`).
+- **Functions menu:**
+  - **FFT:** a pane under the traces, linear or dBV, zoom/pan, rulers, hover; options dialog.
+  - **Math:** 11 operators, own dial and zero line, envelope.
+  - **Lissajous:** replaces the traces while on.
+  - **Reference waveforms:** the frozen calibration mapped onto the current V/div.
+  - **Histogram** (values, periods, jitter) and **channel-to-channel** measure (delay, skew,
+    phase).
+- **`dsview-dsp` against the C++** (`dev/dsview-oracle`, `tests/dsp_diff.rs`):
+  - **Power spectrum on FFTW:** worst error 4.6e-16 of the peak over 200 spectra (every
+    window, length and interval; gate 1e-9).
+  - **Math results and their envelope levels:** bit-identical over 220 cases.
+  - **Dial defaults and values:** identical in 3564 cases.
+  - **Sensitivity:** mutating π back to its true value, or the filter's divisor, fails the tests.
+- **GUI tests:** 14 egui_kittest tests. DSO, analog, FFT pane, math, Lissajous, references and the
+  analysis dialogs are snapshots; the trigger dock and measurement bar too. Interaction tests
+  cover the probe factor, the dial, wheel zoom, the X measurement, and persistence (a new frame
+  leaves a ghost, a V/div step drops it).
+- **Not here:**
+  - the trigger-wait animation (M6b's item, with the capture status);
+  - calibration and its start-up prompt (M6e);
+  - shortcuts 0/1 and ↑/↓ for the DSO channel (M6f);
+  - application options for line width and persistence (M6f; persistence is in the View menu
+    meanwhile).
+
