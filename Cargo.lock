@@ -907,6 +907,7 @@ dependencies = [
  "dsview-dsp",
  "dsview-ffi",
  "dsview-formats",
+ "dsview-session",
  "dsview-store",
  "dsview-usb",
  "pkg-config",

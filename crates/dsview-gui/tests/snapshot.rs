@@ -470,7 +470,7 @@ fn search_dock() {
     view.search = Some((0, false));
     dock.pattern.insert(0, b'R');
     let ctx = egui::Context::default();
-    let mut run =
+    let run =
         |dock: &mut dsview_gui::searchdock::SearchDock, view: &mut TimeView, next: bool| {
             dock.search(&s, view, next);
             let t0 = std::time::Instant::now();
