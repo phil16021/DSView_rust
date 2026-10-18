@@ -4,6 +4,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, channel};
 
 use dsview_core::{Mode, channel_type};
@@ -226,7 +227,7 @@ pub struct ProtocolDock {
     matches: Vec<usize>,
     cur_match: usize,
     filtered_for: (usize, usize, String, u64),
-    export: Option<Receiver<Option<PathBuf>>>,
+    export: Option<Export>,
     pub message: Option<String>,
     /// The annotation clicked: the view jumps to it.
     pub jump: Option<(u64, u64)>,
@@ -240,6 +241,59 @@ pub struct ProtocolDock {
     list_opts: bool,
     /// Map Zoom "Fixed": a jump keeps the scale (`get_map_zoom() == 1`).
     pub map_zoom_fixed: bool,
+}
+
+const EXPORT_FORMATS: [&str; 2] = ["Comma-Separated Values (*.csv)", "Text files (*.txt)"];
+
+/// The protocol export's steps.
+enum Export {
+    /// The dialog: TXT instead of CSV; the listed rows (index, title, chosen).
+    Options {
+        txt: bool,
+        rows: Vec<(usize, String, bool)>,
+    },
+    /// The file dialog is open.
+    File {
+        rx: Receiver<Option<PathBuf>>,
+        rows: Vec<usize>,
+    },
+    Running {
+        progress: Arc<AtomicU32>,
+        cancel: Arc<AtomicBool>,
+        done: Receiver<Result<(), String>>,
+    },
+}
+
+/// `save_proc` in a thread.
+fn start_export(s: &Session, t: Arc<DecodeTrace>, rows: Vec<usize>, path: PathBuf) -> Export {
+    let sample_count = s
+        .data()
+        .logic
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .ring_sample_count();
+    let progress = Arc::new(AtomicU32::new(0));
+    let cancel = Arc::new(AtomicBool::new(false));
+    let (tx, done) = channel();
+    let (p, c) = (progress.clone(), cancel.clone());
+    std::thread::spawn(move || {
+        let r = dsview_session::store::export_protocol_with(
+            &t,
+            &rows,
+            sample_count,
+            &path,
+            &mut |pct| {
+                p.store(pct, Ordering::Relaxed);
+                !c.load(Ordering::Relaxed)
+            },
+        );
+        let _ = tx.send(r);
+    });
+    Export::Running {
+        progress,
+        cancel,
+        done,
+    }
 }
 
 impl Default for ProtocolDock {
@@ -386,7 +440,7 @@ impl ProtocolDock {
         }
         self.add_dialog(ui.ctx(), s);
         self.list_options(ui.ctx(), &traces);
-        self.export_job(s, &traces);
+        self.export_job(ui.ctx(), s, &traces);
     }
 
     /// `ProtocolList`: the map zoom, the protocol the table shows and which
@@ -708,16 +762,17 @@ impl ProtocolDock {
                 self.list_opts = true;
             }
             if ui.button("Export…").clicked() && self.export.is_none() {
-                let (tx, rx) = channel();
-                std::thread::spawn(move || {
-                    let p = rfd::FileDialog::new()
-                        .set_title("Export Protocol List")
-                        .add_filter("CSV", &["csv"])
-                        .add_filter("TXT", &["txt"])
-                        .save_file();
-                    let _ = tx.send(p);
-                });
-                self.export = Some(rx);
+                // the rows listed; the first one chosen
+                let rows = t
+                    .stack
+                    .rows()
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| t.stack.row_list_shown(*i))
+                    .enumerate()
+                    .map(|(k, (i, r))| (i, r.title(), k == 0))
+                    .collect();
+                self.export = Some(Export::Options { txt: false, rows });
             }
         });
         let shown_rows: Vec<usize> = if self.filter.is_empty() {
@@ -773,30 +828,142 @@ impl ProtocolDock {
             });
     }
 
-    fn export_job(&mut self, s: &Session, traces: &[Arc<DecodeTrace>]) {
-        let Some(rx) = &self.export else { return };
-        let Ok(path) = rx.try_recv() else { return };
-        self.export = None;
-        let (Some(path), Some(t)) = (path, traces.get(self.table)) else {
+    /// `ProtocolExp`: the format and the rows to export, then the file,
+    /// then the export with its progress and Cancel.
+    fn export_job(&mut self, ctx: &egui::Context, s: &Session, traces: &[Arc<DecodeTrace>]) {
+        let Some(job) = self.export.take() else {
             return;
         };
-        let sample_count = s
-            .data()
-            .logic
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .ring_sample_count();
-        let rows: Vec<usize> = t
-            .stack
-            .rows()
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| t.stack.row_list_shown(*i))
-            .map(|(i, _)| i)
-            .take(1)
-            .collect();
-        if let Err(e) = dsview_session::store::export_protocol(t, &rows, sample_count, &path) {
-            self.message = Some(e);
+        let Some(t) = traces.get(self.table).cloned() else {
+            return;
+        };
+        self.export = match job {
+            Export::Options { mut txt, mut rows } => {
+                let mut go = None;
+                let mut open = true;
+                egui::Window::new("Protocol Export")
+                    .open(&mut open)
+                    .collapsible(false)
+                    .resizable(false)
+                    .show(ctx, |ui| {
+                        egui::Grid::new("pexp").num_columns(2).show(ui, |ui| {
+                            let l = ui.label("Export Format: ");
+                            egui::ComboBox::from_id_salt("pexp_fmt")
+                                .selected_text(EXPORT_FORMATS[usize::from(txt)])
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(&mut txt, false, EXPORT_FORMATS[0]);
+                                    ui.selectable_value(&mut txt, true, EXPORT_FORMATS[1]);
+                                })
+                                .response
+                                .labelled_by(l.id);
+                            ui.end_row();
+                            for (_, title, on) in rows.iter_mut() {
+                                let l = ui.label(title.as_str());
+                                ui.checkbox(on, "").labelled_by(l.id);
+                                ui.end_row();
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            if ui.button("OK").clicked() {
+                                go = Some(true);
+                            }
+                            if ui.button("Cancel").clicked() {
+                                go = Some(false);
+                            }
+                        });
+                    });
+                match go {
+                    _ if !open => None,
+                    Some(false) => None,
+                    Some(true) if t.stack.result_count() == 0 || rows.is_empty() => {
+                        self.message = Some("No data to export".into());
+                        Some(Export::Options { txt, rows })
+                    }
+                    Some(true) => {
+                        let chosen: Vec<usize> = rows
+                            .iter()
+                            .filter(|r| r.2)
+                            .map(|r| r.0)
+                            .take(20) // EXPORT_DEC_ROW_COUNT_MAX
+                            .collect();
+                        let (tx, rx) = channel();
+                        std::thread::spawn(move || {
+                            // the chosen format first
+                            let (a, b) = if txt { ("txt", "csv") } else { ("csv", "txt") };
+                            let p = rfd::FileDialog::new()
+                                .set_title("Export Data")
+                                .add_filter(a.to_uppercase(), &[a])
+                                .add_filter(b.to_uppercase(), &[b])
+                                .save_file()
+                                .map(|p| {
+                                    // the format's suffix unless the name has it
+                                    if p.extension().is_some_and(|e| e == a) {
+                                        p
+                                    } else {
+                                        let mut n = p.into_os_string();
+                                        n.push(format!(".{a}"));
+                                        PathBuf::from(n)
+                                    }
+                                });
+                            let _ = tx.send(p);
+                        });
+                        Some(Export::File { rx, rows: chosen })
+                    }
+                    None => Some(Export::Options { txt, rows }),
+                }
+            }
+            Export::File { rx, rows } => match rx.try_recv() {
+                Err(std::sync::mpsc::TryRecvError::Empty) => Some(Export::File { rx, rows }),
+                Ok(Some(path)) => {
+                    if rows.is_empty() {
+                        dsview_drivers::sys::log(
+                            3,
+                            "ERROR: There have no decode data row to export.",
+                        );
+                        None
+                    } else {
+                        Some(start_export(s, t, rows, path))
+                    }
+                }
+                _ => None,
+            },
+            Export::Running {
+                progress,
+                cancel,
+                done,
+            } => match done.try_recv() {
+                Ok(r) => {
+                    if let Err(e) = r {
+                        self.message = Some(e);
+                    }
+                    None
+                }
+                Err(_) => {
+                    egui::Window::new("Export Protocol List Result... It can take a while.")
+                        .collapsible(false)
+                        .resizable(false)
+                        .show(ctx, |ui| {
+                            let p = progress.load(Ordering::Relaxed);
+                            ui.add(
+                                egui::ProgressBar::new(p as f32 / 100.0)
+                                    .desired_width(260.0)
+                                    .text(format!("{p}%")),
+                            );
+                            if ui.button("Cancel").clicked() {
+                                cancel.store(true, Ordering::Relaxed);
+                            }
+                        });
+                    ctx.request_repaint_after(std::time::Duration::from_millis(100));
+                    Some(Export::Running {
+                        progress,
+                        cancel,
+                        done,
+                    })
+                }
+            },
+        };
+        if matches!(self.export, Some(Export::File { .. })) {
+            ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
     }
 }

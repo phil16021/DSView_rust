@@ -164,7 +164,6 @@ fn protocol_export_merges_rows_by_start() {
     let count = s.data().logic.lock().unwrap().ring_sample_count();
     dsview_session::store::export_protocol(&t, &rows[..2], count, &path).unwrap();
     let text = std::fs::read_to_string(&path).unwrap();
-    let _ = std::fs::remove_file(&path);
     let mut lines = text.lines();
     let titles: Vec<String> = rows[..2]
         .iter()
@@ -177,6 +176,25 @@ fn protocol_export_merges_rows_by_start() {
     // the I2C start at sample 45147 (25 MHz: 40 ns per sample)
     let first = lines.next().unwrap();
     assert!(first.starts_with("1,1805880.00,"), "{first}");
+    // Cancel after three lines keeps them; progress rises to 100
+    let mut seen = Vec::new();
+    dsview_session::store::export_protocol_with(&t, &rows[..2], count, &path, &mut |p| {
+        seen.push(p);
+        seen.len() < 3
+    })
+    .unwrap();
+    let text2 = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(text2.lines().count(), 4);
+    assert!(text.starts_with(&text2));
+    let mut all = Vec::new();
+    dsview_session::store::export_protocol_with(&t, &rows[..2], count, &path, &mut |p| {
+        all.push(p);
+        true
+    })
+    .unwrap();
+    let _ = std::fs::remove_file(&path);
+    assert!(all.windows(2).all(|w| w[0] <= w[1]));
+    assert_eq!(all.last(), Some(&100));
     s.exit();
 }
 

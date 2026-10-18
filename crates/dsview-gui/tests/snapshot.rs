@@ -680,3 +680,26 @@ fn protocol_list_options() {
     harness.snapshot("protocol_list_options");
     s.exit();
 }
+
+#[test]
+fn protocol_export_dialog() {
+    use egui_kittest::kittest::Queryable;
+    let s = demo_session();
+    let mut dock = dsview_gui::protocol::ProtocolDock::default();
+    let s2 = s.clone();
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(520.0, 640.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            dock.show(ui, &s2);
+        });
+    harness.run();
+    harness.get_by_label("Export…").click();
+    harness.run();
+    harness.get_by_label("Export Format: ");
+    harness.snapshot("protocol_export_dialog");
+    harness.get_by_label("Cancel").click();
+    harness.run();
+    assert!(harness.query_by_label("Export Format: ").is_none());
+    s.exit();
+}

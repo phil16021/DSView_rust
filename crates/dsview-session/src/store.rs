@@ -1068,6 +1068,19 @@ pub fn export_protocol(
     sample_count: u64,
     path: &Path,
 ) -> Result<(), String> {
+    export_protocol_with(t, rows, sample_count, path, &mut |_| true)
+}
+
+/// `export_protocol`, reporting the percent of annotations written after
+/// each line to `progress`; it stops (keeping what was written, as Qt's
+/// Cancel does) when `progress` returns false.
+pub fn export_protocol_with(
+    t: &crate::session::DecodeTrace,
+    rows: &[usize],
+    sample_count: u64,
+    path: &Path,
+    progress: &mut dyn FnMut(u32) -> bool,
+) -> Result<(), String> {
     // EXPORT_DEC_ROW_COUNT_MAX
     let rows: Vec<usize> = rows.iter().copied().take(20).collect();
     if rows.is_empty() {
@@ -1117,6 +1130,9 @@ pub fn export_protocol(
                 cells.join(",")
             ),
         )?;
+        if !progress((written * 100 / total) as u32) {
+            break;
+        }
     }
     out.flush().map_err(|e| e.to_string())
 }
