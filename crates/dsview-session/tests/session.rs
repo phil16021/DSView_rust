@@ -464,6 +464,53 @@ fn hardware_profile_names() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// srzip export of a logic capture: `version`, `metadata`, then the
+/// samples in packets of 8192, all of the capture.
+#[test]
+fn srzip_export_holds_the_capture() {
+    use dsview_session::store::{Progress, export_range_with};
+    use std::io::Read;
+    let (_g, s) = session("Demo Logic");
+    assert!(s.start_capture(false));
+    wait(&s, "captured", |st| {
+        st.ended_seq > 0 && !st.working && !st.decoding
+    });
+    let path = std::env::temp_dir().join(format!("dsv-srzip-{}.srzip", std::process::id()));
+    let fmt = dsview_formats::export::Format::Srzip;
+    export_range_with(&s, &path, fmt, None, false, &Progress::default()).unwrap();
+    let mut z = zip::ZipArchive::new(std::fs::File::open(&path).unwrap()).unwrap();
+    let mut text = |name: &str| {
+        let mut v = Vec::new();
+        z.by_name(name).unwrap().read_to_end(&mut v).unwrap();
+        v
+    };
+    assert_eq!(text("version"), b"2");
+    let meta = String::from_utf8(text("metadata")).unwrap();
+    assert!(
+        meta.starts_with("[global]\nsigrok version=0.2.0\n\n[device 1]\ncapturefile=logic-1\n"),
+        "{meta}"
+    );
+    let unitsize: usize = meta
+        .lines()
+        .find_map(|l| l.strip_prefix("unitsize="))
+        .unwrap()
+        .parse()
+        .unwrap();
+    let samples = s.data().logic.lock().unwrap().ring_sample_count() as usize;
+    let mut total = 0;
+    for i in 1.. {
+        let mut v = Vec::new();
+        match z.by_name(&format!("logic-1-{i}")) {
+            Ok(mut e) => e.read_to_end(&mut v).unwrap(),
+            Err(_) => break,
+        };
+        total += v.len();
+    }
+    assert_eq!(total, samples * unitsize);
+    let _ = std::fs::remove_file(&path);
+    s.exit();
+}
+
 /// Save and export count their progress to 100%; a cancelled save leaves
 /// no file, a cancelled export keeps what it wrote.
 #[test]

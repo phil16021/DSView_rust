@@ -30,6 +30,16 @@ int oracle_export_run(const char *module_id, int kind, uint64_t start_index, con
                       const struct oracle_export_channel *chans, int n_ch,
                       const struct oracle_export_packet *pkts, int n_pkts, char **out)
 {
+    return oracle_export_file(module_id, kind, start_index, time_string, chans, n_ch, pkts, n_pkts,
+                              "oracle-export", out);
+}
+
+/* oracle_export_run with the module's "filename" option (srzip writes it). */
+int oracle_export_file(const char *module_id, int kind, uint64_t start_index, const char *time_string,
+                       const struct oracle_export_channel *chans, int n_ch,
+                       const struct oracle_export_packet *pkts, int n_pkts, const char *filename,
+                       char **out)
+{
     const struct sr_output_module **mods = sr_output_list();
     const struct sr_output_module *mod = NULL;
     struct sr_dev_inst sdi;
@@ -58,7 +68,7 @@ int oracle_export_run(const char *module_id, int kind, uint64_t start_index, con
     }
 
     params = g_hash_table_new(g_str_hash, g_str_equal);
-    GVariant *fname = g_variant_ref_sink(g_variant_new_bytestring("oracle-export"));
+    GVariant *fname = g_variant_ref_sink(g_variant_new_bytestring(filename));
     GVariant *type = g_variant_ref_sink(g_variant_new_int16(channel_type(kind)));
     g_hash_table_insert(params, (char *)"filename", fname);
     g_hash_table_insert(params, (char *)"type", type);

@@ -208,6 +208,7 @@ impl StoreDialog {
                 let r = if export {
                     let fmt = match path.extension().and_then(|e| e.to_str()) {
                         Some("vcd") => Format::Vcd,
+                        Some("srzip") => Format::Srzip,
                         _ => Format::Csv,
                     };
                     dsview_session::store::export_range_with(

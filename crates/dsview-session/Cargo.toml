@@ -17,3 +17,6 @@ dsview-store = { path = "../dsview-store" }
 serde_json.workspace = true
 libc = "0.2"
 serde = "1"
+
+[dev-dependencies]
+zip = { version = "9", default-features = false, features = ["deflate"] }

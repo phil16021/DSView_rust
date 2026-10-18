@@ -64,7 +64,7 @@ cargo build --release -p dsview-mcp      # workspace build; binary in target/rel
   itself owner-only. Only processes of the same user can connect. No TCP port is ever opened.
 - **File access is confined.** Every path is canonicalized and must lie inside an allowed
   directory, so `..` and symlinked directories can't escape. An existing symlink is never written
-  through, and extensions are restricted (`.dsl` for open/save, `.csv`/`.vcd` for export).
+  through, and extensions are restricted (`.dsl` for open/save, `.csv`/`.vcd`/`.srzip` for export).
 - **No surprise dialogs.** State-changing calls are refused while DSView shows a modal dialog. The
   error names the dialog, so the agent can ask the user to close it.
 - **Real hardware is affected.** A capture on a real device acts on the user's circuit. The server

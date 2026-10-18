@@ -7,7 +7,7 @@
 | 2 Decoder engine | **done**: Rust/PyO3 engine behind `DSVIEW_IMPL_DECODE`; Rust becomes the default after one release of A/B | See "Phase 2" below |
 | 3 Drivers | **done except hardware steps**: 3a demo, 3b file, 3c USB layer, 3d DSLogic (replug tests passed 2026-10-18), 3e DSCope/MSO-E8 (`DSVIEW_IMPL_DRV_DEMO` / `_FILE` / `_DSLOGIC` / `_DSCOPE`). Open: a firmware upload from the host, the nightly runs, one DSCope/E8 hardware confirmation | See "Phase 3" below |
 | 4 Session + control API | **done**: 4a acquisition library in Rust behind `DSVIEW_IMPL_ACQ`; 4b capture session, control server, `dsview-cli serve --mcp` (transcript identical to the Qt GUI, 1 h soaks passed) | See "Phase 4" below |
-| 5 Rust GUI | **in progress**: M6.0, M6a-M6f done; the Rust GUI is the default on Linux (`DSVIEW_RUST_GUI`, Qt kept as `DSView-qt` for one release); M6g hardening in progress (step 1 done) | PARITY.md 52 of 52 (2026-10-19); AccessKit live over AT-SPI |
+| 5 Rust GUI | **in progress**: M6.0, M6a-M6f done; the Rust GUI is the default on Linux (`DSVIEW_RUST_GUI`, Qt kept as `DSView-qt` for one release); M6g hardening in progress (steps 1-2 done) | PARITY.md 52 of 52 (2026-10-19); AccessKit live over AT-SPI |
 | 6 Removal + packaging | planned after release R1: M7a removal and packaging, M7b post-parity fixes | PLAN.md (revised 2026-10-18): M6f → M6g → R1 → M7a/M7b |
 
 ## Phase 0 deliverables
@@ -1146,4 +1146,26 @@ the demo transcript is unchanged.
   backtrace to `$XDG_STATE_HOME/dsview/crash/<app>-<time>-<pid>.txt`, then prints as before.
 - **Firmware:** the 14 FX2 firmware files the tree lacks are listed in F31. The log already names
   a missing one.
+
+**Step 2, srzip export (done 2026-10-19):**
+- **`dsview_formats::srzip::SrzipWriter`** ports `output/srzip.c`:
+  - `version` ("2");
+  - `metadata` as GKeyFile text: sigrok version 0.2.0, capturefile, total probes, samplerate,
+    `probe<n>` of the enabled logic channels, and `unitsize` at the first chunk;
+  - one `logic-1-<n>` per logic packet.
+  - The archive is created by the first logic packet; there is no file without logic data.
+- **Export:** `store::export_range_with` sends the same packets to a text module or to srzip.
+  - The GUI offers it in logic mode (`getSuportedExportFormats`); a `.srzip` path selects it.
+  - The control API's `export_data` and the MCP tool take `srzip` for logic data.
+- **GKeyFile escaping** is now GLib's (`g_key_file_parse_string_as_value`), shared by srzip and
+  the `.dsl` header. The oracle found the difference for a tab inside a name.
+- **Checked:**
+  - `export_diff::srzip_matches_c`: C's module (through the new `oracle_export_file`) and the
+    Rust writer write the same entries in the same order. That covers random enabled sets,
+    sample rates, packets and names with spaces, tabs, newlines, backslashes and UTF-8; 2000
+    cases pass.
+  - `session::srzip_export_holds_the_capture`: every sample of a demo capture.
+  - `sigrok-cli -i demo.srzip` shows the 16 named channels at 25 MHz. Its 131072 samples equal
+    DSView's CSV export at every run boundary.
+- **Gnuplot is dropped** (DEVIATIONS).
 

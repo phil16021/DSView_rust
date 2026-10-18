@@ -120,6 +120,10 @@ struct oracle_export_packet {
 int oracle_export_run(const char *module_id, int kind, uint64_t start_index, const char *time_string,
                       const struct oracle_export_channel *chans, int n_ch,
                       const struct oracle_export_packet *pkts, int n_pkts, char **out);
+int oracle_export_file(const char *module_id, int kind, uint64_t start_index, const char *time_string,
+                       const struct oracle_export_channel *chans, int n_ch,
+                       const struct oracle_export_packet *pkts, int n_pkts, const char *filename,
+                       char **out);
 void oracle_free(void *p);
 
 /* ------------------------------------------------------------ LogicSnapshot */

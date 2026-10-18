@@ -45,6 +45,16 @@ fn kind_code(k: ChannelKind) -> c_int {
 }
 
 fn run_c(case: &Case) -> (c_int, String) {
+    let module = if case.format == Format::Csv {
+        "csv"
+    } else {
+        "vcd"
+    };
+    run_c_file(case, module, "oracle-export")
+}
+
+/// The C output module `module` on the case, with `filename` as its option.
+fn run_c_file(case: &Case, module: &str, filename: &str) -> (c_int, String) {
     let names: Vec<CString> = case
         .channels
         .iter()
@@ -111,16 +121,12 @@ fn run_c(case: &Case) -> (c_int, String) {
             ..pkts[0]
         });
     }
-    let module = CString::new(if case.format == Format::Csv {
-        "csv"
-    } else {
-        "vcd"
-    })
-    .unwrap();
+    let module = CString::new(module).unwrap();
+    let filename = CString::new(filename).unwrap();
     let time = CString::new("2026-10-17 20:20:26").unwrap();
     let mut out: *mut c_char = std::ptr::null_mut();
     let rc = unsafe {
-        ffi::oracle_export_run(
+        ffi::oracle_export_file(
             module.as_ptr(),
             kind_code(case.kind),
             case.start_index,
@@ -129,6 +135,7 @@ fn run_c(case: &Case) -> (c_int, String) {
             chans.len() as c_int,
             pkts.as_ptr(),
             pkts.len() as c_int,
+            filename.as_ptr(),
             &mut out,
         )
     };
@@ -340,6 +347,79 @@ fn analog_case() -> impl Strategy<Value = Case> {
         })
 }
 
+/// The entries of a zip in order, names and contents.
+fn zip_entries(path: &std::path::Path) -> Vec<(String, Vec<u8>)> {
+    use std::io::Read;
+    let mut z = zip::ZipArchive::new(std::fs::File::open(path).unwrap()).unwrap();
+    (0..z.len())
+        .map(|i| {
+            let mut e = z.by_index(i).unwrap();
+            let mut v = Vec::new();
+            e.read_to_end(&mut v).unwrap();
+            (e.name().unwrap().into_owned(), v)
+        })
+        .collect()
+}
+
+/// srzip: C's module and `SrzipWriter` write the same entries.
+fn check_srzip(case: &Case) -> Result<(), TestCaseError> {
+    use dsview_formats::srzip::SrzipWriter;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static N: AtomicU32 = AtomicU32::new(0);
+    let n = N.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("dsv-srzip-diff-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (c_path, r_path) = (
+        dir.join(format!("c{n}.srzip")),
+        dir.join(format!("r{n}.srzip")),
+    );
+    let (rc, text) = run_c_file(case, "srzip", c_path.to_str().unwrap());
+    prop_assert_eq!(rc, 0);
+    prop_assert_eq!(text, "");
+    let mut w = SrzipWriter::new(&r_path, case.channels.clone(), [2026, 10, 19, 12, 0, 0]);
+    w.receive(&ExportPacket::Meta {
+        samplerate: Some(case.samplerate),
+        limit_samples: Some(case.limit),
+        ref_min: None,
+        ref_max: None,
+    })
+    .unwrap();
+    for (data, unitsize, orig) in &case.packets {
+        w.receive(&ExportPacket::Logic {
+            data,
+            unitsize: *unitsize,
+            export_original: *orig,
+        })
+        .unwrap();
+    }
+    prop_assert_eq!(w.finish().unwrap(), c_path.exists());
+    if c_path.exists() {
+        prop_assert_eq!(zip_entries(&c_path), zip_entries(&r_path));
+    }
+    let _ = std::fs::remove_file(&c_path);
+    let _ = std::fs::remove_file(&r_path);
+    Ok(())
+}
+
+/// Channel names GKeyFile escapes.
+fn srzip_case() -> impl Strategy<Value = Case> {
+    (
+        logic_case(Format::Csv),
+        prop::collection::vec(
+            prop::sample::select(vec![
+                "SDA", " lead", "a\\b", "tab\tz", "line\nx", "µs", "x ",
+            ]),
+            16,
+        ),
+    )
+        .prop_map(|(mut case, names)| {
+            for (c, n) in case.channels.iter_mut().zip(names) {
+                c.name = n.to_owned();
+            }
+            case
+        })
+}
+
 fn check(case: &Case) -> Result<(), TestCaseError> {
     let (rc, c) = run_c(case);
     prop_assume!(rc == 0);
@@ -359,6 +439,9 @@ proptest! {
 
     #[test]
     fn csv_dso_matches_c(case in dso_case()) { check(&case)?; }
+
+    #[test]
+    fn srzip_matches_c(case in srzip_case()) { check_srzip(&case)?; }
 
     #[test]
     fn csv_analog_matches_c(case in analog_case()) { check(&case)?; }

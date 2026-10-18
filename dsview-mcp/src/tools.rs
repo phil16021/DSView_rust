@@ -258,9 +258,9 @@ pub struct PathParams {
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ExportParams {
-    /// Output file path ending in .csv or .vcd (absolute, "~/...", or relative to the first allowed directory).
+    /// Output file path ending in .csv, .vcd or .srzip (absolute, "~/...", or relative to the first allowed directory).
     pub path: String,
-    /// "csv" or "vcd" (default: from the file extension). VCD needs logic data.
+    /// "csv", "vcd" or "srzip" (default: from the file extension). VCD and srzip need logic data.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub format: Option<String>,
 }
@@ -531,9 +531,14 @@ impl DsviewServer {
         .await
     }
 
-    #[tool(description = "Export the current capture as CSV or VCD (in the allowed directories).")]
+    #[tool(
+        description = "Export the current capture as CSV, VCD or srzip (in the allowed directories)."
+    )]
     async fn export_data(&self, Parameters(p): Parameters<ExportParams>) -> CallToolResult {
-        let path = match self.paths.check(&p.path, Access::Write, &["csv", "vcd"]) {
+        let path = match self
+            .paths
+            .check(&p.path, Access::Write, &["csv", "vcd", "srzip"])
+        {
             Ok(path) => path,
             Err(e) => return fail(e),
         };

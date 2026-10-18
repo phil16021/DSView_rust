@@ -36,7 +36,7 @@ Milestones: **a** viewer, **b** logic capture, **c** decoders, **d** DSO/analog,
 
 ## Toolbars and dialogs
 - [x] (e) Trig bar: trigger/decode/measure/search toggles, function menu (FFT, math, lissajous, ch-ch, histogram, reference), display menu (themes and options since M6f)
-- [x] (a/e) File bar: open/save session, load/store/default profile, export, screenshot (export: CSV and VCD; srzip follows in M6g, gnuplot is dropped)
+- [x] (a/e) File bar: open/save session, load/store/default profile, export, screenshot (export: CSV, VCD and srzip (M6g); gnuplot is dropped)
 - [x] (f) Logo bar: about, manual, bug report, update, language, log options
 - [x] (e) Device options, generated at runtime from the device's option list; channel enable and layout
 - [x] (c) Decoder options, generated at runtime; channel binding; start/end cursor; stacked decoders

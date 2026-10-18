@@ -63,6 +63,8 @@ pub enum ExportPacket<'a> {
 pub enum Format {
     Csv,
     Vcd,
+    /// Written by [`crate::srzip::SrzipWriter`], not by [`Exporter`].
+    Srzip,
 }
 
 impl Format {
@@ -70,6 +72,7 @@ impl Format {
         match id {
             "csv" => Some(Format::Csv),
             "vcd" => Some(Format::Vcd),
+            "srzip" => Some(Format::Srzip),
             _ => None,
         }
     }
@@ -81,6 +84,8 @@ pub enum ExportError {
     TooManyChannels,
     #[error("VCD exports logic data only")]
     NotLogic,
+    #[error("srzip is written by SrzipWriter")]
+    NotText,
 }
 
 pub struct Exporter {
@@ -115,6 +120,9 @@ impl Exporter {
         channels: Vec<ExportChannel>,
         start_index: u64,
     ) -> Result<Self, ExportError> {
+        if format == Format::Srzip {
+            return Err(ExportError::NotText);
+        }
         let enabled: Vec<usize> = channels
             .iter()
             .enumerate()
@@ -157,6 +165,7 @@ impl Exporter {
         match self.format {
             Format::Csv => Ok(self.csv(p)),
             Format::Vcd => self.vcd(p),
+            Format::Srzip => Err(ExportError::NotText),
         }
     }
 

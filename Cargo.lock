@@ -1175,7 +1175,7 @@ dependencies = [
 
 [[package]]
 name = "dsview-mcp"
-version = "0.1.0"
+version = "1.6.1"
 dependencies = [
  "anyhow",
  "dsview-control",
@@ -1222,6 +1222,7 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
+ "zip",
 ]
 
 [[package]]

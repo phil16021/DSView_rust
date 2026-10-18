@@ -10,6 +10,7 @@ use std::path::Path;
 use dsview_core::{ConfValue, Mode, channel_type, key};
 use dsview_formats::dsl::{DslReader, LogicWriter, WriteChannel};
 use dsview_formats::export::{ChannelKind, ExportChannel, ExportPacket, Exporter, Format};
+use dsview_formats::srzip::SrzipWriter;
 use dsview_formats::zipw::DslZipWriter;
 use serde_json::{Map, Value, json};
 
@@ -930,15 +931,67 @@ fn save_dso(s: &Session, path: &Path, session: &str, decoders: &str) -> Result<(
     z.finish().map_err(map)
 }
 
-/// `Formatting::DateTimeToString(TIME_STR_FORMAT_ALL)` in local time.
-fn date_time_string(ms: i64) -> String {
-    let t = (ms / 1000) as libc::time_t;
+/// Where exported packets go: a text output module's file, or srzip's
+/// archive.
+// one per export: its size does not matter
+#[allow(clippy::large_enum_variant)]
+enum Sink {
+    Text(Exporter, std::io::BufWriter<std::fs::File>),
+    Srzip(SrzipWriter),
+}
+
+impl Sink {
+    fn send(&mut self, p: &ExportPacket<'_>) -> Result<(), String> {
+        match self {
+            Sink::Text(ex, out) => {
+                if let Some(t) = ex.receive(p).map_err(|e| e.to_string())? {
+                    out.write_all(t.as_bytes()).map_err(|e| e.to_string())?;
+                }
+                Ok(())
+            }
+            Sink::Srzip(w) => w.receive(p).map_err(|e| e.to_string()),
+        }
+    }
+
+    fn finish(self) -> Result<(), String> {
+        match self {
+            Sink::Text(_, mut out) => out.flush().map_err(|e| e.to_string()),
+            Sink::Srzip(w) => w.finish().map(|_| ()).map_err(|e| e.to_string()),
+        }
+    }
+}
+
+/// The local time now, for zip entries: year, month, day, hour, minute,
+/// second.
+fn local_now() -> [u16; 6] {
+    let tm = local_tm(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs() as i64),
+    );
+    [
+        (tm.tm_year + 1900) as u16,
+        (tm.tm_mon + 1) as u16,
+        tm.tm_mday as u16,
+        tm.tm_hour as u16,
+        tm.tm_min as u16,
+        tm.tm_sec as u16,
+    ]
+}
+
+fn local_tm(secs: i64) -> libc::tm {
+    let t = secs as libc::time_t;
     // SAFETY: localtime_r writes the struct it is given
-    let tm = unsafe {
+    unsafe {
         let mut tm: libc::tm = std::mem::zeroed();
         libc::localtime_r(&t, &mut tm);
         tm
-    };
+    }
+}
+
+/// `Formatting::DateTimeToString(TIME_STR_FORMAT_ALL)` in local time.
+fn date_time_string(ms: i64) -> String {
+    let tm = local_tm(ms / 1000);
     format!(
         "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
         tm.tm_year + 1900,
@@ -1027,7 +1080,6 @@ pub fn export_range_with(
     } else {
         (0, 0)
     };
-    let mut ex = Exporter::new(format, kind, channels, start_index).map_err(|e| e.to_string())?;
     let (rate, time_ms, sigs) = {
         let st = s.state();
         (
@@ -1036,30 +1088,30 @@ pub fn export_range_with(
             st.signals.clone(),
         )
     };
-    ex.time_string = date_time_string(time_ms);
-    ex.date_string = ex.time_string.clone();
-    let file = std::fs::File::create(path)
-        .map_err(|_| format!("Failed to open file for writing: {}", path.display()))?;
-    let mut out = std::io::BufWriter::new(file);
-    let mut emit = |t: Option<String>| -> Result<(), String> {
-        if let Some(t) = t {
-            out.write_all(t.as_bytes()).map_err(|e| e.to_string())?;
+    let mut sink = if format == Format::Srzip {
+        if kind != ChannelKind::Logic {
+            return Err("srzip exports logic data only.".into());
         }
-        Ok(())
+        Sink::Srzip(SrzipWriter::new(path, channels, local_now()))
+    } else {
+        let mut ex =
+            Exporter::new(format, kind, channels, start_index).map_err(|e| e.to_string())?;
+        ex.time_string = date_time_string(time_ms);
+        ex.date_string = ex.time_string.clone();
+        let file = std::fs::File::create(path)
+            .map_err(|_| format!("Failed to open file for writing: {}", path.display()))?;
+        Sink::Text(ex, std::io::BufWriter::new(file))
     };
     let ref_min = s.config(key::REF_MIN, None).map(|v| v.get_u32());
     let ref_max = s.config(key::REF_MAX, None).map(|v| v.get_u32());
     if kind == ChannelKind::Logic {
         let store = s.data().logic.lock().unwrap_or_else(|e| e.into_inner());
-        emit(
-            ex.receive(&ExportPacket::Meta {
-                samplerate: Some(rate),
-                limit_samples: Some(store.sample_count()),
-                ref_min,
-                ref_max,
-            })
-            .map_err(|e| e.to_string())?,
-        )?;
+        sink.send(&ExportPacket::Meta {
+            samplerate: Some(rate),
+            limit_samples: Some(store.sample_count()),
+            ref_min,
+            ref_max,
+        })?;
         let sig_idx: Vec<i32> = sigs
             .iter()
             .filter(|x| x.ty == channel_type::LOGIC && store.has_data(x.index as i32))
@@ -1137,14 +1189,11 @@ pub fn export_range_with(
                         }
                     }
                 }
-                emit(
-                    ex.receive(&ExportPacket::Logic {
-                        data: &xbuf[..size * unitsize],
-                        unitsize,
-                        export_original: original,
-                    })
-                    .map_err(|e| e.to_string())?,
-                )?;
+                sink.send(&ExportPacket::Logic {
+                    data: &xbuf[..size * unitsize],
+                    unitsize,
+                    export_original: original,
+                })?;
                 prog.add(size as u64);
                 i += USIZE;
             }
@@ -1152,15 +1201,12 @@ pub fn export_range_with(
     } else if kind == ChannelKind::Analog {
         let store = s.data().analog.lock().unwrap_or_else(|e| e.into_inner());
         let n = store.sample_count();
-        emit(
-            ex.receive(&ExportPacket::Meta {
-                samplerate: Some(rate),
-                limit_samples: Some(n),
-                ref_min,
-                ref_max,
-            })
-            .map_err(|e| e.to_string())?,
-        )?;
+        sink.send(&ExportPacket::Meta {
+            samplerate: Some(rate),
+            limit_samples: Some(n),
+            ref_min,
+            ref_max,
+        })?;
         // the ring from its oldest sample: [ring_start..n), then [0..ring_start)
         let ring_start = if n < store.total_sample_count() {
             0
@@ -1182,13 +1228,10 @@ pub fn export_range_with(
                 let at = ((from + i) as usize).saturating_mul(ch);
                 let chunk = data.get(at..).unwrap_or(&[]);
                 let chunk = &chunk[..(size * ch).min(chunk.len())];
-                emit(
-                    ex.receive(&ExportPacket::Analog {
-                        data: chunk,
-                        num_samples: size,
-                    })
-                    .map_err(|e| e.to_string())?,
-                )?;
+                sink.send(&ExportPacket::Analog {
+                    data: chunk,
+                    num_samples: size,
+                })?;
                 prog.add(size as u64);
                 i += USIZE;
             }
@@ -1196,15 +1239,12 @@ pub fn export_range_with(
     } else {
         let store = s.data().dso.lock().unwrap_or_else(|e| e.into_inner());
         let n = store.sample_count();
-        emit(
-            ex.receive(&ExportPacket::Meta {
-                samplerate: Some(rate),
-                limit_samples: Some(n),
-                ref_min,
-                ref_max,
-            })
-            .map_err(|e| e.to_string())?,
-        )?;
+        sink.send(&ExportPacket::Meta {
+            samplerate: Some(rate),
+            limit_samples: Some(n),
+            ref_min,
+            ref_max,
+        })?;
         let chans: Vec<&[u8]> = sigs
             .iter()
             .filter(|x| x.ty == channel_type::DSO && store.has_data(x.index as i32))
@@ -1222,19 +1262,16 @@ pub fn export_range_with(
                     buf[j * ch_num + c] = data.get(i as usize + j).copied().unwrap_or(0);
                 }
             }
-            emit(
-                ex.receive(&ExportPacket::Dso {
-                    data: &buf[..size * ch_num],
-                    num_samples: size,
-                })
-                .map_err(|e| e.to_string())?,
-            )?;
+            sink.send(&ExportPacket::Dso {
+                data: &buf[..size * ch_num],
+                num_samples: size,
+            })?;
             prog.add(size as u64);
             i += USIZE;
         }
     }
-    emit(ex.receive(&ExportPacket::End).map_err(|e| e.to_string())?)?;
-    out.flush().map_err(|e| e.to_string())
+    sink.send(&ExportPacket::End)?;
+    sink.finish()
 }
 
 /// `ProtocolExp::save_proc`: rows `rows` (indexes into the stack's rows) of

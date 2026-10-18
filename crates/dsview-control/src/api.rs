@@ -1400,10 +1400,11 @@ impl Api {
         let f = match format.as_str() {
             "csv" => dsview_formats::export::Format::Csv,
             "vcd" => dsview_formats::export::Format::Vcd,
-            _ => return Err("format must be csv or vcd".into()),
+            "srzip" => dsview_formats::export::Format::Srzip,
+            _ => return Err("format must be csv, vcd or srzip".into()),
         };
-        if format == "vcd" && self.mode() != Mode::Logic as i32 {
-            return Err("vcd export needs logic data; use csv".into());
+        if format != "csv" && self.mode() != Mode::Logic as i32 {
+            return Err(format!("{format} export needs logic data; use csv"));
         }
         if !path.ends_with(&format!(".{format}")) {
             return Err(format!("path must end with .{format}"));

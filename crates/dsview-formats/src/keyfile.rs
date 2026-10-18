@@ -111,6 +111,28 @@ impl KeyFile {
     }
 }
 
+/// GKeyFile value escaping (`g_key_file_parse_string_as_value`, as
+/// `g_key_file_set_string` uses it): backslash, newline and return always;
+/// spaces and tabs only before the first other character.
+pub fn escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut leading = true;
+    for c in s.chars() {
+        match c {
+            ' ' if leading => out.push_str("\\s"),
+            '\t' if leading => out.push_str("\\t"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\\' => out.push_str("\\\\"),
+            c => {
+                leading = false;
+                out.push(c);
+            }
+        }
+    }
+    out
+}
+
 /// GKeyFile value unescaping; `None` on an invalid escape or a trailing backslash.
 pub fn unescape(raw: &str) -> Option<String> {
     let mut out = String::with_capacity(raw.len());

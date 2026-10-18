@@ -123,6 +123,18 @@ unsafe extern "C" {
         n_pkts: c_int,
         out: *mut *mut c_char,
     ) -> c_int;
+    pub fn oracle_export_file(
+        module_id: *const c_char,
+        kind: c_int,
+        start_index: u64,
+        time_string: *const c_char,
+        chans: *const OracleExportChannel,
+        n_ch: c_int,
+        pkts: *const OracleExportPacket,
+        n_pkts: c_int,
+        filename: *const c_char,
+        out: *mut *mut c_char,
+    ) -> c_int;
     pub fn oracle_free(p: *mut c_void);
 }
 

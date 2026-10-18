@@ -711,13 +711,14 @@ impl App {
                         ui.close();
                     }
                     if crate::icons::button(ui, "export", tr("Export…")).clicked() {
-                        self.pick(
-                            &ctx,
-                            "Export Data",
-                            FileJob::Export,
-                            ("CSV or VCD", &["csv", "vcd"]),
-                            true,
-                        );
+                        // `getSuportedExportFormats`: srzip holds logic data only
+                        let formats: (&str, &[&str]) =
+                            if self.session.mode() == dsview_core::Mode::Logic as i32 {
+                                ("CSV, VCD or srzip", &["csv", "vcd", "srzip"])
+                            } else {
+                                ("CSV or VCD", &["csv", "vcd"])
+                            };
+                        self.pick(&ctx, "Export Data", FileJob::Export, formats, true);
                         ui.close();
                     }
                     ui.separator();

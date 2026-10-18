@@ -5,6 +5,7 @@
 //! * [`dsl`]: `.dsl`/`.demo` capture reader and writer
 //! * [`samplerate`]: samplerate strings
 //! * [`export`]: CSV/VCD export (byte-compatible with libsigrok4DSL's output modules)
+//! * [`srzip`]: srzip session export (the entries of `output/srzip.c`)
 //! * [`cfmt`]: C printf-compatible number formatting
 //! * [`zipw`]: safe, atomic `.dsl` archive writing
 //!
@@ -17,6 +18,7 @@ pub mod export;
 pub mod header;
 pub mod keyfile;
 pub mod samplerate;
+pub mod srzip;
 pub mod zipw;
 
 #[derive(Debug, thiserror::Error)]

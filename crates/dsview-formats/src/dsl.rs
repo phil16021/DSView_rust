@@ -21,6 +21,7 @@ use serde_json::Value;
 
 use crate::Error;
 use crate::header::{Header, Mode};
+use crate::keyfile::escape;
 
 /// Samples per logic block / LogicSnapshot leaf.
 pub const LOGIC_BLOCK_SAMPLES: u64 = 1 << 24;
@@ -567,20 +568,4 @@ impl LogicWriter {
         }
         Ok(zip.finish()?)
     }
-}
-
-/// GKeyFile escaping for values written into the header.
-fn escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for (i, c) in s.chars().enumerate() {
-        match c {
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\t' => out.push_str("\\t"),
-            '\r' => out.push_str("\\r"),
-            ' ' if i == 0 => out.push_str("\\s"),
-            c => out.push(c),
-        }
-    }
-    out
 }
