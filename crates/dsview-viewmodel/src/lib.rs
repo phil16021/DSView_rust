@@ -6,6 +6,12 @@
 //!
 //! * [`viewport`]: scale and offset, zoom, limits, index ↔ pixel (`View`)
 //! * [`logic`]: a logic trace's lines and sample dots (`LogicSignal`)
+//! * [`ruler`]: ticks, labels and number formats (`Ruler`)
+//! * [`measure`]: the pulse under the mouse, edge counts, edge snapping
+//! * [`cursors`]: time cursors
 
+pub mod cursors;
 pub mod logic;
+pub mod measure;
+pub mod ruler;
 pub mod viewport;
