@@ -254,6 +254,8 @@ struct Inner {
     capture: AtomicUsize,
     trigger: Mutex<Trigger>,
     data_dir: PathBuf,
+    profile_dir: Option<PathBuf>,
+    version: String,
 }
 
 /// Forwards the library's callbacks to the session.
@@ -291,6 +293,23 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 #[derive(Clone, Debug)]
 pub struct Paths {
     pub data_dir: PathBuf,
+    /// Where hardware settings are kept between runs (`GetProfileDir()`);
+    /// none: not kept.
+    pub profile_dir: Option<PathBuf>,
+    /// The application version written into saved sessions and profiles.
+    pub version: String,
+}
+
+impl Paths {
+    /// The Qt GUI's profile directory (`QStandardPaths::AppDataLocation`):
+    /// `$XDG_DATA_HOME/DreamSourceLab/DSView`, else `~/.local/share/...`.
+    pub fn default_profile_dir() -> Option<PathBuf> {
+        let base = std::env::var_os("XDG_DATA_HOME")
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))?;
+        Some(base.join("DreamSourceLab/DSView"))
+    }
 }
 
 /// The capture session; cheap to clone.
@@ -319,6 +338,8 @@ impl Session {
             capture: AtomicUsize::new(0),
             trigger: Mutex::new(Trigger::default()),
             data_dir: paths.data_dir,
+            profile_dir: paths.profile_dir,
+            version: paths.version,
         });
         Session(inner)
     }
@@ -328,6 +349,7 @@ impl Session {
         if self.state().working {
             self.stop_capture();
         }
+        self.save_config();
         self.clear_all_decoders();
         self.0.lib.exit();
     }
@@ -534,6 +556,8 @@ impl Session {
     /// decoders of its pattern file, a capture file loads its session and
     /// replays.
     pub fn set_device(&self, handle: Handle) -> bool {
+        // the device selector saves the settings of the device it leaves
+        self.save_config();
         self.clear_all_decoders();
         if self.0.lib.activate(handle).is_err() {
             sr_err!("Switch device error!");
@@ -569,17 +593,56 @@ impl Session {
         !(1000..1100).contains(&err)
     }
 
-    /// `MainWindow::load_device_config()`: a demo loads the profile shipped
-    /// for its mode (`res/virtual-demo<mode>.dsc`, only DSO has one). The
-    /// user's hardware profiles are not read yet (they come with the GUI).
+    /// The hardware profile of the active device and mode
+    /// (`gen_config_file_path`): `<profile dir>/<driver><mode>.dsc`.
+    fn profile_path(&self) -> Option<PathBuf> {
+        let d = self.state().device.clone()?;
+        if !d.is_hardware() {
+            return None;
+        }
+        let dir = self.0.profile_dir.as_ref()?;
+        Some(dir.join(format!("{}{}.dsc", d.driver, self.mode())))
+    }
+
+    /// `MainWindow::save_config()`: a hardware device's settings go to its
+    /// profile.
+    pub fn save_config(&self) {
+        let Some(path) = self.profile_path() else {
+            return;
+        };
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let text = crate::store::qt_json(&crate::store::session_json(self, &self.0.version));
+        sr_info!("Store session to file: \"{}\"", path.display());
+        if let Err(e) = std::fs::write(&path, text) {
+            sr_err!("Warning: Couldn't open profile to write! {e}");
+        }
+    }
+
+    /// `MainWindow::load_device_config()`:
+    /// - hardware: the user's profile for the device and mode, else the one
+    ///   shipped in `res/` (`<driver><mode>.def.dsc`);
+    /// - a demo: the profile shipped for its mode (`res/virtual-demo<mode>.dsc`,
+    ///   only DSO has one).
+    ///
+    /// Profiles of DSView versions that kept one per language
+    /// (`<driver><mode>.ses<lang>.dsc`) are not read.
     fn load_device_config(&self) {
         let Some(d) = self.state().device.clone() else {
             return;
         };
-        if !d.is_demo() {
+        let res = dsview_drivers::sys::res_dir();
+        let file = if d.is_hardware() {
+            match self.profile_path().filter(|p| p.is_file()) {
+                Some(p) => p,
+                None => res.join(format!("{}{}.def.dsc", d.driver, self.mode())),
+            }
+        } else if d.is_demo() {
+            res.join(format!("{}{}.dsc", d.driver, self.mode()))
+        } else {
             return;
-        }
-        let file = dsview_drivers::sys::res_dir().join(format!("{}{}.dsc", d.driver, self.mode()));
+        };
         let Ok(text) = std::fs::read_to_string(&file) else {
             return;
         };
@@ -632,6 +695,7 @@ impl Session {
             return false;
         }
         let was_logic = self.mode() == Mode::Logic as i32;
+        self.save_config();
         self.set_config(key::DEVICE_MODE, ConfValue::I16(mode as i16), None);
         if was_logic {
             self.clear_all_decoders();

@@ -35,6 +35,8 @@ fn demo_transcript_matches_qt() {
     let session = Session::new(
         Paths {
             data_dir: root.join("DSView"),
+            profile_dir: None,
+            version: "test".into(),
         },
         Arc::new(NoUsb),
     );

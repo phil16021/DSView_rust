@@ -38,6 +38,8 @@ fn session(device: &str) -> (MutexGuard<'static, ()>, Session) {
     let s = Session::new(
         Paths {
             data_dir: root().join("DSView"),
+            profile_dir: None,
+            version: "test".into(),
         },
         Arc::new(NoUsb),
     );

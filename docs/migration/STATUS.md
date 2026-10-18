@@ -571,6 +571,11 @@ It uses the Rust drivers for every kind of device.
 `SigSession` with the parts of `DeviceAgent`, `SamplingBar` and `TriggerDock` that drive it:
 - **Devices:** device selection (fresh signals per device), mode switch, signals per mode, and
   `reload()`, which keeps the names and triggers of the signals that remain.
+- **Profiles (`load_device_config`/`save_config`):**
+  - Hardware settings are kept per device and mode in the Qt GUI's profile directory
+    (`$XDG_DATA_HOME/DreamSourceLab/DSView/<driver><mode>.dsc`, the same files the GUI uses).
+  - Without a saved profile the default from `res/` is used.
+  - The demo oscilloscope loads its shipped profile.
 - **Sampling bar:** the rate and depth selectors. The depth list starts at `hw_depth / rate` and
   steps down 5-2-1. `commit_settings` rounds up to 1024 samples (1000000 → 1000448). DSO
   horizontal resolution comes from the timebase.
@@ -633,7 +638,11 @@ It uses the Rust drivers for every kind of device.
   - repeat mode until stopped;
   - loop mode into the ring;
   - a DSO single shot.
-- **DSLogic Plus through `dsview-cli serve`:** a 10 MHz capture of 1000448 samples (16 channels).
+- **DSLogic Plus through `dsview-cli serve`:**
+  - a 10 MHz capture of 1000448 samples (16 channels);
+  - the device's default profile and the depth rounding in stream mode, step for step the same as
+    the Qt GUI's (2,000,000 → 1,000,448 at 5 MHz, 50,000,000 → 40,000,512 at 20 MHz);
+  - settings kept across a restart in the profile.
 - **`dsview-mcp` against `dsview-cli serve`:** the MCP tools run unchanged: device selection, a
   capture with the demo decoders, annotations, measurements. With `DSVIEW_BIN=dsview-cli`,
   `dsview-mcp` starts the headless DSView itself (`dsview-cli serve --mcp`).

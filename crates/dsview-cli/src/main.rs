@@ -143,7 +143,11 @@ fn main() {
     dsview_decode::load_all();
 
     let session = Session::new(
-        Paths { data_dir },
+        Paths {
+            data_dir,
+            profile_dir: Paths::default_profile_dir(),
+            version: DSVIEW_VERSION.into(),
+        },
         Arc::new(dsview_usb::nusb_backend::NusbBackend),
     );
     session.set_default_device();
