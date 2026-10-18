@@ -275,11 +275,12 @@ fn startup_dialogs() {
     }
     h.get_by_label("Not Show Again").click();
     h.run();
-    let a = app.lock().unwrap();
-    let a = a.as_ref().unwrap();
-    assert!(!a.options.history.show_documents);
-    assert!(a.options.history.show_driver_hint);
-    assert!(a.startup.is_none());
-    drop(a);
+    {
+        let a = app.lock().unwrap();
+        let a = a.as_ref().unwrap();
+        assert!(!a.options.history.show_documents);
+        assert!(a.options.history.show_driver_hint);
+        assert!(a.startup.is_none());
+    }
     s.exit();
 }
