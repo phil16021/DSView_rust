@@ -22,6 +22,7 @@ pub mod protocol;
 pub mod refview;
 pub mod searchdock;
 pub mod soak;
+pub mod startup;
 pub mod storedlg;
 pub mod timeview;
 pub mod toolbar;

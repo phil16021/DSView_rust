@@ -75,6 +75,8 @@ pub struct App {
     started: Instant,
     /// The work mode whose docks are shown.
     dock_mode: Option<i32>,
+    /// The dialogs at start-up, while any is left (set by `main`).
+    pub startup: Option<crate::startup::Startup>,
     /// The restored window was checked against the screen.
     window_checked: bool,
     pub bench: Option<Bench>,
@@ -135,6 +137,14 @@ impl App {
             return true;
         }
         false
+    }
+
+    /// `MainWindow::openDoc`: the user guide in the language.
+    fn open_manual(&mut self) {
+        match crate::help::manual_path(self.session.data_dir(), self.options.frame.language) {
+            Some(p) => crate::help::open(p),
+            None => self.message = Some("File does not exist!".into()),
+        }
     }
 
     /// One shortcut (`MainWindow::eventFilter`). T/D/M/R toggle only the
@@ -374,6 +384,7 @@ impl App {
             keys: Default::default(),
             started: Instant::now(),
             dock_mode: None,
+            startup: None,
             window_checked: false,
             bench: None,
             soak: None,
@@ -802,13 +813,7 @@ impl App {
                         ui.close();
                     }
                     if ui.button("Manual…").clicked() {
-                        match crate::help::manual_path(
-                            self.session.data_dir(),
-                            self.options.frame.language,
-                        ) {
-                            Some(p) => crate::help::open(p),
-                            None => self.message = Some("File does not exist!".into()),
-                        }
+                        self.open_manual();
                         ui.close();
                     }
                     if ui.button("Bug Report").clicked() {
@@ -1076,6 +1081,14 @@ impl App {
         }
         if self.about && !crate::help::about(&ctx, &self.version) {
             self.about = false;
+        }
+        if let Some(mut st) = self.startup.take() {
+            if let Some(crate::startup::Action::OpenManual) = st.show(&ctx, &mut self.options) {
+                self.open_manual();
+            }
+            if !st.done() {
+                self.startup = Some(st);
+            }
         }
 
         self.store_docks();

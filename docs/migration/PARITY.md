@@ -70,4 +70,4 @@ These are existing Qt features found in the Phase 5 analysis, not new features.
 - [x] (d) Deep DSO frames (≥ 256 samples per pixel) drawn from the envelope; per-column min/max bars between 2 and 256 samples per pixel; trigger sub-sample offset
 - [x] (d) X/Y cursor measurements (XM: width/period/frequency/duty from three clicks; YM: voltage delta — unreachable in Qt, not ported, DEVIATIONS F28)
 - [x] (e) Measure dock: cursor list with go-to/delete and per-mode rows; search dock with pattern dialog and cancel
-- [ ] (f) Dock layout kept per work mode; help-documents dialog and driver hint at start-up; log options (save to file, append, level)
+- [x] (f) Dock layout kept per work mode; help-documents dialog and driver hint at start-up; log options (save to file, append, level)

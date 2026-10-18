@@ -1022,3 +1022,14 @@ the demo transcript is unchanged.
   - a window test on the simulated DSLogic and the demo oscilloscope: Ctrl ignored, debounce, docks
     per mode, 0/↑/↓ on the V/div, O.
 
+**Step 5, start-up dialogs (done 2026-10-19):**
+- **The hardware driver note** (`show_driver_hint_once`): shown when no
+  `60-dreamsourcelab.rules` is installed in `/usr/lib`, `/lib` or `/etc/udev/rules.d`. With a
+  copy of the rule in the data directory it gives the `sudo cp` command, otherwise the rule line.
+- **The document hint** (`show_doc`): `showDoc<language>.png` from the data directory, or the one
+  built in from Qt's resources (German shows the English one). Buttons: "Not Show Again",
+  "Ignore", "Open" (the user guide).
+- **Both:** "Not Show Again" is saved in the settings. They appear only for loaded settings, so not
+  in tests or benchmarks.
+- **Tests:** the hint texts, and the sequence through the window.
+

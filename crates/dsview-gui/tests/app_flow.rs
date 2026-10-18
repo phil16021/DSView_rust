@@ -248,3 +248,38 @@ fn shortcuts_and_docks_per_mode() {
     h.get_by_label("Device Options");
     s.exit();
 }
+
+/// At start-up: the driver note when no udev rule is installed, then the
+/// document hint; "Not Show Again" turns the hint off.
+#[test]
+fn startup_dialogs() {
+    let s = dslogic_session();
+    let (mut h, app) = harness(&s);
+    h.run();
+    {
+        let mut a = app.lock().unwrap();
+        let a = a.as_mut().unwrap();
+        a.startup = Some(dsview_gui::startup::Startup::new(
+            &a.options,
+            &root().join("DSView"),
+        ));
+    }
+    h.run();
+    let rule = dsview_gui::startup::RULE_PATHS
+        .iter()
+        .any(|p| std::path::Path::new(p).exists());
+    if !rule {
+        h.get_by_label_contains("needs a udev rule");
+        h.get_by_label("Ignore").click();
+        h.run();
+    }
+    h.get_by_label("Not Show Again").click();
+    h.run();
+    let a = app.lock().unwrap();
+    let a = a.as_ref().unwrap();
+    assert!(!a.options.history.show_documents);
+    assert!(a.options.history.show_driver_hint);
+    assert!(a.startup.is_none());
+    drop(a);
+    s.exit();
+}

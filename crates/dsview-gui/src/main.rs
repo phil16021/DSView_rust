@@ -205,7 +205,13 @@ fn main() -> eframe::Result {
             // PLAN.md §5.1 (trace meshes are never feathered, so the option
             // touches lines and text only)
             match saved {
-                Some(o) => app.options = o,
+                Some(o) => {
+                    app.startup = Some(dsview_gui::startup::Startup::new(
+                        &o,
+                        app.session.data_dir(),
+                    ));
+                    app.options = o;
+                }
                 None => app.options.antialias = false,
             }
             app.options.apply(&mut app.view, &cc.egui_ctx);
