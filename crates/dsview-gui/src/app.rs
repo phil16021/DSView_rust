@@ -268,6 +268,10 @@ impl eframe::App for App {
                             self.view.dso.lissajous.open_dialog(&self.session);
                             ui.close();
                         }
+                        if ui.button("Reference…").clicked() {
+                            self.view.dso.refs.dialog = Some(0);
+                            ui.close();
+                        }
                     });
                 });
                 ui.separator();

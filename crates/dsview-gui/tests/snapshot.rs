@@ -239,6 +239,37 @@ fn lissajous_view() {
     s.exit();
 }
 
+#[test]
+fn dso_reference_view() {
+    let s = demo_in_mode(dsview_core::Mode::Dso);
+    let mut view = TimeView::default();
+    let mut samples = {
+        let store = s.data().dso.lock().unwrap();
+        let n = store.sample_count() as usize;
+        store.get_samples(0, 0).unwrap()[..n].to_vec()
+    };
+    samples.reverse();
+    view.dso.refs.waves.push(dsview_viewmodel::dso::RefWave {
+        index: 0,
+        samples,
+        samplerate: s.state().cur_snap_samplerate as f64,
+        hw_offset: 128,
+        mv_per_code: 1000.0 * 10.0 / 255.0,
+        colour: [238, 178, 17],
+        name: "Ref 1".into(),
+    });
+    let s2 = s.clone();
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1100.0, 640.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            view.show(ui, &s2);
+        });
+    harness.run();
+    harness.snapshot("dso_reference_view");
+    s.exit();
+}
+
 fn click(h: &mut Harness<'_>, x: f32, y: f32) {
     let pos = egui::pos2(x, y);
     let ev = &mut h.input_mut().events;

@@ -75,6 +75,8 @@ pub struct DsoState {
     pub math: crate::mathview::MathState,
     /// The Lissajous figure.
     pub lissajous: crate::lissajousview::LissajousState,
+    /// Reference waveforms.
+    pub refs: crate::refview::RefState,
     /// The math trace's header row (`get_y()`), when shown.
     math_y: Option<i32>,
 }
@@ -112,7 +114,7 @@ pub(crate) struct ChanView {
 }
 
 impl ChanView {
-    fn zero_y(&self) -> i32 {
+    pub(crate) fn zero_y(&self) -> i32 {
         self.geom.zero_vpos(self.zero_offset)
     }
 }
@@ -350,6 +352,12 @@ impl TimeView {
             self.paint_dso_traces(&tpainter, s, area, rect, &tb, &chans);
             self.paint_math(&tpainter, s, area, rect, &tb, &chans);
         }
+        // frozen references over the live traces
+        self.paint_refs(&tpainter, area, &chans, rect.w);
+        let ctx = ui.ctx().clone();
+        let mut refs = std::mem::take(&mut self.dso.refs);
+        refs.dialog(&ctx, s, &chans);
+        self.dso.refs = refs;
         self.paint_dso_fore(&tpainter, area, rect, &tb, &chans);
         self.paint_ruler(&painter, ruler_rect, s, &tb);
         self.paint_cursors(&painter, ruler_rect, area, &tb);

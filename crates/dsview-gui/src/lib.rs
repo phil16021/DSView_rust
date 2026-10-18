@@ -11,6 +11,7 @@ pub mod hooks;
 pub mod lissajousview;
 pub mod mathview;
 pub mod protocol;
+pub mod refview;
 pub mod soak;
 pub mod timeview;
 pub mod toolbar;

@@ -499,6 +499,123 @@ pub fn math_envelope_shape(
     Some(TraceShape::Envelope(rects))
 }
 
+/// `SigSession::RefWave`: a frozen copy of a channel with the calibration
+/// it was shown at.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RefWave {
+    pub index: u16,
+    pub samples: Vec<u8>,
+    pub samplerate: f64,
+    /// The code of 0 V at capture time.
+    pub hw_offset: i32,
+    /// mV = (hw_offset - code) × mv_per_code
+    pub mv_per_code: f64,
+    pub colour: [u8; 3],
+    pub name: String,
+}
+
+impl RefWave {
+    /// `add_ref_wave`: the frozen calibration of the trace as shown
+    /// (`scale` includes the stop-scale stretch).
+    pub fn mv_per_code_for(scale: f32, vdiv_mv: u64, factor: u64, height: i32) -> f64 {
+        scale as f64 * vdiv_mv as f64 * factor as f64 * VDIVS as f64 / height as f64
+    }
+}
+
+/// `paint_ref_waves`' dash limit: denser than 3 px per sample is drawn
+/// solid, one min/max pair per column.
+pub const REF_DASH_MIN_PIXELS_PER_SAMPLE: f64 = 3.0;
+
+/// `Viewport::paint_ref_waves` for one reference on its channel's grid
+/// `g`, zero line `zero_y` and current V/div × factor `mv_per_div`: the
+/// polyline and whether it is dense (solid) or dashed. None if nothing
+/// shows.
+#[allow(clippy::too_many_arguments)]
+pub fn ref_wave_shape(
+    rw: &RefWave,
+    g: &Geom,
+    zero_y: i32,
+    mv_per_div: f64,
+    scale: f64,
+    x_offset: i64,
+    trig_hoff: f64,
+    width: i32,
+) -> Option<(Vec<(f32, f32)>, bool)> {
+    let n = rw.samples.len() as i64;
+    if n < 2 || rw.samplerate <= 0.0 || rw.mv_per_code <= 0.0 || g.rect.h <= 0 || mv_per_div <= 0.0 {
+        return None;
+    }
+    let px_per_code = rw.mv_per_code * g.rect.h as f64 / (VDIVS as f64 * mv_per_div);
+    let (top, bottom) = (g.rect.top() as f32, g.rect.bottom() as f32);
+    let spp = rw.samplerate * scale;
+    if spp <= 0.0 {
+        return None;
+    }
+    let pps = 1.0 / spp;
+    let last = n - 1;
+    let start = x_offset as f64 * spp - trig_hoff;
+    let end = start + spp * width as f64;
+    let s0 = (start.floor() as i64).max(0).min(last);
+    let s1 = ((end.ceil() as i64) + 1).max(0).min(last);
+    if s1 <= s0 {
+        return None;
+    }
+    let count = s1 - s0 + 1;
+    let dense = pps < REF_DASH_MIN_PIXELS_PER_SAMPLE;
+    let capacity = if dense { (2 * count).min(2 * width as i64 + 16) } else { count } as usize;
+    let mut x = ((s0 as f64 / spp - x_offset as f64) + trig_hoff * pps) as f32;
+    let to_y = |c: u8| (zero_y as f32 + ((c as i32 - rw.hw_offset) as f64 * px_per_code) as f32).max(top).min(bottom);
+    let mut pts: Vec<(f32, f32)> = Vec::with_capacity(capacity);
+    if !dense {
+        for s in s0..=s1 {
+            pts.push((x, to_y(rw.samples[s as usize])));
+            x = (x as f64 + pps) as f32;
+        }
+    } else {
+        let (mut col, mut have_col) = (0i32, false);
+        let (mut ymin, mut ymax) = (0.0f32, 0.0f32);
+        let (mut last_y, mut have_last) = (0.0f32, false);
+        // the column's extremes, nearest one first, so the line joins its
+        // neighbours without crossing diagonals
+        let flush = |pts: &mut Vec<(f32, f32)>, col: i32, ymin: f32, ymax: f32, last_y: &mut f32, have_last: &mut bool| {
+            if pts.len() + 2 > capacity {
+                return;
+            }
+            let (mut a, mut b) = (ymin, ymax);
+            if *have_last && (*last_y - b).abs() < (*last_y - a).abs() {
+                std::mem::swap(&mut a, &mut b);
+            }
+            pts.push((col as f32, a));
+            if b != a {
+                pts.push((col as f32, b));
+            }
+            *last_y = b;
+            *have_last = true;
+        };
+        for s in s0..=s1 {
+            let y = to_y(rw.samples[s as usize]);
+            let c = x.floor() as i32;
+            if !have_col || c != col {
+                if have_col {
+                    flush(&mut pts, col, ymin, ymax, &mut last_y, &mut have_last);
+                }
+                col = c;
+                ymin = y;
+                ymax = y;
+                have_col = true;
+            } else {
+                ymin = ymin.min(y);
+                ymax = ymax.max(y);
+            }
+            x = (x as f64 + pps) as f32;
+        }
+        if have_col {
+            flush(&mut pts, col, ymin, ymax, &mut last_y, &mut have_last);
+        }
+    }
+    Some((pts, dense))
+}
+
 /// `LissajousTrace::DIV_NUM`
 pub const LISSAJOUS_DIVS: i32 = 10;
 /// `LissajousOptions::WellLen`: the percent slider keeps at least 16 k
@@ -1127,6 +1244,33 @@ mod tests {
         assert_eq!(r.len(), 2);
         // values grow upwards: C's "bottom" lies above "top", the height is negative
         assert_eq!(r[0], (0.0, 280.0, 1.0, -10.0));
+    }
+
+    #[test]
+    fn reference_waves() {
+        let g = geom();
+        let rw = RefWave {
+            index: 0,
+            samples: (0..1000).map(|i| (i % 256) as u8).collect(),
+            samplerate: 1e6,
+            hw_offset: 128,
+            mv_per_code: 1000.0 * 10.0 / 255.0,
+            colour: [1, 2, 3],
+            name: "Ref 1".into(),
+        };
+        // 10 px per sample: dashed, one point per sample
+        let (pts, dense) = ref_wave_shape(&rw, &g, 280, 1000.0, 1e-7, 0, 0.0, 1000).unwrap();
+        assert!(!dense);
+        // samples 0 ..= ceil(end) + 1
+        assert_eq!(pts.len(), 102);
+        assert_eq!(pts[1].0, 10.0);
+        // at the same V/div the code maps as the live trace does
+        assert!((pts[0].1 - g.code_y(0, 280, 128)).abs() < 1e-3);
+        // 10 samples per pixel: a min/max pair per column
+        let (pts, dense) = ref_wave_shape(&rw, &g, 280, 1000.0, 1e-5, 0, 0.0, 1000).unwrap();
+        assert!(dense);
+        assert!(pts.len() <= 2 * 1000 + 16);
+        assert_eq!(pts[0].0, 0.0);
     }
 
     #[test]
