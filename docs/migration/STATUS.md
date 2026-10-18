@@ -7,7 +7,7 @@
 | 2 Decoder engine | **done**: Rust/PyO3 engine behind `DSVIEW_IMPL_DECODE`; Rust becomes the default after one release of A/B | See "Phase 2" below |
 | 3 Drivers | **done except hardware steps**: 3a demo, 3b file, 3c USB layer, 3d DSLogic (replug tests passed 2026-10-18), 3e DSCope/MSO-E8 (`DSVIEW_IMPL_DRV_DEMO` / `_FILE` / `_DSLOGIC` / `_DSCOPE`). Open: a firmware upload from the host, the nightly runs, one DSCope/E8 hardware confirmation | See "Phase 3" below |
 | 4 Session + control API | **done**: 4a acquisition library in Rust behind `DSVIEW_IMPL_ACQ`; 4b capture session, control server, `dsview-cli serve --mcp` (transcript identical to the Qt GUI, 1 h soaks passed) | See "Phase 4" below |
-| 5 Rust GUI | **in progress**: M6.0, M6a-M6f done; the Rust GUI is the default on Linux (`DSVIEW_RUST_GUI`, Qt kept as `DSView-qt` for one release); next M6g hardening | PARITY.md 52 of 52 (2026-10-19); open: eframe `accesskit` feature (needs `accesskit_winit`), font licence for `cargo deny` |
+| 5 Rust GUI | **in progress**: M6.0, M6a-M6f done; the Rust GUI is the default on Linux (`DSVIEW_RUST_GUI`, Qt kept as `DSView-qt` for one release); next M6g hardening | PARITY.md 52 of 52 (2026-10-19); AccessKit live over AT-SPI |
 | 6 Removal + packaging | planned after release R1: M7a removal and packaging, M7b post-parity fixes | PLAN.md (revised 2026-10-18): M6f → M6g → R1 → M7a/M7b |
 
 ## Phase 0 deliverables
@@ -1081,9 +1081,9 @@ the demo transcript is unchanged.
     snapshot of the demo capture.
   - The shortcut test is now deterministic: both keys in one frame, since kittest gives each queued
     key its own frame.
-- **Open, needs a decision:** `cargo deny check licenses` fails on egui's built-in Ubuntu font
-  (`epaint_default_fonts`: OFL-1.1 AND Ubuntu-font-1.0), present since M6.0. Either allow
-  `Ubuntu-font-1.0` in `deny.toml`, or build egui without `default_fonts` and ship another UI font.
+- **Font licence (decided 2026-10-19):** `cargo deny check licenses` failed on egui's built-in
+  Ubuntu font (`epaint_default_fonts`: OFL-1.1 AND Ubuntu-font-1.0), present since M6.0. The user
+  chose to allow `Ubuntu-font-1.0` in `deny.toml`; `cargo deny check licenses bans sources` passes.
 
 **Step 8, accessibility (done 2026-10-19):**
 - **Audit:** `app_flow::accessibility_of_the_dialogs` opens every dialog through the window, and
@@ -1095,7 +1095,11 @@ the demo transcript is unchanged.
   - the FFT and Math option rows, now labelled by their row text;
   - the search fields that showed only a hint, now named text inputs.
 - **The window tests load the decoders**, so the decoder picker has entries there.
-- **Not done, needs network:** exposing the tree to screen readers needs eframe's `accesskit`
-  feature, and its `accesskit_winit` crate is not in the offline registry.
+- **Screen readers:** eframe's `accesskit` feature is on (`accesskit_winit` 0.34 and its
+  AT-SPI side, zbus in pure Rust, fetched once with the user's consent 2026-10-19; no existing
+  locked version changed).
+  - Checked live on a private session bus with AT-SPI enabled: `dsview` appears as an application.
+  - The menus, toolbar buttons, combos and measurement slots carry their names.
+  - The trace area's painted parts show as unnamed elements.
 - **PARITY.md is at 52 of 52.** The command-line row is ticked: `-l`, `-v`, `-s`, `--mcp` and the
   file argument have been in place since step 2.

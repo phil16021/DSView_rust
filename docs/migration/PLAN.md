@@ -862,9 +862,6 @@ alongside M6f.
 missing-firmware errors, the srzip port, the `dsview-cli` subcommands. Its hardware steps follow on
 the DSLogic Plus.
 
-Two things left over from M6f wait for the user: eframe's `accesskit` feature (a one-time fetch of
-`accesskit_winit`), and the font licence for `cargo deny` (STATUS.md, M6f step 7).
-
 After M6g come release R1, then Phase 6 (M7a, with M7b alongside).
 
 Each milestone ends with a commit, STATUS/DEVIATIONS updates, and a report before the next one

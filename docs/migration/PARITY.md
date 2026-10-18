@@ -55,7 +55,7 @@ Milestones: **a** viewer, **b** logic capture, **c** decoders, **d** DSO/analog,
 - [x] (f) Help: user guide PDFs, bug-report and release URLs, open log file
 - [x] (a) Control API (`--mcp`) hosted natively: the 31 methods and `testdata/control/demo-scenario.json` pass
 - [x] (f) Command line: `-l`, `-v`, `-s`, `--mcp`, file to open
-- [x] (f) Accessibility: AccessKit audit (every dialog named; exposing the tree to screen readers needs eframe's `accesskit` feature, which waits for a one-time fetch of `accesskit_winit`)
+- [x] (f) Accessibility: AccessKit audit (every dialog named; eframe's `accesskit` feature exposes the tree over AT-SPI)
 
 ## Added 2026-10-18 (missed by the first inventory)
 These are existing Qt features found in the Phase 5 analysis, not new features.
