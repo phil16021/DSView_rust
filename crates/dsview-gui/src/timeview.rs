@@ -121,6 +121,8 @@ pub struct TimeView {
     /// The logic view's traces and their centres on screen, as last drawn.
     shown_rows: Vec<(TraceRef, f32)>,
     pub(crate) pinch: input::Pinch,
+    /// The measured trace's centre y (screen) and height.
+    measure_row: Option<(f32, f32)>,
     /// The capture the view was fitted to.
     fitted_capture: u64,
     pub vertical_scroll_is_zoom: bool,
@@ -200,6 +202,7 @@ impl Default for TimeView {
             selected: Vec::new(),
             shown_rows: Vec::new(),
             pinch: input::Pinch::default(),
+            measure_row: None,
             fitted_capture: u64::MAX,
             vertical_scroll_is_zoom: true,
             quick_scroll: true,
@@ -1113,6 +1116,7 @@ impl TimeView {
 
         // the measurements at the pointer
         self.measure = None;
+        self.measure_row = None;
         self.edges = None;
         self.jump = None;
         if let Some(p) = hover {
@@ -1128,10 +1132,12 @@ impl TimeView {
                     self.jump = Some((end as i64 - start as i64, end));
                 }
                 _ => {
-                    if self.measure_enabled
-                        && let Some(r) = self.row_at(rows, area, p.y)
+                    // measured whether or not the popup shows (the dock and
+                    // the status bar read it)
+                    if let Some(r) = self.row_at(rows, area, p.y)
                         && let Some(sig) = &r.sig
                     {
+                        self.measure_row = Some((area.top() + r.y - self.v_scroll, r.height));
                         self.measure = measure::mouse_measure(
                             &store,
                             sig.index,
@@ -1917,13 +1923,133 @@ impl TimeView {
                 );
             }
             _ => {
-                if let Some(m) = &self.measure
-                    && area.contains(p)
-                {
-                    let (x0, x1) = (x_of(m.start), x_of(m.end));
-                    painter.hline(x0..=x1, p.y, Stroke::new(1.0, accent));
+                if area.contains(p) {
+                    self.paint_measure(painter, area, p, tb);
                 }
             }
+        }
+    }
+
+    /// `Viewport::paintMeasure` (logic): the dashed line at the pointer;
+    /// over a pulse its width and period arrows and edge lines, and with
+    /// the floating measurement on, the popup with width, period, frequency
+    /// and duty cycle.
+    fn paint_measure(&self, painter: &egui::Painter, area: Rect, p: Pos2, tb: &Timebase) {
+        let dashed = |x: f32, y0: f32, y1: f32, c: Color32| {
+            painter.extend(egui::Shape::dashed_line(
+                &[pos2(x, y0), pos2(x, y1)],
+                Stroke::new(1.0, c),
+                4.0,
+                2.0,
+            ));
+        };
+        dashed(
+            p.x,
+            area.top(),
+            area.bottom(),
+            Color32::from_rgba_unmultiplied(220, 220, 220, 140),
+        );
+        let (Some(m), Some((mid_y, height))) = (&self.measure, self.measure_row) else {
+            return;
+        };
+        let active = Color32::from_rgb(238, 178, 17);
+        let active2 = Color32::from_rgb(255, 255, 0);
+        let rising = Color32::from_rgba_unmultiplied(213, 15, 37, 200);
+        let falling = Color32::from_rgba_unmultiplied(17, 133, 209, 200);
+        let x_of = |i: u64| (area.left() as f64 + self.vp.index_to_pixel(i, false, tb)) as f32;
+        let (pre, aft, thd) = (x_of(m.start), x_of(m.end), x_of(m.next));
+        let (top, bottom) = (mid_y - height / 2.0, mid_y + height / 2.0);
+        // an arrow between x1 and x2, the heads outside when it is short
+        let arrow = |x1: f32, x2: f32, y: f32, c: Color32| {
+            const HEAD: f32 = 2.0;
+            let o = if x2 - x1 < 3.0 * HEAD + 1.0 {
+                -HEAD
+            } else {
+                HEAD
+            };
+            let st = Stroke::new(1.0, c);
+            painter.line_segment([pos2(x1, y), pos2(x2, y)], st);
+            painter.line_segment([pos2(x1, y), pos2(x1 + o, y - o)], st);
+            painter.line_segment([pos2(x1, y), pos2(x1 + o, y + o)], st);
+            painter.line_segment([pos2(x2 - o, y - o), pos2(x2, y)], st);
+            painter.line_segment([pos2(x2 - o, y + o), pos2(x2, y)], st);
+        };
+        arrow(pre, aft, mid_y - 4.0, active);
+        let (c0, c1) = if m.high {
+            (rising, falling)
+        } else {
+            (falling, rising)
+        };
+        dashed(pre, area.top(), area.bottom(), c0);
+        painter.vline(pre, top..=bottom, Stroke::new(1.0, active2));
+        dashed(aft, area.top(), area.bottom(), c1);
+        painter.vline(aft, top..=bottom, Stroke::new(1.0, active));
+        if m.next != 0 {
+            arrow(pre, thd, mid_y + 4.0, active2);
+            dashed(thd, area.top(), area.bottom(), c0);
+            painter.vline(thd, top..=bottom, Stroke::new(1.0, active2));
+        }
+        if !self.measure_enabled {
+            return;
+        }
+        let font = egui::FontId::proportional(11.0);
+        let f = Font(painter, font.clone());
+        let labels = ["Width: ", "Period: ", "Frequency: ", "Duty Cycle: "];
+        let values = [&m.width_time, &m.period_time, &m.frequency, &m.duty];
+        let vw = values.iter().map(|v| f.width(v)).fold(0.0, f32::max);
+        let lw = labels.iter().map(|l| f.width(l)).fold(0.0, f32::max);
+        let w = vw + lw + 40.0;
+        let (box_h, pad, row_h) = (140.0, 5.0, 20.0);
+        // `MousePointerClearance`, `MouseEdgeClearance`
+        let (pointer_gap, edge_gap) = (25.0, 3.0);
+        let (lx, ly) = (p.x - area.left(), p.y - area.top());
+        let (aw, ah) = (area.width(), area.height());
+        let mut hx = if lx + w > aw {
+            lx - w - edge_gap
+        } else {
+            lx + pointer_gap
+        };
+        let hy = if ly + box_h > ah {
+            if lx + w <= aw {
+                hx = lx + edge_gap;
+            }
+            ly - box_h - pointer_gap
+        } else {
+            ly + pointer_gap
+        };
+        let org = pos2(area.left() + hx, area.top() + hy);
+        painter.rect_filled(
+            Rect::from_min_size(org, vec2(w, box_h)),
+            0.0,
+            Color32::from_rgba_unmultiplied(17, 133, 209, 200),
+        );
+        let samples = |v: &str| format!("{v} Samples");
+        let rows: [(f32, Option<&str>, String, Color32); 6] = [
+            (pad, Some(labels[0]), m.width_time.clone(), active),
+            (25.0, None, samples(&m.width_samples), active),
+            (50.0, Some(labels[1]), m.period_time.clone(), active2),
+            (70.0, None, samples(&m.period_samples), active2),
+            (95.0, Some(labels[2]), m.frequency.clone(), active),
+            (115.0, Some(labels[3]), m.duty.clone(), active),
+        ];
+        for (dy, label, value, c) in rows {
+            let y = org.y + dy + row_h / 2.0;
+            if let Some(l) = label {
+                painter.text(
+                    pos2(org.x + pad, y),
+                    egui::Align2::LEFT_CENTER,
+                    l,
+                    font.clone(),
+                    c,
+                );
+            }
+            painter.text(
+                pos2(org.x + w - pad, y),
+                egui::Align2::RIGHT_CENTER,
+                value,
+                font.clone(),
+                c,
+            );
         }
     }
 

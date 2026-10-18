@@ -1015,3 +1015,52 @@ fn pinch_zoom() {
     assert!(after < before, "zoomed in: {after} < {before}");
     s.exit();
 }
+
+/// The pointer over a pulse: width and period arrows, the edge lines and
+/// the floating measurement popup.
+#[test]
+fn mouse_measure_popup() {
+    let s = demo_session();
+    let view = Arc::new(std::sync::Mutex::new(TimeView::default()));
+    let (s2, v2) = (s.clone(), view.clone());
+    let mut shown = false;
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1100.0, 640.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            let mut view = v2.lock().unwrap();
+            view.show(ui, &s2);
+            if !std::mem::replace(&mut shown, true) {
+                view.show_region(&s2, 45_000, 47_000);
+            }
+        });
+    harness.run();
+    // channel 0 (SCL) in the middle of the view
+    harness.run();
+    let rows = view.lock().unwrap().shown_rows().to_vec();
+    let y = rows
+        .iter()
+        .find(|r| {
+            matches!(
+                r.0,
+                dsview_session::session::TraceRef::Signal { index: 0, .. }
+            )
+        })
+        .unwrap()
+        .1;
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::PointerMoved(egui::pos2(620.0, y)));
+    harness.run();
+    harness.run();
+    let m = view
+        .lock()
+        .unwrap()
+        .measure
+        .clone()
+        .expect("a pulse under the pointer");
+    assert!(m.end > m.start);
+    harness.snapshot("mouse_measure_popup");
+    s.exit();
+}
