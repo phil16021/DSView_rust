@@ -68,6 +68,8 @@ pub struct App {
     close_now: bool,
     /// The Log Options dialog while open.
     log_options: Option<crate::log::LogOptions>,
+    /// The About window is open.
+    about: bool,
     /// The restored window was checked against the screen.
     window_checked: bool,
     pub bench: Option<Bench>,
@@ -204,23 +206,7 @@ impl App {
         let Some(then) = self.store_confirm else {
             return;
         };
-        let mut answer = None;
-        egui::Window::new("Save captured data")
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-            .show(ctx, |ui| {
-                ui.label("Save captured data?");
-                ui.horizontal(|ui| {
-                    if ui.button("Yes").clicked() {
-                        answer = Some(true);
-                    }
-                    if ui.button("No").clicked() {
-                        answer = Some(false);
-                    }
-                });
-            });
-        match answer {
+        match crate::msgbox::confirm(ctx, "store", "Save captured data?") {
             Some(true) => {
                 self.store_confirm = None;
                 if self.session.is_working() {
@@ -290,6 +276,7 @@ impl App {
             title: String::new(),
             close_now: false,
             log_options: None,
+            about: false,
             window_checked: false,
             bench: None,
             soak: None,
@@ -658,12 +645,6 @@ impl App {
                         ui.close();
                     }
                 });
-                ui.menu_button("Help", |ui| {
-                    if ui.button("Log Options").clicked() {
-                        self.log_options = Some(crate::log::LogOptions::new(&self.options));
-                        ui.close();
-                    }
-                });
                 ui.menu_button("View", |ui| {
                     ui.checkbox(&mut self.dso_trigger.open, "Trigger (T)");
                     ui.checkbox(&mut self.protocol.open, "Protocol (D)");
@@ -708,6 +689,35 @@ impl App {
                             ui.close();
                         }
                     });
+                });
+                // Qt's logo bar
+                ui.menu_button("Help", |ui| {
+                    if ui.button("About…").clicked() {
+                        self.about = true;
+                        ui.close();
+                    }
+                    if ui.button("Manual…").clicked() {
+                        match crate::help::manual_path(
+                            self.session.data_dir(),
+                            self.options.frame.language,
+                        ) {
+                            Some(p) => crate::help::open(p),
+                            None => self.message = Some("File does not exist!".into()),
+                        }
+                        ui.close();
+                    }
+                    if ui.button("Bug Report").clicked() {
+                        crate::help::open(crate::help::BUG_REPORT_URL);
+                        ui.close();
+                    }
+                    if ui.button("Update").clicked() {
+                        crate::help::open(crate::help::UPDATE_URL);
+                        ui.close();
+                    }
+                    if ui.button("Log Options").clicked() {
+                        self.log_options = Some(crate::log::LogOptions::new(&self.options));
+                        ui.close();
+                    }
                 });
                 ui.separator();
                 let dev = self.session.state().device.as_ref().map(|d| d.name.clone());
@@ -943,33 +953,24 @@ impl App {
             .collect();
         self.view.dso.math.dialog(&ctx, &names);
         self.view.dso.lissajous.dialog(&ctx, &self.session, &names);
-        if let Some((handle, name)) = self.switch_prompt.clone() {
-            egui::Window::new("New device")
-                .collapsible(false)
-                .show(&ctx, |ui| {
-                    ui.label(format!("\"{name}\" was connected. Switch to it?"));
-                    ui.horizontal(|ui| {
-                        if ui.button("Switch").clicked() {
-                            self.switch_prompt = None;
-                            self.switch_to_new(handle);
-                        }
-                        if ui.button("Keep").clicked() {
-                            self.switch_prompt = None;
-                        }
-                    });
-                });
-        }
-        if let Some(msg) = self.message.clone() {
-            let mut open = true;
-            egui::Window::new("DSView")
-                .open(&mut open)
-                .collapsible(false)
-                .show(&ctx, |ui| {
-                    ui.label(msg);
-                });
-            if !open {
-                self.message = None;
+        // DSV_MSG_NEW_USB_DEVICE's question
+        if let Some((handle, _)) = self.switch_prompt.clone() {
+            match crate::msgbox::confirm(&ctx, "new-device", "To switch the new device?") {
+                Some(true) => {
+                    self.switch_prompt = None;
+                    self.switch_to_new(handle);
+                }
+                Some(false) => self.switch_prompt = None,
+                None => {}
             }
+        }
+        if let Some(msg) = self.message.clone()
+            && crate::msgbox::show(&ctx, "message", &msg)
+        {
+            self.message = None;
+        }
+        if self.about && !crate::help::about(&ctx, &self.version) {
+            self.about = false;
         }
 
         if let Some(soak) = &mut self.soak {

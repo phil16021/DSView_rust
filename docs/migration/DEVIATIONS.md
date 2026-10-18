@@ -462,6 +462,9 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
 - **Log Options opens a new log file in overwrite mode.** On OK, `on_action_setting_log` calls
   `dsv_log_enalbe_logfile(false)` whatever "Append mode" says. The setting only takes effect at
   the next start. Ported as is.
+- **The manual for German does not exist.** `MainWindow::openDoc` opens `ug<language>.pdf`, but
+  only `ug25.pdf` and `ug31.pdf` ship, so German opens nothing. Rust falls back to the English
+  guide.
 - **The window position can be off every screen.** The saved `x`/`left` comes from whichever
   monitor the window was last on; `ReadSettings` moves it back when it shows less than 70 × 70 px
   of the screen. Ported.

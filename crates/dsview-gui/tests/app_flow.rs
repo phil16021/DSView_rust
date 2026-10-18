@@ -167,3 +167,21 @@ fn log_options_dialog() {
     s.exit();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Help > About shows the version and architecture; Esc closes it.
+#[test]
+fn about_window() {
+    let s = dslogic_session();
+    let (mut h, _app) = harness(&s);
+    h.run();
+    h.get_by_label("Help").click();
+    h.run();
+    h.get_by_label("About…").click();
+    h.run();
+    h.get_by_label_contains("DSView test (");
+    h.get_by_label("All members of Sigrok project");
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert!(h.query_by_label_contains("DSView test (").is_none());
+    s.exit();
+}

@@ -232,22 +232,14 @@ impl LogOptions {
                     }
                 });
             });
-        if self.confirm_clear {
-            egui::Window::new("Clear log")
-                .collapsible(false)
-                .resizable(false)
-                .show(ctx, |ui| {
-                    ui.label("Are you sure to clear log file?");
-                    ui.horizontal(|ui| {
-                        if ui.button("OK").clicked() {
-                            clear();
-                            self.confirm_clear = false;
-                        }
-                        if ui.button("Cancel").clicked() {
-                            self.confirm_clear = false;
-                        }
-                    });
-                });
+        if self.confirm_clear
+            && let Some(yes) =
+                crate::msgbox::confirm(ctx, "clear-log", "Are you sure to clear log file?")
+        {
+            if yes {
+                clear();
+            }
+            self.confirm_clear = false;
         }
         if done == Some(true)
             && (self.save, self.level, self.append)

@@ -979,3 +979,20 @@ the demo transcript is unchanged.
 - **Tests:** the log file, levels and clear (with a redirected path), and the dialog through the
   window.
 
+**Step 3, Help menu and messages (done 2026-10-18):**
+- **Help menu** (Qt's logo bar, last in the menu bar):
+  - About: version and architecture, website, copyright, fork and thanks, with working links;
+  - Manual: `ug<language>.pdf` in the data directory, the English guide when the language has none;
+  - Bug Report and Update open their GitHub pages;
+  - Log Options;
+  - the Language submenu follows with i18n (step 6).
+- **Opening files and links:** through the `open` crate. egui's hyperlinks would need eframe's
+  `links` feature.
+- **`msgbox`:** `MsgBox::Show` ("Message", OK) and `MsgBox::Confirm` ("Confirm", Yes/No) as
+  centred, non-blocking windows. These now use them:
+  - the app's messages;
+  - "Save captured data?";
+  - the new-device question, now Qt's "To switch the new device?";
+  - the log's Clear.
+- **Tests:** the manual lookup, and About through the window.
+

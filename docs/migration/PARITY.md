@@ -44,7 +44,7 @@ Milestones: **a** viewer, **b** logic capture, **c** decoders, **d** DSO/analog,
 - [x] (d) FFT, math and lissajous options; DSO measurements; histogram/jitter; channel-to-channel delay/skew/phase
 - [x] (e) Reference, interval, region and search options; store progress (cursor range, compressed or original); protocol export and list (Qt's region dialog is never opened: not ported, DEVIATIONS F29)
 - [x] (f) Application options: antialiasing, quick scroll, wheel action, font size, ruler units, line widths, persistence time, decoder font widths, profile in bar, trigger position in middle, don't ask to save (decoder font width as a smaller font, F29)
-- [ ] (f) About, message box, waiting dialog
+- [x] (f) About, message box, waiting dialog (the waiting dialog's GIF as animated dots; the logo with the icons, step 7)
 
 ## Cross-cutting
 - [ ] (f) Shortcuts: S, I, T, D, M, R, O, PgUp/PgDn, ←/→ zoom, 0/1 select DSO channel, ↑/↓ V/div, Esc; 200 ms debounce
@@ -52,7 +52,7 @@ Milestones: **a** viewer, **b** logic capture, **c** decoders, **d** DSO/analog,
 - [x] (a/f) `.dsl` open/save; `.dsc` profiles, including automatic `<driver><mode>.ses.dsc` and the shipped defaults
 - [ ] (f) i18n: cn/en/de from `lang/*.json`, runtime switching, CJK font
 - [ ] (f) Themes: dark, light, frappé, latte; about 250 SVG icons
-- [ ] (f) Help: user guide PDFs, bug-report and release URLs, open log file
+- [x] (f) Help: user guide PDFs, bug-report and release URLs, open log file
 - [x] (a) Control API (`--mcp`) hosted natively: the 31 methods and `testdata/control/demo-scenario.json` pass
 - [ ] (f) Command line: `-l`, `-v`, `-s`, `--mcp`, file to open
 - [ ] (f) Accessibility: AccessKit audit
