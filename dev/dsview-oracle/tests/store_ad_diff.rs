@@ -131,7 +131,8 @@ fn check_envelope(c: &CDsoStore, r: &DsoStore, rng: &mut Rng, ctx: &str) {
         for _ in 0..4 {
             let end = rng.below(n + 1);
             let start = rng.below(end + 1);
-            let min_length = rng.pick(&[1.0f32, 255.9, 256.0, 300.5, 65535.0, 65536.0, 70000.0, 1e7]);
+            let min_length =
+                rng.pick(&[1.0f32, 255.9, 256.0, 300.5, 65535.0, 65536.0, 70000.0, 1e7]);
             let (cs, cscale, centries) = c.envelope_section(start, end, min_length, probe as i32);
             let e = r.get_envelope_section(start, end, min_length, probe);
             let rentries: Vec<(u8, u8)> = e.samples[..(e.length as usize).min(e.samples.len())]
@@ -143,7 +144,10 @@ fn check_envelope(c: &CDsoStore, r: &DsoStore, rng: &mut Rng, ctx: &str) {
                 (e.length, e.start, e.scale),
                 "envelope section {probe} {start}..{end} @{min_length} {ctx}"
             );
-            assert_eq!(centries, rentries, "envelope entries {probe} {start}..{end} @{min_length} {ctx}");
+            assert_eq!(
+                centries, rentries,
+                "envelope entries {probe} {start}..{end} @{min_length} {ctx}"
+            );
         }
     }
 }

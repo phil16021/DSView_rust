@@ -477,7 +477,9 @@ impl AnalogStore {
             .then(|| self.envelope_levels.get(probe_index as usize))
             .flatten()
             .and_then(|l| l.get(min_level))
-            .map_or(&[], |e| &e.samples[..(e.length as usize).min(e.samples.len())])
+            .map_or(&[], |e| {
+                &e.samples[..(e.length as usize).min(e.samples.len())]
+            })
     }
 
     /// `ring_start()`: the oldest sample's position once the ring wrapped.
