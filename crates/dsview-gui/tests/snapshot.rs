@@ -179,6 +179,24 @@ fn dso_measure_bar() {
     s.exit();
 }
 
+#[test]
+fn fft_pane() {
+    let s = demo_in_mode(dsview_core::Mode::Dso);
+    let mut fft = dsview_gui::fftview::FftState::default();
+    fft.specs[0].enabled = true;
+    fft.specs[0].window = 1;
+    let s2 = s.clone();
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1100.0, 300.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            fft.show(ui, &s2);
+        });
+    harness.run();
+    harness.snapshot("fft_pane");
+    s.exit();
+}
+
 fn click(h: &mut Harness<'_>, x: f32, y: f32) {
     let pos = egui::pos2(x, y);
     let ev = &mut h.input_mut().events;

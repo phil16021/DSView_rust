@@ -34,6 +34,7 @@ pub struct App {
     pub bar: SamplingBar,
     pub protocol: ProtocolDock,
     pub dso_trigger: crate::dsotrigger::DsoTriggerDock,
+    pub fft: crate::fftview::FftState,
     pub shared: Shared,
     pub version: String,
     events: Receiver<SessionEvent>,
@@ -69,6 +70,7 @@ impl App {
             bar: SamplingBar::default(),
             protocol: ProtocolDock::default(),
             dso_trigger: crate::dsotrigger::DsoTriggerDock::default(),
+            fft: crate::fftview::FftState::default(),
             shared,
             version: version.into(),
             events: rx,
@@ -251,6 +253,15 @@ impl eframe::App for App {
                     ui.checkbox(&mut self.protocol.open, "Protocol (D)");
                     ui.checkbox(&mut self.view.dso.split, "Split DSO channels");
                 });
+                let dso = self.session.mode() == dsview_core::Mode::Dso as i32;
+                ui.add_enabled_ui(dso, |ui| {
+                    ui.menu_button("Functions", |ui| {
+                        if ui.button("FFT…").clicked() {
+                            self.fft.open_dialog();
+                            ui.close();
+                        }
+                    });
+                });
                 ui.separator();
                 let dev = self.session.state().device.as_ref().map(|d| d.name.clone());
                 ui.label(dev.unwrap_or_else(|| "no device".into()));
@@ -310,8 +321,23 @@ impl eframe::App for App {
             self.message = Some(m);
         }
         egui::CentralPanel::default().show(ui, |ui| {
-            self.view.show(ui, &self.session);
+            if dso && self.fft.active().is_some() {
+                // the FFT pane under the time view (Qt's second viewport)
+                let r = ui.max_rect();
+                let split = r.top() + r.height() * 0.6;
+                let top = egui::Rect::from_min_max(r.min, egui::pos2(r.right(), split - 2.0));
+                let bottom = egui::Rect::from_min_max(egui::pos2(r.left(), split + 2.0), r.max);
+                ui.scope_builder(egui::UiBuilder::new().max_rect(top), |ui| {
+                    self.view.show(ui, &self.session);
+                });
+                ui.scope_builder(egui::UiBuilder::new().max_rect(bottom), |ui| {
+                    self.fft.show(ui, &self.session);
+                });
+            } else {
+                self.view.show(ui, &self.session);
+            }
         });
+        self.fft.dialog(&ctx, &self.session);
         if let Some((handle, name)) = self.switch_prompt.clone() {
             egui::Window::new("New device")
                 .collapsible(false)

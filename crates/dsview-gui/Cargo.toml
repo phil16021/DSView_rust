@@ -16,6 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 dsview-control = { path = "../dsview-control" }
+dsview-dsp = { path = "../dsview-dsp" }
 dsview-core = { path = "../dsview-core" }
 dsview-decode = { path = "../dsview-decode" }
 dsview-drivers = { path = "../dsview-drivers" }

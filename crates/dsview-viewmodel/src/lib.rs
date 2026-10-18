@@ -11,6 +11,7 @@
 //! * [`cursors`]: time cursors
 //! * [`analog`]: analog (DAQ) traces (`AnalogSignal`)
 //! * [`dso`]: oscilloscope traces, grid, trigger level (`DsoSignal`)
+//! * [`spectrum`]: the FFT pane (`SpectrumTrace`)
 //! * [`decode`]: decoder rows, annotation shapes, colours, text fitting
 //! * [`layout`]: trace heights and order (`View::signals_changed`)
 //! * [`input`]: wheel actions, kinetic scroll, rubber-band zoom
@@ -24,4 +25,5 @@ pub mod layout;
 pub mod logic;
 pub mod measure;
 pub mod ruler;
+pub mod spectrum;
 pub mod viewport;
