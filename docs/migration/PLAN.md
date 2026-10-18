@@ -205,37 +205,145 @@ Each phase lists scope, seam, exit criteria and what gets deleted.
 - **Deleted:** the rest of libsigrok4DSL and the libusb dependency.
 
 ### Phase 5: Rust GUI (XL, 35-46 pw, milestones M6a-f)
-**Toolkit: egui/eframe (wgpu)** + egui_dock + egui_extras virtualized tables (millions of protocol rows) + catppuccin-egui (matches the frappe/latte themes) + AccessKit.
+*Revised 2026-10-18 after Phase 4b, from a detailed analysis of `DSView/pv`, an egui rendering
+spike on the development VM, and the Rust session as it now stands.*
 
-Why egui:
-- About 70% of the UI is custom-painted traces, and immediate mode suits a 30 Hz streaming redraw.
-- Option-driven dialogs (device and decoder options generated at runtime) are natural in immediate mode.
-- The required crates for docking, tables, themes and accessibility are maintained.
-- Rerun shows egui scales to large time-series data.
+#### 5.0 What the analysis found
 
-Why not the others:
-- gtk4-rs/relm4 has more native forms but harder trace rendering and painful Windows/macOS packaging.
-- iced has gaps in tables, accessibility and docking, and its API still churns.
-- Slint has no good custom canvas.
-- cxx-qt would still mean QML plus C++.
+**Size.** `DSView/pv` is 65k lines (.cpp + .h). What the Rust GUI has to replace, by area:
 
-Rendering: a per-trace `egui::Mesh` built from `display_edges`. If a frame takes more than 4 ms at 4K × 32 channels, switch to an `egui_wgpu` callback pass.
+| Area | C++ LOC | Portable logic (→ `dsview-viewmodel`/`dsview-dsp`) | Paint/widget code (→ `dsview-gui`) |
+|---|---|---|---|
+| Trace view: view, viewport, ruler, header, logic and decode traces, cursors | ~9.0k | ~3.0k: index↔pixel, zoom/offset, layout, ruler ticks, edge→segment, decode-row culling and colours, cursors, interaction state machine, mouse measure, kinetic scroll | ~6.0k, much of it popups and QPainter detail; far less in egui |
+| DSO, analog, math, spectrum, lissajous, ref waves, histogram, channel measure, calibration | ~11k | ~2.5k: FFT windows and magnitudes, 11 math operations, envelopes (DSO/math 256×10, analog 16×), edge detect and measurements, auto-set, dial tables, voltage mappings | ~3.0-3.5k: traces, grids, dials, persistence, plots |
+| Docks, toolbars, dialogs, prop binders, config, i18n, mainwindow/mainframe | ~21k | ~1.5k form model (device, probe and decoder options from `config_list`), ~1k settings, i18n and profiles | ~6-8k |
+| Session, stores, decoder stack, store session, control API | ~10k | **done in Phases 1-4** | — |
 
-Other requirements:
-- Bundle a Noto Sans CJK subset (OFL) for the Chinese UI.
-- All logic lives in `dsview-viewmodel`, so the toolkit stays swappable.
-- `dsview` ships as a preview next to Qt until M6e.
+Estimated Rust: about 20-25k lines plus tests. That is consistent with the original XL estimate.
 
-| Milestone | Content | Exit |
-|---|---|---|
-| M6a viewer | open .dsl/.demo, logic traces, ruler, header, zoom/pan/inertia, cursors, Rust-hosted control API (read methods) | egui_kittest snapshots; MCP read-tool conformance |
-| M6b logic capture | device select, sampling bar, channels, simple trigger, single/repeat/loop/instant | hardware matrix via MCP scenarios |
-| M6c decoders | decoder menu, runtime option forms, decode traces, protocol dock (table/search/export) | decoder goldens via `get_annotations` |
-| M6d DSO/analog | DSO/analog traces (envelope, persistence, dials), DSO trigger, measure, math, spectrum, lissajous, ref waves | replay snapshots; DSP vs FFTW ≤ 1e-9 relative |
-| M6e docks/dialogs | advanced 16-stage + serial trigger, search, ~22 dialogs (device options generated from `config_list`, calibration, store progress, app options …) | full 30-tool MCP suite green → **Rust GUI default** |
-| M6f polish | i18n (`tr!` over existing `lang/{cn,en,de}` JSON), 4 themes, ~250 SVG icons, shortcuts (S/I/T/D/M/R/O, PgUp/PgDn, arrows, 0/1), .dsc profiles, QSettings import, AccessKit audit | parity checklist 100% |
+**Rendering on this machine.** Development and daily use here is a Hyper-V VM over xrdp. There is no
+GPU, only Mesa llvmpipe (GL) and lavapipe (Vulkan).
+- The egui spike (`egui` 0.37, `egui_kittest` with wgpu, off-screen) paints 32 logic traces × 4,000
+  edges at 3840×2160 in **0.8 ms of CPU per frame**: layout and tessellation.
+- Rasterising on lavapipe, including the read-back, costs **110 ms per frame at 1920×1080** and
+  1.1-1.9 s at 4K.
+- So the plan's "≤ 4 ms per frame at 4K × 32 channels" can only be a CPU budget here. The GPU
+  budget needs real hardware.
+- A software-rendered desktop must stay usable: the Qt GUI draws with its CPU raster engine and
+  does.
 
-The parity checklist is frozen from the GUI inventory and lives in `docs/migration/parity.md`. No new features are added before M7.
+**Defects found that affect the plan** (details in DEVIATIONS.md F26 once fixed):
+- **Rust DSO store has no envelope.** Phase 1b left out the DSO envelope as "never called". It is
+  called: `DsoSignal::paint_mid` (`dsosignal.cpp:874-884`) switches to `paint_envelope` at
+  ≥ 256 samples per pixel.
+  - With `DSVIEW_IMPL_STORE=rust`, a deep DSO frame (more than ~256k samples on a 1000 px view)
+    draws nothing when zoomed out.
+  - The demo oscilloscope (10k samples) never reaches that point, so no test saw it.
+- **Annotation lookup is a linear scan.** `RowData::get_annotation_subset` scans every annotation
+  under a mutex on every repaint. The Rust `DecoderStack::annotations` copies that. A GUI needs an
+  index.
+- **The Qt view paints with side effects.**
+  - `check_update()` and DSO auto-set run inside paint.
+  - Decoder headings lag one frame.
+  - Logic mode has no cache, so every mouse move walks all channels again.
+  - The Rust GUI separates update from paint.
+- **Quirks to keep for parity, then fix in M7:**
+  - The ruler's tick steps are not 1-2-5 (`ScaleUnits` is unused).
+  - `x_offset` is an integer pixel count.
+  - Kinetic scroll stalls because of int truncation.
+  - Cursor colours and numbers shift when a cursor is deleted.
+  - The protocol table puts annotation *n* of each row in one table row, not time-aligned.
+  - The protocol export's TXT is the same as its CSV.
+  - The FFT uses `PI = 3.1415`.
+
+**What the Rust session already gives the GUI:**
+- devices, modes, the sampling bar, the simple trigger;
+- single/repeat/loop/instant, double buffers;
+- the stores with `get_display_edges`, edge and pattern search;
+- decoder stacks, profiles, save/export, and the control API (`dsview-control::api`, all 31 methods).
+
+**What it lacks for a GUI:**
+- change notifications instead of polling;
+- live decoding during a stream capture (C decodes while capturing; 4b decodes at the end);
+- annotation queries by range with an index;
+- the advanced and serial trigger;
+- the DSO trigger settings;
+- auto calibration;
+- math/spectrum/ref-wave state;
+- per-view hooks for `show_region`/`set_cursors` and the "dialog is open" refusal of mutating
+  control calls.
+
+#### 5.1 Architecture
+
+| Crate | Content |
+|---|---|
+| `dsview-viewmodel` (new, no UI toolkit) | `viewport`: scale and offset as f64 in sample space, zoom around a point, limits, `show_region`, auto-scroll. `ruler`: tick algorithm (Qt's first), time/sample formatting. `layout`: trace stacking, heights, view_index order, v-snap, DSO split. `logic`: `get_display_edges` → line segments, sample dots. `decode`: row enumeration, detail gate, colours, culling, text fit through a `TextMeasure` trait. `cursors`. `measure`: mouse measure, edge counts, cursor deltas. `input`: wheel/drag/pinch/kinetic/rubber-band state machine, shortcuts with the 200 ms debounce. `forms`: option forms generated from `config_list` (device, probe, decoder). `trigger`: advanced/serial model → `Trigger`. `settings`: AppConfig model, Qt `DSView.conf` (INI) import. `i18n`: `lang/*/*.json` with `L_S(page, id, default)`. `theme`: tokens for dark/light/frappé/latte |
+| `dsview-dsp` (new) | FFT (realfft) with the five windows and Qt's scaling, math operations, envelopes, DSO edge detection and measurements (moved from `dsview-control::measure`), auto-set, histogram/jitter, channel delay/skew/phase |
+| `dsview-session` (extended) | event channel (`SessionEvent`: device, capture started/ended, data appended, decode progress); live decoding while streaming; advanced/serial trigger; DSO trigger keys; calibration calls; math/spectrum/ref state; annotation interval index |
+| `dsview-gui` (new, binary `dsview`) | eframe app: panels and docks (egui_dock), trace painters on the viewmodel, dialogs as non-blocking modal windows, `rfd` file dialogs, egui_extras SVG icons and virtual tables, the control API hosted through `dsview-control::api` plus a `ViewHooks` implementation |
+
+Rules:
+- The GUI thread never takes a store lock longer than one frame's queries.
+- Painting reads; updates happen before painting.
+- Every algorithm with a C++ original gets a differential or golden test from the oracle, or a
+  port-exact unit test when the C++ cannot run in isolation (the ruler, layout and measure come
+  from Qt widgets).
+
+**Rendering.**
+- eframe with **glow** by default and wgpu by switch (`DSVIEW_RENDERER=glow|wgpu`): llvmpipe GL is
+  the common case on VMs and remote desktops.
+- Traces are one `egui::Mesh` per trace, built from the viewmodel's segments.
+- DSO persistence is an egui texture with alpha decay.
+- **Gate (M6a):**
+  - The CPU per frame stays ≤ 4 ms at 4K × 32 channels (measured in tests).
+  - On this VM over xrdp at 1920×1080 the app redraws at ≥ 20 frames/s while streaming.
+- **Fallback:** if glow on llvmpipe misses that, rasterise traces on the CPU (tiny-skia into a
+  texture, as Qt does) and keep egui for widgets.
+
+#### 5.2 Milestones (revised)
+
+| Milestone | Content | Exit | Estimate |
+|---|---|---|---|
+| **M6.0 prerequisites** | DSO envelope in `dsview-store` (256×10 mip-map, differential against the C++ class); annotation interval index; `SessionEvent` channel; `ViewHooks` for the control API; `dsview-viewmodel` and `dsview-dsp` skeletons; renderer spike in-app on this VM (glow vs wgpu, frame-time log) | envelope diff test green; Qt DSO trace drawn at ≥ 256 spp with `DSVIEW_IMPL_STORE=rust`; rendering gate decided | 2-3 pw |
+| **M6a viewer** | open .dsl/.demo; logic traces; ruler; header (rename, colour, drag reorder, trigger squares); zoom/pan/kinetic/rubber-band; cursors (add, drag with edge snap, labels); mouse measure and edge-count clicks; control API hosted natively (all methods, the view ones through `ViewHooks`) | `testdata/control/demo-scenario.json` passes against `dsview`; egui_kittest snapshots of the protocol.demo view; viewmodel unit tests against port-exact expectations for the ruler, layout and measure | 6-8 pw |
+| **M6b logic capture** | device selector, sampling bar (rate/depth lists already in the session), channel enable, simple trigger, single/repeat/loop/instant, auto-scroll and 30 Hz refresh while streaming, hot-plug prompts, profiles | DSLogic matrix via MCP scenarios against `dsview`; 1 h loop soak with the GUI open | 5-6 pw |
+| **M6c decoders** | decoder picker (search, stacked decoders pull their bases), runtime option forms with channel binding and start/end cursors, decode traces (rows, colours, text fit, progress, errors, region), live decoding, protocol dock (virtual table, search with dash sequences and match count, jump, export) | the 8,379 demo annotations identical to the C GUI through `get_annotations` (as in 4b); protocol table and export compared with Qt's on protocol.demo; 100k-row table interactive | 6-8 pw |
+| **M6d DSO/analog** | DSO traces (polyline, column bars, envelope), dials, split layout, zero/trigger-level drag, probe factor, hover value, X/Y cursors, auto-set, persistence; DSO trigger dock; measurements panel; analog traces and mapping; FFT, math, lissajous, ref waves, histogram, channel measure | `dsview-dsp` against the C++ (FFT magnitudes ≤ 1e-9 relative with `PI = 3.1415` reproduced; math, envelopes and edge detection exact); DSO transcript steps value-identical | 8-10 pw |
+| **M6e docks/dialogs** | advanced 16-stage and serial trigger (validated mask inputs, Qt's exact `ds_trigger_*` sequence), measure and search docks, device options generated from `config_list` (with mode polling), calibration (manual and auto), store progress with cursor range, protocol export/list, app options, about/messages | full MCP suite green against `dsview`; trigger commits byte-identical to the Qt GUI's `ds_trigger` for a scenario set → **Rust GUI default** | 6-8 pw |
+| **M6f polish** | i18n (en/de/cn JSON, runtime switch, CJK font subset), four themes as egui visuals, 212 SVG icons with dark/light, shortcuts, command line (`-l -v -s --mcp FILE`), settings and first-run import of `DSView.conf`, help links, screenshot, AccessKit audit | PARITY.md 100 % | 3-4 pw |
+
+The total stays in the original 35-46 pw.
+
+**Parallelism:**
+- M6.0's store fix can go first, on its own.
+- `dsview-dsp` (M6d's computation) can be built alongside M6a-c.
+
+**Order of work inside each milestone:** viewmodel and tests first, then painting, then the MCP
+and snapshot exits.
+
+#### 5.3 Testing the GUI
+- **viewmodel:** unit tests with port-exact expectations taken from the Qt code paths; proptests
+  for index↔pixel round trips and zoom invariants.
+- **dsp:** differential tests against `spectrumstack.cpp`/`mathstack.cpp` built in the oracle
+  (FFTW from the system), as Phase 1b did for the stores.
+- **Snapshots:** `egui_kittest`, kept small (≤ 1280×720, one per scenario) because lavapipe needs
+  ~0.1 s per 1080p frame here; AccessKit queries drive clicks and drags.
+- **End to end:** the control transcript and MCP scenarios against `dsview --mcp` exactly as against
+  Qt and `dsview-cli serve`; the C GUI stays the reference until M6e.
+
+#### 5.4 Risks specific to Phase 5
+
+| Risk | Mitigation |
+|---|---|
+| Software rendering (VM/xrdp) too slow | glow default, small meshes, partial repaint (only on new data or input), CPU raster fallback for traces |
+| Protocol table with millions of rows | egui_extras virtual rows over the annotation index; filtering in a background thread with progress, as Qt does above 100k rows |
+| Masked inputs (trigger values) and modal flows (Qt `exec()`) | a validated text widget; dialogs as state machines that never block the frame |
+| Docking/window state | egui_dock layouts per work mode; Qt's `windowState` blob is not imported (documented) |
+| Frameless window, blurred shadows, QSS themes | native decorations; themes rebuilt as egui visuals from the four palettes |
+| CJK font size | Noto Sans CJK subset (OFL) loaded only for the Chinese UI |
+
+The parity checklist is PARITY.md (extended 2026-10-18 with features the first inventory missed).
+No new features are added before M7.
 
 ### Phase 6: Removal + packaging (S, 3-5 pw, milestone M7)
 - **Delete:** `DSView/` (C++), `compat/`, CMake, and the Qt/boost/FFTW/glib dependencies. The oracle is kept as an archived dev crate pinned to the last C tag.
@@ -328,15 +436,25 @@ Critical path: P0 → P1a → P2 → P3d → P4 → P5. With two developers, P1b
 | Upstream DreamSourceLab changes | Monthly upstream diff review; port with tests |
 | Missing crates offline (nusb, pyo3, egui_dock, cbindgen, criterion not cached) | First fetch needs network; optionally `cargo vendor` |
 
-## 6. Immediate next step after approval
-Carry out **Phase 0 only**, then report back:
-- the workspace, CI files and Corrosion stub;
-- `dsview-oracle` building `oracle-dsl` and `oracle-decode` against protocol.demo;
-- the corpus manifest;
-- the baseline control-API transcripts against Qt `DSView --mcp`;
-- a script plus instructions for recording the DSLogic usbmon traces. Recording them needs you: `sudo modprobe usbmon`, then plug in the device.
+## 6. Immediate next step
+*Updated 2026-10-18; Phases 0-4 are done (STATUS.md).*
 
-Phase 1 starts only after you've reviewed Phase 0.
+**M6.0, the prerequisites of the Rust GUI:**
+1. **DSO envelope in `dsview-store`.** Port `DsoSnapshot`'s envelope (256× per level, 10 levels,
+   `enable_envelope`, `get_envelope_section`). Test it differentially against the C++ class in the
+   oracle and enable it behind the FFI, so the Qt GUI draws deep DSO frames again with
+   `DSVIEW_IMPL_STORE=rust`.
+2. **Annotation interval index** in `DecoderStack`: range queries in O(log n + k), replacing the
+   linear scan. `get_annotations` stays byte-identical.
+3. **`SessionEvent` channel**, so frontends get notified instead of polling.
+   **`ViewHooks` for `dsview-control::api`**: `show_region`, `set_cursors`, and the "dialog open"
+   refusal.
+4. **Skeletons** of `dsview-viewmodel` (viewport, ruler, layout first) and `dsview-dsp`.
+   **An in-app renderer spike** (`dsview` showing protocol.demo) on this VM over xrdp, with glow
+   and wgpu frame times logged. Its result decides the rendering gate in §5.1.
+
+Then M6a. Each milestone ends with a commit, STATUS/DEVIATIONS updates, and a report before the
+next one starts.
 
 ## Verification of this plan's own claims
 Every phase gate above can be checked by commands: `cargo nextest run`, `cargo xtask golden check`, `cargo fuzz run <t> -- -max_total_time=60`, `cargo bench`, the `hw-dslogic` runner, and the MCP end-to-end scenarios. No phase is declared done on inspection alone.

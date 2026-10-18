@@ -56,3 +56,18 @@ Milestones: **a** viewer, **b** logic capture, **c** decoders, **d** DSO/analog,
 - [ ] (a) Control API (`--mcp`) hosted natively: the 31 methods and `testdata/control/demo-scenario.json` pass
 - [ ] (f) Command line: `-l`, `-v`, `-s`, `--mcp`, file to open
 - [ ] (f) Accessibility: AccessKit audit
+
+## Added 2026-10-18 (missed by the first inventory)
+These are existing Qt features found in the Phase 5 analysis, not new features.
+- [ ] (a) Right-drag rubber-band zoom; right double-click toggles full view / previous view; left double-click adds a cursor snapped to an edge
+- [ ] (a) Click measurements: edge jump (time/sample delta to the nearest edge, drawn as a curve) and edge counting from the click to the hover point; mouse-measure popup (width, period, frequency, duty)
+- [ ] (a) Vertical zoom of trace heights (Ctrl+Shift+wheel, 0.5-20×) with the Y-scale badge (click resets); wheel/Ctrl+wheel swap option; horizontal wheel pans
+- [ ] (a) Ruler: cursor selector strip (left click: add or move cursor N), go-to-cursor strip (right click), hover arrow, hover snapping to minor ticks
+- [ ] (a) Header: trigger squares per logic channel, multi-select (Ctrl) and 10 px-grid drag, wheel over a DSO header steps its dial
+- [ ] (b) Trigger-wait animation and progress while waiting for the hardware trigger
+- [ ] (c) Decode region markers (start/end), search-hit marker, type-2xx annotations marking the bound logic channels, "Unshown" row for a hidden decoder
+- [ ] (c) Per-decoder number format (hex/dec/oct/bin/ascii) kept per decoder id; protocol list viewer (choose stack, map zoom)
+- [ ] (d) Deep DSO frames (≥ 256 samples per pixel) drawn from the envelope; per-column min/max bars between 2 and 256 samples per pixel; trigger sub-sample offset
+- [ ] (d) X/Y cursor measurements (XM: width/period/frequency/duty from three clicks; YM: voltage delta)
+- [ ] (e) Measure dock: cursor list with go-to/delete and per-mode rows; search dock with pattern dialog and cancel
+- [ ] (f) Dock layout kept per work mode; help-documents dialog and driver hint at start-up; log options (save to file, append, level)
