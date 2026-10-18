@@ -1,0 +1,13 @@
+[package]
+name = "dsview-session"
+version = "0.1.0"
+description = "Device list, activation, hotplug and the capture loop (libsigrok4DSL lib_main.c and session.c)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+dsview-core = { path = "../dsview-core" }
+dsview-drivers = { path = "../dsview-drivers" }
+dsview-usb = { path = "../dsview-usb" }

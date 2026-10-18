@@ -887,3 +887,94 @@ SR_PRIV struct sr_dev_driver rs_file_driver_info = {
 };
 
 #endif /* DSVIEW_RUST_CORE */
+
+/* --------------------------------------------- copies for ds_api_rs.c */
+
+/* With DSVIEW_IMPL_ACQ=rust the Rust library owns the devices; ds_api_rs.c
+ * keeps one sr_dev_inst per device for the GUI, made and kept in step here
+ * (the same copy the drivers above keep). Its driver is the Rust driver of
+ * the device's kind, for the name and the config/status entry points; the
+ * library opens, closes and runs the device itself. */
+
+SR_PRIV struct sr_dev_inst *rs_mirror_new(struct dsv_device *h, int driver, uint8_t bus,
+                                          uint8_t address, uint64_t handle)
+{
+    static struct sr_dev_driver *const drivers[] = {
+        &rs_demo_driver_info, &rs_file_driver_info, &rs_dslogic_driver_info,
+        &rs_dscope_driver_info,
+    };
+    static const int types[] = {DEV_TYPE_DEMO, DEV_TYPE_FILELOG, DEV_TYPE_USB, DEV_TYPE_USB};
+    struct dsv_dev_info info;
+    struct sr_dev_inst *sdi;
+    struct rs_dev *rs;
+
+    if (h == NULL || driver < 0 || driver > 3)
+        return NULL;
+    dsv_drv_info(h, &info);
+    sdi = sr_dev_inst_new(info.mode, info.status, info.vendor, info.model, info.version);
+    rs = g_try_malloc0(sizeof(*rs));
+    if (sdi == NULL || rs == NULL) {
+        g_free(rs);
+        sr_dev_inst_free(sdi);
+        return NULL;
+    }
+    rs->h = h;
+    rs->generation = (uint64_t)-1;
+    sdi->priv = rs;
+    sdi->driver = drivers[driver];
+    sdi->dev_type = types[driver];
+    sdi->handle = (ds_device_handle)handle;
+    if (sdi->dev_type == DEV_TYPE_USB)
+        sdi->conn = sr_usb_dev_inst_new(bus, address);
+    get_device(sdi);
+    return sdi;
+}
+
+/* The device took the GUI's channel settings. */
+SR_PRIV void rs_mirror_put(const struct sr_dev_inst *sdi)
+{
+    put_channels(sdi);
+}
+
+/* The copy took the device's state (`full`: also mode, status, the list). */
+SR_PRIV void rs_mirror_get(struct sr_dev_inst *sdi, int full)
+{
+    if (full)
+        get_device(sdi);
+    else
+        get_channel_values(sdi);
+}
+
+SR_PRIV void rs_mirror_set_trigger(const struct sr_dev_inst *sdi)
+{
+    if (trigger != NULL)
+        dsv_drv_set_trigger(H(sdi), trigger, sizeof(*trigger));
+}
+
+SR_PRIV void rs_mirror_set_location(struct sr_dev_inst *sdi, uint8_t bus, uint8_t address)
+{
+    struct sr_usb_dev_inst *usb = sdi->conn;
+    if (usb != NULL) {
+        usb->bus = bus;
+        usb->address = address;
+    }
+}
+
+/* Frees the copy and its handle; the device itself is the library's. */
+SR_PRIV void rs_mirror_free(struct sr_dev_inst *sdi)
+{
+    struct rs_dev *rs = sdi->priv;
+    dsv_drv_free(rs->h);
+    g_slist_free(rs->modes);
+    sr_dev_inst_free(sdi);
+}
+
+SR_PRIV void rs_mirror_emit(void *ctx, const struct dsv_packet *p)
+{
+    rs_emit(ctx, p);
+}
+
+SR_PRIV void rs_mirror_log(int32_t level, const char *msg)
+{
+    rs_log(level, msg);
+}

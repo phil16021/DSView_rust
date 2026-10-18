@@ -9,3 +9,5 @@ publish.workspace = true
 
 [dependencies]
 nusb = "0.2"
+# nusb's hotplug stream (already in its dependencies)
+futures-core = "0.3"

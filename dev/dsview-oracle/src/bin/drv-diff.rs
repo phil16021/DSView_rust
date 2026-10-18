@@ -880,6 +880,8 @@ fn run_side(args: &[String]) -> Result<()> {
         std::env::set_var("DSVIEW_IMPL_DRV_FILE", &imp);
         std::env::set_var("DSVIEW_IMPL_DRV_DSCOPE", &imp);
         std::env::set_var("DSVIEW_IMPL_DRV_DSLOGIC", &imp);
+        // the library itself (lib_main.c, session.c) too: ds_api_rs.c
+        std::env::set_var("DSVIEW_IMPL_ACQ", &imp);
     }
     // the simulated device is plugged in before ds_lib_init scans
     let usb = !scenario["sim"].is_null();

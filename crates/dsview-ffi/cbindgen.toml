@@ -8,7 +8,7 @@ usize_is_size_t = true
 
 [export]
 prefix = ""
-include = ["DsvDslHeader", "DsvDslChannel", "DsvExportChannel", "DsvExportPacket", "DsvLogicCounts", "DsvDsoCounts", "DsvAnalogCounts", "DsvEnvelopeSection", "DsvValue", "DsvStrList", "DsvChannelMeta", "DsvOptionMeta", "DsvRowMeta", "DsvDecoderMeta", "DsvDecodeEvent", "DsvConf", "DsvDevInfo", "DsvChannel", "DsvPacket", "DsvUsbLocation"]
+include = ["DsvDslHeader", "DsvDslChannel", "DsvExportChannel", "DsvExportPacket", "DsvLogicCounts", "DsvDsoCounts", "DsvAnalogCounts", "DsvEnvelopeSection", "DsvValue", "DsvStrList", "DsvChannelMeta", "DsvOptionMeta", "DsvRowMeta", "DsvDecoderMeta", "DsvDecodeEvent", "DsvConf", "DsvDevInfo", "DsvChannel", "DsvPacket", "DsvUsbLocation", "DsvLibHost", "DsvLibEntry"]
 
 [export.rename]
 "DsvDsl" = "dsv_dsl"
@@ -41,6 +41,8 @@ include = ["DsvDslHeader", "DsvDslChannel", "DsvExportChannel", "DsvExportPacket
 "DsvPacket" = "dsv_packet"
 "DsvEmit" = "dsv_emit"
 "DsvUsbLocation" = "dsv_usb_location"
+"DsvLibHost" = "dsv_lib_host"
+"DsvLibEntry" = "dsv_lib_entry"
 
 [enum]
 prefix_with_name = true

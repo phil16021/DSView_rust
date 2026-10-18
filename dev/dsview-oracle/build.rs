@@ -27,6 +27,7 @@ const LIBSIGROK: &[&str] = &[
     "dsdevice.c",
     "lib_main.c",
     "hardware/rust/rs_driver.c",
+    "ds_api_rs.c",
     "output/rs_output.c",
 ];
 const LIBSIGROKDECODE: &[&str] = &[

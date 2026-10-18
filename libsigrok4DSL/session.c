@@ -246,8 +246,19 @@ SR_PRIV int sr_session_run(void)
  *
  * @return SR_OK upon success, SR_ERR_BUG if no session exists.
  */
+#ifdef DSVIEW_RUST_CORE
+SR_PRIV int rs_acq_enabled(void);
+SR_PRIV void rs_ds_session_stop(void);
+#endif
+
 SR_PRIV int sr_session_stop(void)
 {
+#ifdef DSVIEW_RUST_CORE
+	if (rs_acq_enabled()) {
+		rs_ds_session_stop();
+		return SR_OK;
+	}
+#endif
 	if (!session) {
 		sr_err("%s: session was NULL", __func__);
 		return SR_ERR_BUG;

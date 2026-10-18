@@ -8,7 +8,7 @@
 //! the GUI's datafeed callback may call back into the device.
 
 use std::ffi::{CStr, CString, c_char, c_void};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use dsview_core::{Body, Channel, ConfValue, ListItem, Packet, SrError};
 use dsview_drivers::dsl::device::{self, Family};
@@ -28,9 +28,17 @@ fn code(r: Result<(), SrError>) -> i32 {
     }
 }
 
-/// A device handle.
+/// A device handle. The device may be shared with the acquisition library
+/// (`dsv_lib_device`): each handle is one reference, freed by `dsv_drv_free`.
 pub struct DsvDevice {
-    dev: Mutex<Box<dyn Device>>,
+    dev: Arc<Mutex<Box<dyn Device>>>,
+}
+
+impl DsvDevice {
+    /// A handle on a device the library keeps.
+    pub fn shared(dev: Arc<Mutex<Box<dyn Device>>>) -> *mut DsvDevice {
+        Box::into_raw(Box::new(DsvDevice { dev }))
+    }
 }
 
 thread_local! {
@@ -280,9 +288,7 @@ pub unsafe extern "C" fn dsv_drv_set_user_dir(dir: *const c_char) {
 }
 
 fn handle(dev: Box<dyn Device>) -> *mut DsvDevice {
-    Box::into_raw(Box::new(DsvDevice {
-        dev: Mutex::new(dev),
-    }))
+    DsvDevice::shared(Arc::new(Mutex::new(dev)))
 }
 
 /// The demo driver's devices (hw_scan): up to `cap` handles into `out`;
@@ -348,7 +354,7 @@ fn backend_cell() -> &'static std::sync::RwLock<Option<std::sync::Arc<dyn UsbBac
 
 /// The USB backend the hardware drivers use: the real devices (nusb)
 /// unless [`set_usb_backend`] chose another one.
-fn usb_backend() -> std::sync::Arc<dyn UsbBackend> {
+pub(crate) fn usb_backend() -> std::sync::Arc<dyn UsbBackend> {
     let cell = backend_cell();
     if let Some(b) = cell.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
         return b.clone();
@@ -875,7 +881,7 @@ pub struct DsvPacket {
 
 pub type DsvEmit = extern "C" fn(ctx: *mut c_void, p: *const DsvPacket);
 
-fn emit_all(packets: &[Packet], emit: DsvEmit, ctx: *mut c_void) {
+pub(crate) fn emit_all(packets: &[Packet], emit: DsvEmit, ctx: *mut c_void) {
     for p in packets {
         let mut c = DsvPacket {
             ty: p.type_id(),

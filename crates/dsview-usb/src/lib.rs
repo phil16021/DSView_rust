@@ -125,7 +125,19 @@ pub trait UsbDevice: Send {
     fn bulk_in_cancel_all(&mut self, ep: u8);
 }
 
+/// A device arriving or leaving.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Hotplug {
+    Arrived(Info),
+    Left { bus: u8, address: u8 },
+}
+
 pub trait UsbBackend: Send + Sync {
     fn list(&self) -> Result<Vec<Info>, UsbError>;
     fn open(&self, bus: u8, address: u8, how: Open) -> Result<Box<dyn UsbDevice>, UsbError>;
+    /// Device arrivals and departures from now on; `None` when the backend
+    /// cannot watch. Dropping the receiver ends the watch.
+    fn watch(&self) -> Option<std::sync::mpsc::Receiver<Hotplug>> {
+        None
+    }
 }

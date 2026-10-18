@@ -43,7 +43,8 @@ typedef struct dsv_analog_store dsv_analog_store;
 typedef struct dsv_decode_session dsv_decode_session;
 
 /**
- * A device handle.
+ * A device handle. The device may be shared with the acquisition library
+ * (`dsv_lib_device`): each handle is one reference, freed by `dsv_drv_free`.
  */
 typedef struct dsv_device dsv_device;
 
@@ -65,6 +66,100 @@ typedef struct dsv_export dsv_export;
 typedef struct dsv_logic_store dsv_logic_store;
 
 typedef struct dsv_zip_writer dsv_zip_writer;
+
+/**
+ * A datafeed packet for `ds_data_forward`: `type` is `SR_DF_*`, `data`/`len`
+ * the payload bytes (logic: `length`), other fields as in the payload structs.
+ */
+typedef struct dsv_packet {
+  uint16_t ty;
+  uint16_t status;
+  const uint8_t *data;
+  uint64_t len;
+  int32_t num_samples;
+  int32_t format;
+  uint16_t index;
+  uint16_t order;
+  uint16_t unitsize;
+  uint16_t data_error;
+  uint64_t error_pattern;
+  int32_t mq;
+  int32_t unit;
+  uint64_t mqflags;
+  int32_t samplerate_tog;
+  int32_t trig_flag;
+  uint8_t trig_ch;
+  uint8_t unit_bits;
+  uint16_t unit_pitch;
+  /**
+   * SR_DF_HEADER
+   */
+  int32_t feed_version;
+  int64_t start_sec;
+  int64_t start_usec;
+  /**
+   * SR_DF_TRIGGER (`struct ds_trigger_pos`)
+   */
+  uint32_t trig_check_id;
+  uint32_t trig_real_pos;
+  uint32_t trig_ram_saddr;
+  uint32_t trig_remain_cnt_l;
+  uint32_t trig_remain_cnt_h;
+  uint32_t trig_status;
+} dsv_packet;
+
+/**
+ * The shim's callbacks; `user` is passed back to each.
+ */
+typedef struct dsv_lib_host {
+  void *user;
+  /**
+   * `ds_set_event_callback`'s callback.
+   */
+  void (*event)(void *user, int32_t ev);
+  /**
+   * The `emit` context (the shim's `sr_dev_inst`) of a device.
+   */
+  void *(*packet_ctx)(void *user, uint64_t handle);
+  /**
+   * Forwards one packet (`rs_emit`).
+   */
+  void (*emit)(void *ctx, const struct dsv_packet *p);
+  /**
+   * Copy the shim's channel list into the device.
+   */
+  void (*sync_in)(void *user, uint64_t handle);
+  /**
+   * Copy the device out (`full`: also mode, status, the channel list).
+   */
+  void (*sync_out)(void *user, uint64_t handle, int32_t full);
+  /**
+   * A capture is about to start (the shim passes the trigger in).
+   */
+  void (*before_start)(void *user, uint64_t handle);
+  /**
+   * A device left for good: the shim frees its copy.
+   */
+  void (*removed)(void *user, uint64_t handle);
+} dsv_lib_host;
+
+/**
+ * `struct ds_device_base_info` plus what `ds_get_actived_device_info` needs.
+ */
+typedef struct dsv_lib_entry {
+  uint64_t handle;
+  int32_t dev_type;
+  int32_t actived_times;
+  /**
+   * 0 demo, 1 capture file, 2 DSLogic, 3 DSCope
+   */
+  int32_t driver;
+  uint8_t bus;
+  uint8_t address;
+  char name[150];
+  char unique_id[64];
+  char path[256];
+} dsv_lib_entry;
 
 /**
  * A NULL-terminated list of strings with its length.
@@ -269,47 +364,6 @@ typedef struct dsv_channel {
   double map_max;
 } dsv_channel;
 
-/**
- * A datafeed packet for `ds_data_forward`: `type` is `SR_DF_*`, `data`/`len`
- * the payload bytes (logic: `length`), other fields as in the payload structs.
- */
-typedef struct dsv_packet {
-  uint16_t ty;
-  uint16_t status;
-  const uint8_t *data;
-  uint64_t len;
-  int32_t num_samples;
-  int32_t format;
-  uint16_t index;
-  uint16_t order;
-  uint16_t unitsize;
-  uint16_t data_error;
-  uint64_t error_pattern;
-  int32_t mq;
-  int32_t unit;
-  uint64_t mqflags;
-  int32_t samplerate_tog;
-  int32_t trig_flag;
-  uint8_t trig_ch;
-  uint8_t unit_bits;
-  uint16_t unit_pitch;
-  /**
-   * SR_DF_HEADER
-   */
-  int32_t feed_version;
-  int64_t start_sec;
-  int64_t start_usec;
-  /**
-   * SR_DF_TRIGGER (`struct ds_trigger_pos`)
-   */
-  uint32_t trig_check_id;
-  uint32_t trig_real_pos;
-  uint32_t trig_ram_saddr;
-  uint32_t trig_remain_cnt_l;
-  uint32_t trig_remain_cnt_h;
-  uint32_t trig_status;
-} dsv_packet;
-
 typedef void (*dsv_emit)(void *ctx, const struct dsv_packet *p);
 
 typedef struct dsv_dsl_header_info {
@@ -464,6 +518,116 @@ extern "C" {
  * Version of the Rust core as a NUL-terminated static string.
  */
 const char *dsv_version(void);
+
+/**
+ * `ds_lib_init()`: the library with the shim's callbacks; the USB backend
+ * is dsview-ffi's (see `set_usb_backend`).
+ *
+ * # Safety
+ * `host` must be readable; its callbacks callable from any thread until
+ * `dsv_lib_exit`.
+ */
+int32_t dsv_lib_init(const struct dsv_lib_host *host);
+
+/**
+ * `ds_lib_exit()`
+ */
+void dsv_lib_exit(void);
+
+/**
+ * The devices in list order, up to `cap`; returns how many there are.
+ *
+ * # Safety
+ * `out` must have room for `cap` entries (or be NULL with `cap` 0).
+ */
+uint32_t dsv_lib_devices(struct dsv_lib_entry *out, uint32_t cap);
+
+/**
+ * The active device (also one that left the list): 1 and `*out`, or 0.
+ *
+ * # Safety
+ * `out` writable.
+ */
+int32_t dsv_lib_active(struct dsv_lib_entry *out);
+
+/**
+ * `ds_get_actived_device_index()`
+ */
+int32_t dsv_lib_active_index(void);
+
+/**
+ * A new handle on device `handle` for the shim's copy (free it with
+ * `dsv_drv_free`), or NULL.
+ */
+struct dsv_device *dsv_lib_device(uint64_t handle);
+
+/**
+ * `ds_active_device()`
+ */
+int32_t dsv_lib_activate(uint64_t handle);
+
+/**
+ * `ds_active_device_by_index()`
+ */
+int32_t dsv_lib_activate_index(int32_t index);
+
+/**
+ * `ds_device_from_file()`
+ *
+ * # Safety
+ * `path` NUL-terminated or NULL.
+ */
+int32_t dsv_lib_device_from_file(const char *path);
+
+/**
+ * `ds_remove_device()`
+ */
+int32_t dsv_lib_remove(uint64_t handle);
+
+/**
+ * `ds_release_actived_device()`
+ */
+int32_t dsv_lib_release_active(void);
+
+/**
+ * `ds_close_all_device()`
+ */
+int32_t dsv_lib_close_all(void);
+
+/**
+ * `ds_reload_device_list()`
+ */
+int32_t dsv_lib_reload(void);
+
+/**
+ * `ds_start_collect()`; `has_datafeed`: a data callback is set.
+ */
+int32_t dsv_lib_start_collect(int32_t has_datafeed);
+
+/**
+ * `ds_stop_collect()`
+ */
+int32_t dsv_lib_stop_collect(void);
+
+/**
+ * `sr_session_stop()`: asks the capture to stop without waiting.
+ */
+void dsv_lib_request_stop(void);
+
+/**
+ * `ds_is_collecting()`
+ */
+int32_t dsv_lib_is_collecting(void);
+
+/**
+ * `ds_get_last_error()`
+ */
+int32_t dsv_lib_last_error(void);
+
+/**
+ * `ds_set_last_error()`
+ */
+void dsv_lib_set_last_error(int32_t e);
 
 /**
  * Routes the engine's log messages to `cb` (level as in libsigrokdecode).

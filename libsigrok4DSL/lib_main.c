@@ -86,6 +86,50 @@ static struct libusb_device* get_new_attached_usb_device();
 static struct libusb_device* get_new_detached_usb_device();
 static void get_device_unique_id(const struct sr_dev_inst *dev, char *buf, size_t len);
 
+
+#ifdef DSVIEW_RUST_CORE
+#include "dsview_ffi.h"
+/* DSVIEW_IMPL_ACQ=rust: the ds_* API on the Rust library (ds_api_rs.c) */
+SR_PRIV int rs_ds_lib_init(void);
+SR_PRIV int rs_ds_lib_exit(void);
+SR_PRIV void rs_ds_set_event_callback(dslib_event_callback_t cb);
+SR_PRIV void rs_ds_set_datafeed_callback(ds_datafeed_callback_t cb);
+SR_PRIV void rs_ds_set_dirs(void);
+SR_PRIV int rs_ds_get_device_list(struct ds_device_base_info **out_list, int *out_count);
+SR_PRIV int rs_ds_active_device(ds_device_handle handle);
+SR_PRIV int rs_ds_active_device_by_index(int index);
+SR_PRIV int rs_ds_get_actived_device_index(void);
+SR_PRIV int rs_ds_have_actived_device(void);
+SR_PRIV int rs_ds_device_from_file(const char *file_path);
+SR_PRIV int rs_ds_remove_device(ds_device_handle handle);
+SR_PRIV const GSList *rs_ds_get_actived_device_mode_list(void);
+SR_PRIV int rs_ds_get_actived_device_info(struct ds_device_full_info *fill_info);
+SR_PRIV int rs_ds_get_actived_device_mode(void);
+SR_PRIV int rs_ds_start_collect(void);
+SR_PRIV int rs_ds_stop_collect(void);
+SR_PRIV int rs_ds_is_collecting(void);
+SR_PRIV int rs_ds_release_actived_device(void);
+SR_PRIV int rs_ds_get_last_error(void);
+SR_PRIV void rs_ds_set_last_error(int error);
+SR_PRIV int rs_ds_reload_device_list(void);
+SR_PRIV int rs_ds_close_all_device(void);
+SR_PRIV struct sr_dev_inst *rs_ds_active_sdi(void);
+
+SR_PRIV int rs_acq_enabled(void)
+{
+	static int v = -1;
+	if (v < 0)
+		v = dsv_use_rust("ACQ") != 0;
+	return v;
+}
+#define RS_ACQ(call) do { if (rs_acq_enabled()) return call; } while (0)
+#define RS_ACQ_VOID(call) do { if (rs_acq_enabled()) { call; return; } } while (0)
+#else
+#define rs_acq_enabled() 0
+#define RS_ACQ(call) do { } while (0)
+#define RS_ACQ_VOID(call) do { } while (0)
+#endif
+
 static struct sr_lib_context lib_ctx = {
 	.event_callback = NULL,
 	.sr_ctx = NULL,
@@ -110,11 +154,22 @@ static struct sr_lib_context lib_ctx = {
 	.is_reloading_list = 0,
 };
 
+/* The active device's sr_dev_inst (with the Rust library: its copy). */
+static struct sr_dev_inst *active_inst(void)
+{
+#ifdef DSVIEW_RUST_CORE
+	if (rs_acq_enabled())
+		return rs_ds_active_sdi();
+#endif
+	return lib_ctx.actived_device_instance;
+}
+
 /**
  * Must call first
  */
 SR_API int ds_lib_init()
 {
+	RS_ACQ(rs_ds_lib_init());
 	int ret = 0;
 	struct sr_dev_driver **drivers = NULL;
 	struct sr_dev_driver **dr = NULL;
@@ -192,6 +247,7 @@ SR_PRIV int lib_extern_init(struct sr_context *ctx){
  */
 SR_API int ds_lib_exit()
 {
+	RS_ACQ(rs_ds_lib_exit());
 	GSList *l;
 
 	if (lib_ctx.sr_ctx == NULL)
@@ -260,6 +316,10 @@ SR_API void ds_set_firmware_resource_dir(const char *dir)
 	}
 	if (dir)
 		strcpy(DS_RES_PATH, dir);
+#ifdef DSVIEW_RUST_CORE
+	if (rs_acq_enabled())
+		rs_ds_set_dirs();
+#endif
 }
 
 /**
@@ -275,6 +335,10 @@ SR_API void ds_set_user_data_dir(const char *dir)
 	}
 	if (dir)
 		strcpy(DS_USR_PATH, dir);
+#ifdef DSVIEW_RUST_CORE
+	if (rs_acq_enabled())
+		rs_ds_set_dirs();
+#endif
 }
 
 /**
@@ -283,6 +347,9 @@ SR_API void ds_set_user_data_dir(const char *dir)
 SR_API void ds_set_event_callback(dslib_event_callback_t cb)
 {
 	lib_ctx.event_callback = cb;
+#ifdef DSVIEW_RUST_CORE
+	rs_ds_set_event_callback(cb);
+#endif
 }
 
 /**
@@ -291,10 +358,14 @@ SR_API void ds_set_event_callback(dslib_event_callback_t cb)
 SR_API void ds_set_datafeed_callback(ds_datafeed_callback_t cb)
 {
 	lib_ctx.data_forward_callback = cb;
+#ifdef DSVIEW_RUST_CORE
+	rs_ds_set_datafeed_callback(cb);
+#endif
 }
 
 SR_API int ds_get_device_list(struct ds_device_base_info **out_list, int *out_count)
 {
+	RS_ACQ(rs_ds_get_device_list(out_list, out_count));
 	int num;
 	struct ds_device_base_info *p = NULL;
 	GSList *l;
@@ -381,6 +452,7 @@ static void get_device_unique_id(const struct sr_dev_inst *dev, char *buf, size_
  */
 SR_API int ds_active_device(ds_device_handle handle)
 {
+	RS_ACQ(rs_ds_active_device(handle));
 	GSList *l;
 	struct sr_dev_inst *dev;
 	int bFind = 0;
@@ -496,6 +568,7 @@ SR_API int ds_active_device(ds_device_handle handle)
  */
 SR_API int ds_active_device_by_index(int index)
 {
+	RS_ACQ(rs_ds_active_device_by_index(index));
 	GSList *l;
 	struct sr_dev_inst *dev;
 	ds_device_handle handle = NULL_HANDLE;
@@ -538,6 +611,7 @@ SR_API int ds_active_device_by_index(int index)
  */
 SR_API int ds_get_actived_device_index()
 {
+	RS_ACQ(rs_ds_get_actived_device_index());
 	int dex = -1;
 	GSList *l = NULL;
 	int i = 0;
@@ -570,6 +644,7 @@ SR_API int ds_get_actived_device_index()
  */
 SR_API int ds_have_actived_device()
 {
+	RS_ACQ(rs_ds_have_actived_device());
 	if (lib_ctx.actived_device_instance != NULL)
 	{
 		return 1;
@@ -581,7 +656,8 @@ SR_API int ds_have_actived_device()
  * Create a device from session file, and append to the list.
  */
 SR_API int ds_device_from_file(const char *file_path)
-{ 	
+{
+	RS_ACQ(rs_ds_device_from_file(file_path)); 	
 	struct sr_dev_inst *dev;
 	int ret;
 
@@ -610,6 +686,7 @@ SR_API int ds_device_from_file(const char *file_path)
  */
 SR_API const GSList *ds_get_actived_device_mode_list()
 {
+	RS_ACQ(rs_ds_get_actived_device_mode_list());
 	struct sr_dev_inst *dev;
 
 	dev = lib_ctx.actived_device_instance;
@@ -633,6 +710,7 @@ SR_API const GSList *ds_get_actived_device_mode_list()
  */
 SR_API int ds_remove_device(ds_device_handle handle)
 {
+	RS_ACQ(rs_ds_remove_device(handle));
 	GSList *l;
 	struct sr_dev_inst *dev;
 	int bFind = 0;
@@ -691,6 +769,7 @@ SR_API int ds_remove_device(ds_device_handle handle)
  */
 SR_API int ds_get_actived_device_info(struct ds_device_full_info *fill_info)
 {
+	RS_ACQ(rs_ds_get_actived_device_info(fill_info));
 	struct sr_dev_inst *dev;
 	struct ds_device_full_info *p;
 	int ret; 
@@ -743,6 +822,7 @@ SR_API int ds_get_actived_device_info(struct ds_device_full_info *fill_info)
  */
 SR_API int ds_get_actived_device_mode()
 {
+	RS_ACQ(rs_ds_get_actived_device_mode());
 	int mode = UNKNOWN_DSL_MODE;
 	pthread_mutex_lock(&lib_ctx.mutext);
 
@@ -760,6 +840,7 @@ SR_API int ds_get_actived_device_mode()
  */
 SR_API int ds_start_collect()
 {
+	RS_ACQ(rs_ds_start_collect());
 	int ret;
 	struct sr_dev_inst *di;
 	di = lib_ctx.actived_device_instance;
@@ -878,7 +959,8 @@ END:
  * Stop collect data, but not close the device.
  */
 SR_API int ds_stop_collect()
-{ 
+{
+	RS_ACQ(rs_ds_stop_collect()); 
 	sr_info("Stop collect.");
 
 	if (!ds_is_collecting())
@@ -903,6 +985,7 @@ SR_API int ds_stop_collect()
  */
 SR_API int ds_is_collecting()
 {
+	RS_ACQ(rs_ds_is_collecting());
 	if (lib_ctx.collect_thread != NULL)
 	{
 		return 1;
@@ -912,6 +995,7 @@ SR_API int ds_is_collecting()
 
 SR_API int ds_release_actived_device()
 {
+	RS_ACQ(rs_ds_release_actived_device());
 	if (lib_ctx.actived_device_instance == NULL){
 		return SR_ERR_CALL_STATUS;
 	}
@@ -949,9 +1033,9 @@ int ds_trigger_is_enabled()
 	ret = 0;
 	pthread_mutex_lock(&lib_ctx.mutext);
 
-	if (lib_ctx.actived_device_instance != NULL)
+	if (active_inst() != NULL)
 	{
-		for (l = lib_ctx.actived_device_instance->channels; l; l = l->next)
+		for (l = active_inst()->channels; l; l = l->next)
 		{
 			p = (struct sr_channel *)l->data;
 			if (p->trigger && p->trigger[0] != '\0')
@@ -978,14 +1062,14 @@ SR_API int ds_get_actived_device_config(const struct sr_channel *ch,
 										const struct sr_channel_group *cg,
 										int key, GVariant **data)
 {
-	if (lib_ctx.actived_device_instance == NULL)
+	if (active_inst() == NULL)
 	{
 		sr_err("Have no actived device.");
 		return SR_ERR_CALL_STATUS;
 	}
 
-	return sr_config_get(lib_ctx.actived_device_instance->driver,
-						 lib_ctx.actived_device_instance,
+	return sr_config_get(active_inst()->driver,
+						 active_inst(),
 						 ch,
 						 cg,
 						 key,
@@ -996,14 +1080,14 @@ SR_API int ds_set_actived_device_config(const struct sr_channel *ch,
 										const struct sr_channel_group *cg,
 										int key, GVariant *data)
 {
-	if (lib_ctx.actived_device_instance == NULL)
+	if (active_inst() == NULL)
 	{
 		sr_err("Have no actived device.");
 		return SR_ERR_CALL_STATUS;
 	}
 
 	return sr_config_set(
-		lib_ctx.actived_device_instance,
+		active_inst(),
 		(struct sr_channel*)ch,
 		(struct sr_channel_group*)cg,
 		key,
@@ -1013,14 +1097,14 @@ SR_API int ds_set_actived_device_config(const struct sr_channel *ch,
 SR_API int ds_get_actived_device_config_list(const struct sr_channel_group *cg,
 											 int key, GVariant **data)
 {
-	if (lib_ctx.actived_device_instance == NULL)
+	if (active_inst() == NULL)
 	{
 		sr_err("Have no actived device.");
 		return SR_ERR_CALL_STATUS;
 	}
 
-	return sr_config_list(lib_ctx.actived_device_instance->driver,
-						  lib_ctx.actived_device_instance,
+	return sr_config_list(active_inst()->driver,
+						  active_inst(),
 						  cg,
 						  key,
 						  data);
@@ -1028,7 +1112,7 @@ SR_API int ds_get_actived_device_config_list(const struct sr_channel_group *cg,
 
 SR_API const struct sr_config_info *ds_get_actived_device_config_info(int key)
 {
-	if (lib_ctx.actived_device_instance == NULL)
+	if (active_inst() == NULL)
 	{
 		sr_err("Have no actived device.");
 		return NULL;
@@ -1039,13 +1123,13 @@ SR_API const struct sr_config_info *ds_get_actived_device_config_info(int key)
 
 SR_API int ds_get_actived_device_status(struct sr_status *status, gboolean prg)
 {
-	if (lib_ctx.actived_device_instance == NULL)
+	if (active_inst() == NULL)
 	{
 		sr_err("Have no actived device.");
 		return SR_ERR_CALL_STATUS;
 	}
 
-	return sr_status_get(lib_ctx.actived_device_instance, status, prg);
+	return sr_status_get(active_inst(), status, prg);
 }
 
 SR_API struct sr_config *ds_new_config(int key, GVariant *data)
@@ -1061,16 +1145,16 @@ SR_API void ds_free_config(struct sr_config *src)
 SR_API int ds_dsl_option_value_to_code(int work_mode, int config_id, const char *value)
 { 
 	if (work_mode == LOGIC)
-		return sr_dslogic_option_value_to_code(lib_ctx.actived_device_instance, config_id, value);
+		return sr_dslogic_option_value_to_code(active_inst(), config_id, value);
 	else
-		return sr_dscope_option_value_to_code(lib_ctx.actived_device_instance, config_id, value);
+		return sr_dscope_option_value_to_code(active_inst(), config_id, value);
 }
 
 SR_API int ds_get_actived_device_init_status(int *status)
 {
-	if (lib_ctx.actived_device_instance != NULL && status != NULL)
+	if (active_inst() != NULL && status != NULL)
 	{
-		*status = lib_ctx.actived_device_instance->status;
+		*status = active_inst()->status;
 		return SR_OK;
 	}
 
@@ -1080,29 +1164,29 @@ SR_API int ds_get_actived_device_init_status(int *status)
 /**-----------channel -------------*/
 SR_API int ds_enable_device_channel(const struct sr_channel *ch, gboolean enable)
 {
-	if (lib_ctx.actived_device_instance == NULL)
+	if (active_inst() == NULL)
 	{
 		return SR_ERR_CALL_STATUS;
 	}
-	return sr_enable_device_channel(lib_ctx.actived_device_instance, ch, enable);
+	return sr_enable_device_channel(active_inst(), ch, enable);
 }
 
 SR_API int ds_enable_device_channel_index(int ch_index, gboolean enable)
 {
-	if (lib_ctx.actived_device_instance == NULL)
+	if (active_inst() == NULL)
 	{
 		return SR_ERR_CALL_STATUS;
 	}
-	return sr_dev_probe_enable(lib_ctx.actived_device_instance, ch_index, enable);
+	return sr_dev_probe_enable(active_inst(), ch_index, enable);
 }
 
 SR_API int ds_set_device_channel_name(int ch_index, const char *name)
 {
-	if (lib_ctx.actived_device_instance == NULL)
+	if (active_inst() == NULL)
 	{
 		return SR_ERR_CALL_STATUS;
 	}
-	return sr_dev_probe_name_set(lib_ctx.actived_device_instance, ch_index, name);
+	return sr_dev_probe_name_set(active_inst(), ch_index, name);
 }
 
 /**
@@ -1117,9 +1201,9 @@ int ds_channel_is_enabled()
 	ret = 0;
 	pthread_mutex_lock(&lib_ctx.mutext);
 
-	if (lib_ctx.actived_device_instance != NULL)
+	if (active_inst() != NULL)
 	{
-		for (l = lib_ctx.actived_device_instance->channels; l; l = l->next)
+		for (l = active_inst()->channels; l; l = l->next)
 		{
 			p = (struct sr_channel *)l->data;
 			if (p->enabled)
@@ -1135,9 +1219,9 @@ int ds_channel_is_enabled()
 
 GSList *ds_get_actived_device_channels()
 {
-	if (lib_ctx.actived_device_instance != NULL)
+	if (active_inst() != NULL)
 	{
-		return lib_ctx.actived_device_instance->channels;
+		return active_inst()->channels;
 	}
 	return NULL;
 }
@@ -1769,16 +1853,19 @@ SR_PRIV void xsleep(int ms)
 
 SR_PRIV void ds_set_last_error(int error)
 {
+	RS_ACQ_VOID(rs_ds_set_last_error(error));
 	lib_ctx.last_error = error;
 }
 
 SR_API int ds_get_last_error()
 {
+	RS_ACQ(rs_ds_get_last_error());
 	return lib_ctx.last_error;
 }
 
 SR_API int ds_reload_device_list()
 {
+	RS_ACQ(rs_ds_reload_device_list());
 	sr_info("Reload device list.");
 
 	lib_ctx.is_reloading_list = 1;
@@ -1793,6 +1880,7 @@ SR_API int ds_reload_device_list()
 
 SR_API int ds_close_all_device()
 {
+	RS_ACQ(rs_ds_close_all_device());
 	sr_info("Close all device.");
 
 	GSList *l;

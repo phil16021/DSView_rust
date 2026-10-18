@@ -48,20 +48,80 @@ fn speed(s: Option<nusb::Speed>) -> Speed {
     }
 }
 
+fn info_of(d: &nusb::DeviceInfo) -> Info {
+    Info {
+        bus: bus_of(d),
+        address: d.device_address(),
+        vid: d.vendor_id(),
+        pid: d.product_id(),
+        speed: speed(d.speed()),
+        manufacturer: d.manufacturer_string().map(str::to_owned),
+        product: d.product_string().map(str::to_owned),
+    }
+}
+
+/// The next item of a stream, blocking the thread.
+fn next_blocking<S: futures_core::Stream + Unpin>(s: &mut S) -> Option<S::Item> {
+    use std::pin::Pin;
+    use std::sync::Arc;
+    use std::task::{Context, Poll, Wake, Waker};
+    struct Unpark(std::thread::Thread);
+    impl Wake for Unpark {
+        fn wake(self: Arc<Self>) {
+            self.0.unpark();
+        }
+    }
+    let waker = Waker::from(Arc::new(Unpark(std::thread::current())));
+    let mut cx = Context::from_waker(&waker);
+    loop {
+        match Pin::new(&mut *s).poll_next(&mut cx) {
+            Poll::Ready(x) => return x,
+            Poll::Pending => std::thread::park(),
+        }
+    }
+}
+
 impl UsbBackend for NusbBackend {
     fn list(&self) -> Result<Vec<Info>, UsbError> {
         let devs = nusb::list_devices().wait().map_err(err)?;
-        Ok(devs
-            .map(|d| Info {
-                bus: bus_of(&d),
-                address: d.device_address(),
-                vid: d.vendor_id(),
-                pid: d.product_id(),
-                speed: speed(d.speed()),
-                manufacturer: d.manufacturer_string().map(str::to_owned),
-                product: d.product_string().map(str::to_owned),
+        Ok(devs.map(|d| info_of(&d)).collect())
+    }
+
+    /// nusb's hotplug stream on a thread of its own. A departure names the
+    /// device only by its id, so the thread remembers where each id was.
+    fn watch(&self) -> Option<std::sync::mpsc::Receiver<crate::Hotplug>> {
+        let mut watch = nusb::watch_devices().ok()?;
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut known: HashMap<nusb::DeviceId, (u8, u8)> = nusb::list_devices()
+            .wait()
+            .map(|l| {
+                l.map(|d| (d.id(), (bus_of(&d), d.device_address())))
+                    .collect()
             })
-            .collect())
+            .unwrap_or_default();
+        std::thread::Builder::new()
+            .name("usb-hotplug".into())
+            .spawn(move || {
+                while let Some(ev) = next_blocking(&mut watch) {
+                    let msg = match ev {
+                        nusb::hotplug::HotplugEvent::Connected(d) => {
+                            known.insert(d.id(), (bus_of(&d), d.device_address()));
+                            crate::Hotplug::Arrived(info_of(&d))
+                        }
+                        nusb::hotplug::HotplugEvent::Disconnected(id) => {
+                            let Some((bus, address)) = known.remove(&id) else {
+                                continue;
+                            };
+                            crate::Hotplug::Left { bus, address }
+                        }
+                    };
+                    if tx.send(msg).is_err() {
+                        break;
+                    }
+                }
+            })
+            .ok()?;
+        Some(rx)
     }
 
     fn open(&self, bus: u8, address: u8, how: Open) -> Result<Box<dyn UsbDevice>, UsbError> {

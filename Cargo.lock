@@ -409,6 +409,7 @@ dependencies = [
  "dsview-decode",
  "dsview-drivers",
  "dsview-formats",
+ "dsview-session",
  "dsview-store",
  "dsview-usb",
 ]
@@ -458,6 +459,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dsview-session"
+version = "0.1.0"
+dependencies = [
+ "dsview-core",
+ "dsview-drivers",
+ "dsview-usb",
+]
+
+[[package]]
 name = "dsview-store"
 version = "0.1.0"
 dependencies = [
@@ -480,6 +490,7 @@ dependencies = [
 name = "dsview-usb"
 version = "0.1.0"
 dependencies = [
+ "futures-core",
  "nusb",
 ]
 
