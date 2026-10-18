@@ -610,6 +610,30 @@ fn options_dialog() {
     harness.snapshot("options_dialog");
 }
 
+/// Auto calibration on the simulated DSCope: 2 µs/div, a running capture
+/// until the driver clears ZERO.
+#[test]
+fn zero_calibration() {
+    use dsview_core::{ConfValue, key};
+    let s = dscope_session();
+    s.set_config(key::ZERO, ConfValue::Bool(true), None);
+    let mut z = dsview_gui::zerocal::ZeroCal::start(&s);
+    assert_eq!(s.config_u64(key::TIMEBASE), Some(2000));
+    assert!(s.is_working());
+    let ctx = egui::Context::default();
+    let t0 = std::time::Instant::now();
+    while s.config(key::ZERO, None).unwrap().get_bool() {
+        assert!(t0.elapsed() < Duration::from_secs(60), "calibration did not finish");
+        let mut out = ctx.run_ui(Default::default(), |ui| {
+            z.show(ui.ctx(), &s);
+        });
+        out.textures_delta.clear();
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    s.stop_capture();
+    s.exit();
+}
+
 #[test]
 fn protocol_dock() {
     let s = demo_session();

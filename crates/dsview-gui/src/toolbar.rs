@@ -17,6 +17,8 @@ pub struct SamplingBar {
     pub calibrate: bool,
     /// "Auto Calibration": waiting for the user's confirmation.
     pub confirm_zero: bool,
+    /// The auto calibration while it runs.
+    pub zero: Option<crate::zerocal::ZeroCal>,
     pub message: Option<String>,
 }
 
@@ -29,6 +31,7 @@ impl Default for SamplingBar {
             options: None,
             calibrate: false,
             confirm_zero: false,
+            zero: None,
             message: None,
         }
     }
@@ -47,6 +50,15 @@ impl SamplingBar {
     pub fn run_stop(&mut self, s: &Session, instant: bool) {
         if s.is_working() {
             s.stop_capture();
+            return;
+        }
+        // a DSO front end that wants its zero calibration asks first
+        // (`action_run_stop`)
+        if s.mode() == dsview_core::Mode::Dso as i32
+            && s.config(dsview_core::key::ZERO, None)
+                .is_some_and(|v| v.get_bool())
+        {
+            self.confirm_zero = true;
             return;
         }
         s.set_collect_mode(
@@ -248,6 +260,11 @@ impl SamplingBar {
     /// The device options dialog and what follows OK
     /// (`SamplingBar::on_configure`).
     fn options_dialog(&mut self, ctx: &egui::Context, s: &Session) {
+        if let Some(z) = &mut self.zero
+            && !z.show(ctx, s)
+        {
+            self.zero = None;
+        }
         use crate::deviceoptions::Outcome;
         if let Some(d) = &mut self.options {
             let out = d.show(ctx, s);
@@ -287,6 +304,7 @@ impl SamplingBar {
                     if ui.button("OK").clicked() {
                         s.set_config(dsview_core::key::ZERO, dsview_core::ConfValue::Bool(true), None);
                         self.confirm_zero = false;
+                        self.zero = Some(crate::zerocal::ZeroCal::start(s));
                     }
                     if ui.button("Cancel").clicked() {
                         s.set_config(dsview_core::key::ZERO, dsview_core::ConfValue::Bool(false), None);
