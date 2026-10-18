@@ -37,6 +37,7 @@ pub struct App {
     pub trigger: crate::triggerdock::TriggerDock,
     pub measure: crate::measuredock::MeasureDock,
     pub search: crate::searchdock::SearchDock,
+    pub calibration: Option<crate::calibration::Calibration>,
     pub fft: crate::fftview::FftState,
     pub shared: Shared,
     pub version: String,
@@ -76,6 +77,7 @@ impl App {
             trigger: crate::triggerdock::TriggerDock::default(),
             measure: crate::measuredock::MeasureDock::default(),
             search: crate::searchdock::SearchDock::default(),
+            calibration: None,
             fft: crate::fftview::FftState::default(),
             shared,
             version: version.into(),
@@ -428,6 +430,22 @@ impl eframe::App for App {
                 self.view.show(ui, &self.session);
             }
         });
+        // check_calibration(): DSO hardware in calibration mode
+        if std::mem::take(&mut self.bar.calibrate)
+            && self.session.mode() == dsview_core::Mode::Dso as i32
+            && self
+                .session
+                .config(dsview_core::key::CALI, None)
+                .is_some_and(|v| v.get_bool())
+        {
+            self.calibration = Some(crate::calibration::Calibration::open(&self.session));
+        }
+        if let Some(c) = &mut self.calibration {
+            c.show(&ctx, &self.session);
+            if !c.open {
+                self.calibration = None;
+            }
+        }
         self.fft.dialog(&ctx, &self.session);
         let names: Vec<(u16, String)> = self
             .session

@@ -518,7 +518,55 @@ fn device_options_logic() {
 
 #[test]
 fn device_options_analog() {
-    options_snapshot(demo_in_mode(dsview_core::Mode::Analog), "device_options_analog");
+    options_snapshot(
+        demo_in_mode(dsview_core::Mode::Analog),
+        "device_options_analog",
+    );
+}
+
+/// A session on a simulated DSCope (`dsview_usb::sim`).
+fn dscope_session() -> Session {
+    use dsview_usb::Speed;
+    use dsview_usb::sim::{Hub, SimBackend, SimConfig};
+    let hub = Arc::new(std::sync::Mutex::new(Hub::new(SimConfig::new(0x2A0E, 0x0002, Speed::High))));
+    let sim = Arc::new(SimBackend::new(hub, Arc::new(|d: Duration| std::thread::sleep(d))));
+    let s = Session::new(
+        Paths {
+            data_dir: root().join("DSView"),
+            profile_dir: None,
+            version: "test".into(),
+        },
+        sim,
+    );
+    let (list, _) = s.devices();
+    let e = list.iter().find(|e| e.name.contains("DSCope")).expect("simulated DSCope listed");
+    assert!(s.set_device(e.handle));
+    s
+}
+
+#[test]
+fn calibration_dialog() {
+    use dsview_core::{ConfValue, key};
+    use egui_kittest::kittest::Queryable;
+    let s = dscope_session();
+    assert_eq!(s.mode(), dsview_core::Mode::Dso as i32);
+    s.set_config(key::CALI, ConfValue::Bool(true), None);
+    let cal = std::rc::Rc::new(std::cell::RefCell::new(dsview_gui::calibration::Calibration::open(&s)));
+    let (c2, s2) = (cal.clone(), s.clone());
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(700.0, 420.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            c2.borrow_mut().show(ui.ctx(), &s2);
+        });
+    h.run();
+    h.snapshot("calibration_dialog");
+    // Exit leaves calibration mode
+    h.get_by_label("Exit").click();
+    h.run();
+    assert!(!cal.borrow().open);
+    assert!(!s.config(key::CALI, None).unwrap().get_bool());
+    s.exit();
 }
 
 #[test]
