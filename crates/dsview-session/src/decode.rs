@@ -98,6 +98,9 @@ pub struct Row {
     /// `srd_decoder` address, which follows the load order.
     load_index: usize,
     pub shown: bool,
+    /// Shown in the protocol list (`_rows_lshow`): rows about bits or
+    /// warnings start hidden there.
+    pub list_shown: bool,
 }
 
 impl Row {
@@ -256,12 +259,16 @@ impl DecoderStack {
             let li = load_index(&d.info);
             let mut add = |order: i32| {
                 if !rows.iter().any(|r| r.key() == (li, order)) {
-                    rows.push(Row {
+                    let mut r = Row {
                         decoder: d.info.clone(),
                         order,
                         load_index: li,
                         shown: true,
-                    });
+                        list_shown: true,
+                    };
+                    let t = r.title().to_lowercase();
+                    r.list_shown = !(t.contains("bit") || t.contains("warning"));
+                    rows.push(r);
                 }
             };
             if d.info.annotation_rows.is_empty() {
@@ -308,6 +315,14 @@ impl DecoderStack {
 
     pub fn set_row_shown(&mut self, i: usize, shown: bool) {
         self.rows[i].shown = shown;
+    }
+
+    /// All annotations of row `row` sorted by start (the protocol list and
+    /// its export: `get_annotation_subset(row, 0, count - 1)` then sorted).
+    pub fn row_sorted(&self, row: usize, sample_count: u64) -> Vec<Ann> {
+        let mut v = self.annotations(row, 0, sample_count.saturating_sub(1));
+        v.sort_by_key(|a| a.start);
+        v
     }
 
     fn results(&self) -> MutexGuard<'_, Results> {

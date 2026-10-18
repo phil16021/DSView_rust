@@ -921,3 +921,66 @@ pub fn export(s: &Session, path: &Path, format: Format) -> Result<(), String> {
     emit(ex.receive(&ExportPacket::End).map_err(|e| e.to_string())?)?;
     out.flush().map_err(|e| e.to_string())
 }
+
+/// `ProtocolExp::save_proc`: rows `rows` (indexes into the stack's rows) of
+/// decoder trace `t` as CSV. Each line holds the annotations starting at the
+/// smallest start sample left in any column: `Id,Time[ns],<row titles>`.
+/// (Qt's TXT export writes the same text.)
+pub fn export_protocol(
+    t: &crate::session::DecodeTrace,
+    rows: &[usize],
+    sample_count: u64,
+    path: &Path,
+) -> Result<(), String> {
+    // EXPORT_DEC_ROW_COUNT_MAX
+    let rows: Vec<usize> = rows.iter().copied().take(20).collect();
+    if rows.is_empty() {
+        return Err("There is no decoded row to export.".into());
+    }
+    let st = &t.stack;
+    let titles: Vec<String> = rows.iter().map(|&r| st.rows()[r].title()).collect();
+    let anns: Vec<Vec<crate::decode::Ann>> = rows
+        .iter()
+        .map(|&r| st.row_sorted(r, sample_count))
+        .collect();
+    let total: usize = anns.iter().map(Vec::len).sum();
+    let ns_per_sample = 1e9 / (st.sample_rate() as f64).max(1.0);
+    let file = std::fs::File::create(path)
+        .map_err(|_| format!("Failed to open file for writing: {}", path.display()))?;
+    let mut out = std::io::BufWriter::new(file);
+    let w = |out: &mut std::io::BufWriter<std::fs::File>, s: String| {
+        out.write_all(s.as_bytes()).map_err(|e| e.to_string())
+    };
+    w(&mut out, format!("Id,Time[ns],{}\n", titles.join(",")))?;
+    let mut read = vec![0usize; rows.len()];
+    let (mut written, mut line) = (0usize, 0u64);
+    while written < total {
+        let sample = anns
+            .iter()
+            .zip(&read)
+            .filter_map(|(a, &i)| a.get(i).map(|x| x.start))
+            .min()
+            .unwrap_or(0);
+        let mut cells = Vec::with_capacity(rows.len());
+        for (k, a) in anns.iter().enumerate() {
+            match a.get(read[k]) {
+                Some(x) if x.start == sample => {
+                    cells.push(x.text().to_owned());
+                    read[k] += 1;
+                    written += 1;
+                }
+                _ => cells.push(String::new()),
+            }
+        }
+        line += 1;
+        w(
+            &mut out,
+            format!(
+                "{line},{},{}\n",
+                dsview_formats::cfmt::fmt_f(sample as f64 * ns_per_sample, 2),
+                cells.join(",")
+            ),
+        )?;
+    }
+    out.flush().map_err(|e| e.to_string())
+}

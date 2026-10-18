@@ -4,6 +4,7 @@
 
 pub mod app;
 pub mod hooks;
+pub mod protocol;
 pub mod soak;
 pub mod timeview;
 pub mod toolbar;

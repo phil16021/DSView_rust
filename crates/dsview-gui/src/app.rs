@@ -9,6 +9,7 @@ use dsview_session::session::SessionEvent;
 use eframe::egui;
 
 use crate::hooks::Shared;
+use crate::protocol::ProtocolDock;
 use crate::timeview::TimeView;
 use crate::toolbar::SamplingBar;
 
@@ -31,6 +32,7 @@ pub struct App {
     pub session: Session,
     pub view: TimeView,
     pub bar: SamplingBar,
+    pub protocol: ProtocolDock,
     pub shared: Shared,
     pub version: String,
     events: Receiver<SessionEvent>,
@@ -64,6 +66,7 @@ impl App {
             session,
             view: TimeView::default(),
             bar: SamplingBar::default(),
+            protocol: ProtocolDock::default(),
             shared,
             version: version.into(),
             events: rx,
@@ -259,6 +262,20 @@ impl eframe::App for App {
                 }
             });
         });
+        if self.protocol.open {
+            egui::Panel::right("protocol")
+                .resizable(true)
+                .default_size(360.0)
+                .show(ui, |ui| {
+                    self.protocol.show(ui, &self.session);
+                });
+        }
+        if let Some((a, b)) = self.protocol.jump.take() {
+            self.view.show_region(&self.session, a, b.max(a + 1));
+        }
+        if let Some(m) = self.protocol.message.take() {
+            self.message = Some(m);
+        }
         egui::CentralPanel::default().show(ui, |ui| {
             self.view.show(ui, &self.session);
         });

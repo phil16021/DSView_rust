@@ -143,3 +143,39 @@ fn events_follow_a_capture() {
     assert!(done > data, "{evs:?}");
     s.exit();
 }
+
+#[test]
+fn protocol_export_merges_rows_by_start() {
+    let (_g, s) = session("Demo Logic");
+    assert!(s.start_capture(false));
+    wait(&s, "decoded", |st| {
+        st.ended_seq > 0 && !st.working && !st.decoding
+    });
+    let t = s.state().decoders[0].clone();
+    let rows: Vec<usize> = t
+        .stack
+        .rows()
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| r.list_shown)
+        .map(|(i, _)| i)
+        .collect();
+    let path = std::env::temp_dir().join(format!("dsv-proto-{}.csv", std::process::id()));
+    let count = s.data().logic.lock().unwrap().ring_sample_count();
+    dsview_session::store::export_protocol(&t, &rows[..2], count, &path).unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    let _ = std::fs::remove_file(&path);
+    let mut lines = text.lines();
+    let titles: Vec<String> = rows[..2]
+        .iter()
+        .map(|&r| t.stack.rows()[r].title())
+        .collect();
+    assert_eq!(
+        lines.next().unwrap(),
+        format!("Id,Time[ns],{}", titles.join(","))
+    );
+    // the I2C start at sample 45147 (25 MHz: 40 ns per sample)
+    let first = lines.next().unwrap();
+    assert!(first.starts_with("1,1805880.00,"), "{first}");
+    s.exit();
+}

@@ -27,8 +27,11 @@ fn root() -> PathBuf {
 }
 
 fn demo_session() -> Session {
-    let _ = dsview_decode::init(&[root().join("libsigrokdecode4DSL/decoders").as_path()]);
-    dsview_decode::load_all();
+    static INIT: std::sync::Once = std::sync::Once::new();
+    INIT.call_once(|| {
+        let _ = dsview_decode::init(&[root().join("libsigrokdecode4DSL/decoders").as_path()]);
+        dsview_decode::load_all();
+    });
     let s = Session::new(
         Paths {
             data_dir: root().join("DSView"),
@@ -65,5 +68,21 @@ fn protocol_demo_view() {
         });
     harness.run();
     harness.snapshot("protocol_demo_view");
+    s.exit();
+}
+
+#[test]
+fn protocol_dock() {
+    let s = demo_session();
+    let mut dock = dsview_gui::protocol::ProtocolDock::default();
+    let s2 = s.clone();
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(420.0, 640.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            dock.show(ui, &s2);
+        });
+    harness.run();
+    harness.snapshot("protocol_dock");
     s.exit();
 }

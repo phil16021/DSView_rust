@@ -25,6 +25,8 @@ dsview-store = { path = "../dsview-store" }
 dsview-usb = { path = "../dsview-usb" }
 dsview-viewmodel = { path = "../dsview-viewmodel" }
 rfd = "0.17"
+egui_extras = "0.37"
+serde_json.workspace = true
 egui = "0.37"
 eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "wgpu", "x11", "wayland"] }
 
