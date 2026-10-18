@@ -1076,6 +1076,7 @@ dependencies = [
  "dsview-session",
  "dsview-usb",
  "libc",
+ "serde_json",
 ]
 
 [[package]]

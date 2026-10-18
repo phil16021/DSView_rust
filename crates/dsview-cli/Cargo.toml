@@ -19,3 +19,4 @@ dsview-drivers = { path = "../dsview-drivers" }
 dsview-session = { path = "../dsview-session" }
 dsview-usb = { path = "../dsview-usb" }
 libc = "0.2"
+serde_json.workspace = true

@@ -7,7 +7,7 @@
 | 2 Decoder engine | **done**: Rust/PyO3 engine behind `DSVIEW_IMPL_DECODE`; Rust becomes the default after one release of A/B | See "Phase 2" below |
 | 3 Drivers | **done except hardware steps**: 3a demo, 3b file, 3c USB layer, 3d DSLogic (replug tests passed 2026-10-18), 3e DSCope/MSO-E8 (`DSVIEW_IMPL_DRV_DEMO` / `_FILE` / `_DSLOGIC` / `_DSCOPE`). Open: a firmware upload from the host, the nightly runs, one DSCope/E8 hardware confirmation | See "Phase 3" below |
 | 4 Session + control API | **done**: 4a acquisition library in Rust behind `DSVIEW_IMPL_ACQ`; 4b capture session, control server, `dsview-cli serve --mcp` (transcript identical to the Qt GUI, 1 h soaks passed) | See "Phase 4" below |
-| 5 Rust GUI | **in progress**: M6.0, M6a-M6f done; the Rust GUI is the default on Linux (`DSVIEW_RUST_GUI`, Qt kept as `DSView-qt` for one release); M6g hardening in progress (steps 1-2 done) | PARITY.md 52 of 52 (2026-10-19); AccessKit live over AT-SPI |
+| 5 Rust GUI | **in progress**: M6.0, M6a-M6f done; the Rust GUI is the default on Linux (`DSVIEW_RUST_GUI`, Qt kept as `DSView-qt` for one release); M6g hardening in progress (steps 1-3 done) | PARITY.md 52 of 52 (2026-10-19); AccessKit live over AT-SPI |
 | 6 Removal + packaging | planned after release R1: M7a removal and packaging, M7b post-parity fixes | PLAN.md (revised 2026-10-18): M6f → M6g → R1 → M7a/M7b |
 
 ## Phase 0 deliverables
@@ -1168,4 +1168,29 @@ the demo transcript is unchanged.
   - `sigrok-cli -i demo.srzip` shows the 16 named channels at 25 MHz. Its 131072 samples equal
     DSView's CSV export at every run boundary.
 - **Gnuplot is dropped** (DEVIATIONS).
+
+**Step 3, `dsview-cli` commands (done 2026-10-19):**
+- **New one-shot commands** next to `serve` and `soak`. They run the control API in process,
+  with its argument checks and error texts, and exit with 1 on an error:
+  - `devices` and `decoders` (`--json` for the API's JSON);
+  - `info [--device D]`: the device's `get_config`;
+  - `capture [--device D] [--mode] [--samplerate] [--samples] [--channels 0-7,9] [--timeout]
+    --out FILE`: `.dsl` saves, `.csv`/`.vcd`/`.srzip` export;
+  - `export FILE.dsl OUT`;
+  - `decode FILE.dsl --decoder ID[:channel=N,option=value,...]`. It accepts several decoders
+    and prints `start-end row: text` lines, or JSON. A decoder id may be written without its
+    `0:` prefix.
+  - `verify-counter`: the DSLogic's internal test mode, checked as a binary counter over the
+    enabled channels. The operation mode is restored afterwards, so the profile keeps it.
+  - `selftest --out DIR`, for DSCope and MSO-E8 owners: `selftest.json` (versions, devices,
+    each hardware device's settings, a capture and the save) with `capture-<n>.dsl` and the
+    full driver and decoder log `dsview.log`.
+- **`--device D`:** an index or a part of a name. Without it, the first hardware device.
+- **On the DSLogic Plus:**
+  - `capture --samplerate 10000000 --samples 1000000 --channels 0-7 --out hw.dsl` takes 1 s;
+  - `verify-counter` checked 16 channels × 16 777 216 samples with 0 breaks;
+  - `selftest` wrote its bundle in 0.7 s.
+  - All of it ran with their own XDG directories, and the user's profile stayed unchanged.
+- **Tests:** `tests/oneshot.rs` runs the binary on the demo: devices, capture, export to srzip,
+  UART decode, and the error paths. Plus the channel list parser.
 
