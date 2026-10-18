@@ -34,19 +34,23 @@ fn default_data_dir() -> PathBuf {
 }
 
 fn usage() -> ! {
-    eprintln!("usage: dsview [-l N] [-v] [--mcp] [--data-dir DIR] [--bench SECONDS] [FILE]");
+    eprintln!(
+        "usage: dsview [-l N] [-v] [--mcp] [--data-dir DIR] [--bench SECONDS] [--soak MINUTES] [FILE]"
+    );
     std::process::exit(2);
 }
 
 fn main() -> eframe::Result {
     let mut args = std::env::args().skip(1);
     let (mut data_dir, mut bench, mut file, mut mcp) = (None, None, None, false);
+    let mut soak = None;
     let mut level = 3;
     while let Some(a) = args.next() {
         match a.as_str() {
             "--data-dir" => data_dir = args.next().map(PathBuf::from),
             "--bench" => bench = args.next().and_then(|v| v.parse::<f64>().ok()),
             "--mcp" => mcp = true,
+            "--soak" => soak = args.next().and_then(|v| v.parse::<f64>().ok()),
             "-l" | "--loglevel" => level = args.next().and_then(|v| v.parse().ok()).unwrap_or(3),
             "-v" | "-V" | "--version" => {
                 println!("DSView {DSVIEW_VERSION} (Rust preview)");
@@ -106,6 +110,16 @@ fn main() -> eframe::Result {
                 st.ended_seq > 0 && !st.working
             });
         }
+        None if soak.is_some() => {
+            // a loop capture on the demo's random pattern
+            let (list, _) = session.devices();
+            if let Some(e) = list.iter().find(|e| e.name == "Demo Logic") {
+                session.set_device(e.handle);
+            }
+            session.set_demo_pattern("random");
+            session.set_collect_mode(dsview_session::session::CollectMode::Loop, 0.0);
+            session.start_capture(false);
+        }
         None => {
             session.set_default_device();
         }
@@ -160,6 +174,7 @@ fn main() -> eframe::Result {
             cc.egui_ctx
                 .tessellation_options_mut(|o| o.feathering = false);
             let mut app = app::App::new(s2, shared, DSVIEW_VERSION, &cc.egui_ctx);
+            app.soak = soak.map(dsview_gui::soak::Soak::new);
             app.bench = bench.map(|secs| app::Bench {
                 until: Instant::now() + Duration::from_secs_f64(secs),
                 frames: Vec::new(),

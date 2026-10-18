@@ -450,7 +450,10 @@ pub fn load_config_from_json(s: &Session, doc: &Value) -> bool {
                     name = sig.index.to_string();
                 }
                 sig.name = name;
-                sig.colour = o.get("colour").and_then(Value::as_str).and_then(parse_colour);
+                sig.colour = o
+                    .get("colour")
+                    .and_then(Value::as_str)
+                    .and_then(parse_colour);
                 if sig.ty == channel_type::LOGIC {
                     let t = o.get("strigger").and_then(Value::as_f64).unwrap_or(0.0) as i32;
                     sig.trig = if (1..=5).contains(&t) { t } else { 0 };
@@ -565,7 +568,9 @@ pub fn session_json(s: &Session, version: &str) -> Value {
         c.insert(
             "colour".into(),
             sig.colour
-                .map_or("default".to_owned(), |[r, g, b]| format!("#{r:02x}{g:02x}{b:02x}"))
+                .map_or("default".to_owned(), |[r, g, b]| {
+                    format!("#{r:02x}{g:02x}{b:02x}")
+                })
                 .into(),
         );
         if sig.ty == channel_type::LOGIC {

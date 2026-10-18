@@ -97,6 +97,33 @@ pub fn period_string(frequency: u64) -> String {
     }
 }
 
+/// `sr_time_string`: a duration in ns as the sampling bar shows it
+/// ("40.00 ms", "1.00 s", "500 ns").
+pub fn time_string(ns: u64) -> String {
+    const US: u64 = 1_000;
+    const MS: u64 = 1_000_000;
+    const SEC: u64 = 1_000_000_000;
+    const MIN: u64 = 60 * SEC;
+    const HOUR: u64 = 3600 * SEC;
+    const DAY: u64 = 86_400 * SEC;
+    let t = ns as f64;
+    if ns >= DAY {
+        format!("{} day", fmt_f(t / DAY as f64, 2))
+    } else if ns >= HOUR {
+        format!("{} hour", fmt_f(t / HOUR as f64, 2))
+    } else if ns >= MIN {
+        format!("{} min", fmt_f(t / MIN as f64, 2))
+    } else if ns >= SEC {
+        format!("{} s", fmt_f(t / SEC as f64, 2))
+    } else if ns >= MS {
+        format!("{} ms", fmt_f(t / MS as f64, 2))
+    } else if ns >= US {
+        format!("{} us", fmt_f(t / US as f64, 2))
+    } else {
+        format!("{ns} ns")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

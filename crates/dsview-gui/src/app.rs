@@ -10,6 +10,7 @@ use eframe::egui;
 
 use crate::hooks::Shared;
 use crate::timeview::TimeView;
+use crate::toolbar::SamplingBar;
 
 /// A file chosen in a (blocking) native dialog on its own thread.
 enum FileJob {
@@ -29,12 +30,16 @@ pub struct Bench {
 pub struct App {
     pub session: Session,
     pub view: TimeView,
+    pub bar: SamplingBar,
     pub shared: Shared,
     pub version: String,
     events: Receiver<SessionEvent>,
     files: Option<Receiver<Option<FileJob>>>,
     message: Option<String>,
+    switch_prompt: Option<(u64, String)>,
+    known_devices: usize,
     pub bench: Option<Bench>,
+    pub soak: Option<crate::soak::Soak>,
 }
 
 impl App {
@@ -58,12 +63,16 @@ impl App {
         App {
             session,
             view: TimeView::default(),
+            bar: SamplingBar::default(),
             shared,
             version: version.into(),
             events: rx,
             files: None,
             message: None,
+            switch_prompt: None,
+            known_devices: 0,
             bench: None,
+            soak: None,
         }
     }
 
@@ -122,6 +131,24 @@ impl App {
         }
     }
 
+    /// Devices came or went (`DSV_MSG_CURRENT_DEVICE_DETACHED`,
+    /// `DSV_MSG_NEW_USB_DEVICE`).
+    fn hotplug(&mut self) {
+        let (list, _) = self.session.devices();
+        let active = self.session.state().device.as_ref().map(|d| d.handle);
+        if let Some(h) = active
+            && !list.iter().any(|e| e.handle == h)
+        {
+            self.message = Some("The current device was disconnected.".into());
+            if !self.session.is_working() {
+                self.session.set_default_device();
+            }
+        } else if list.len() > self.known_devices && self.known_devices > 0 {
+            self.switch_prompt = list.last().map(|e| (e.handle, e.name.clone()));
+        }
+        self.known_devices = list.len();
+    }
+
     fn control_ops(&mut self) {
         let (region, cursors) = {
             let mut p = self.shared.lock();
@@ -140,7 +167,42 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let t0 = Instant::now();
         let ctx = ui.ctx().clone();
-        while self.events.try_recv().is_ok() {}
+        let mut data = false;
+        let mut devices = false;
+        while let Ok(ev) = self.events.try_recv() {
+            match ev {
+                SessionEvent::DataAppended => data = true,
+                SessionEvent::DeviceListChanged => devices = true,
+                _ => {}
+            }
+        }
+        // the view follows a stream or loop capture (`set_receive_len`)
+        if data && self.session.is_realtime_refresh() {
+            let tb = crate::timeview::timebase(&self.session);
+            let ring = self
+                .session
+                .data()
+                .logic
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .ring_sample_count();
+            self.view.vp.update_limits(&tb);
+            self.view.vp.scroll_to_last(ring, &tb);
+        }
+        if devices {
+            self.hotplug();
+        }
+        // S and I: run/stop and single (MainWindow's shortcuts)
+        let (key_s, key_i) =
+            ctx.input(|i| (i.key_pressed(egui::Key::S), i.key_pressed(egui::Key::I)));
+        if !ctx.egui_wants_keyboard_input() {
+            if key_s {
+                self.bar.run_stop(&self.session, false);
+            }
+            if key_i {
+                self.bar.run_stop(&self.session, true);
+            }
+        }
         self.file_jobs();
         self.control_ops();
 
@@ -175,6 +237,9 @@ impl eframe::App for App {
                 ui.label(dev.unwrap_or_else(|| "no device".into()));
             });
         });
+        egui::Panel::top("sampling").show(ui, |ui| {
+            self.bar.show(ui, &self.session);
+        });
         egui::Panel::bottom("status").show(ui, |ui| {
             ui.horizontal(|ui| {
                 if let Some(m) = &self.view.measure {
@@ -197,6 +262,24 @@ impl eframe::App for App {
         egui::CentralPanel::default().show(ui, |ui| {
             self.view.show(ui, &self.session);
         });
+        if let Some((handle, name)) = self.switch_prompt.clone() {
+            egui::Window::new("New device")
+                .collapsible(false)
+                .show(&ctx, |ui| {
+                    ui.label(format!("\"{name}\" was connected. Switch to it?"));
+                    ui.horizontal(|ui| {
+                        if ui.button("Switch").clicked() {
+                            if !self.session.is_working() {
+                                self.session.set_device(handle);
+                            }
+                            self.switch_prompt = None;
+                        }
+                        if ui.button("Keep").clicked() {
+                            self.switch_prompt = None;
+                        }
+                    });
+                });
+        }
         if let Some(msg) = self.message.clone() {
             let mut open = true;
             egui::Window::new("DSView")
@@ -210,6 +293,19 @@ impl eframe::App for App {
             }
         }
 
+        if let Some(soak) = &mut self.soak {
+            if !self.session.is_working() {
+                println!("soak: the capture stopped");
+                std::process::exit(1);
+            }
+            if soak.frame() {
+                self.session.stop_capture();
+                let ok = soak.report(self.session.state().captures);
+                self.session.exit();
+                std::process::exit(if ok { 0 } else { 1 });
+            }
+            ctx.request_repaint_after(std::time::Duration::from_millis(33));
+        }
         if let Some(b) = &mut self.bench {
             let tb = crate::timeview::timebase(&self.session);
             let max = self.view.vp.max_offset(&tb);

@@ -1173,6 +1173,55 @@ impl Session {
         self.set_config(key::TIMEBASE, ConfValue::U64(hori_res as u64), None);
     }
 
+    /// The sampling bar's rate list and the selected entry.
+    pub fn rate_selector(&self) -> (Vec<u64>, usize) {
+        let st = self.state();
+        (st.sel.rates.clone(), st.sel.rate)
+    }
+
+    /// The sampling bar's duration list (ns, labelled RLE) and the
+    /// selected entry; in DSO mode the time per division.
+    pub fn duration_selector(&self) -> (Vec<(f64, bool)>, usize) {
+        let st = self.state();
+        (st.sel.durations.clone(), st.sel.duration)
+    }
+
+    /// Selects a sample rate (`on_samplerate_sel`): the duration list
+    /// follows; the device gets it with `commit_settings` (at the latest
+    /// when a capture starts).
+    pub fn select_rate(&self, i: usize) {
+        {
+            let mut st = self.state();
+            if i >= st.sel.rates.len() {
+                return;
+            }
+            st.sel.rate = i;
+        }
+        if self.mode() != Mode::Dso as i32 {
+            self.update_sample_count_selector();
+        }
+        self.notify();
+    }
+
+    /// Selects a duration (`on_samplecount_sel`); in DSO mode the timebase
+    /// and rate go to the device at once (`commit_hori_res`).
+    pub fn select_duration(&self, i: usize) {
+        {
+            let mut st = self.state();
+            if i >= st.sel.durations.len() {
+                return;
+            }
+            st.sel.duration = i;
+        }
+        if self.mode() == Mode::Dso as i32 {
+            self.commit_hori_res();
+            if !self.have_view_data() {
+                self.sync_snap_settings();
+            }
+        }
+        self.notify();
+    }
+
     /// `SamplingBar::commit_settings()`: pushes the selected rate and depth
     /// (rounded up to 1024 samples) to the device.
     pub fn commit_settings(&self) {
@@ -1217,6 +1266,18 @@ impl Session {
     pub fn is_working(&self) -> bool {
         let st = self.state();
         st.working || st.running
+    }
+
+    /// `is_realtime_refresh()`: the view follows the data while capturing
+    /// (loop mode, or a stream that is shown as it arrives).
+    pub fn is_realtime_refresh(&self) -> bool {
+        let st = self.state();
+        st.working
+            && (st.collect_mode == CollectMode::Loop
+                || (st.stream_mode
+                    && (st.collect_mode == CollectMode::Single
+                        || self.0.view.load(Ordering::Acquire)
+                            == self.0.capture.load(Ordering::Acquire))))
     }
 
     pub fn is_decoding(&self) -> bool {
