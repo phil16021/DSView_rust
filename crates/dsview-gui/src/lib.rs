@@ -11,6 +11,7 @@ pub mod fftview;
 pub mod hooks;
 pub mod lissajousview;
 pub mod mathview;
+pub mod measuredock;
 pub mod protocol;
 pub mod refview;
 pub mod soak;

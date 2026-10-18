@@ -127,6 +127,8 @@ pub struct TimeView {
     pub(crate) dso_mouse: Option<Pos2>,
     /// The DSO device is hardware (AUTO shows).
     pub(crate) dso_is_hardware: bool,
+    /// The floating mouse measurement (`_fen_checkBox`).
+    pub measure_enabled: bool,
 }
 
 impl Default for TimeView {
@@ -155,6 +157,7 @@ impl Default for TimeView {
             analog: crate::analogview::AnalogState::new(),
             dso_mouse: None,
             dso_is_hardware: false,
+            measure_enabled: true,
         }
     }
 }
@@ -221,6 +224,11 @@ fn line_colour(sig: &Signal) -> Color32 {
     } else {
         c
     }
+}
+
+/// Cursor `number`'s colour (from 1).
+pub fn cursor_colour(number: usize) -> Color32 {
+    hsva(number)
 }
 
 fn hsva(number: usize) -> Color32 {
@@ -832,7 +840,8 @@ impl TimeView {
                     self.jump = Some((end as i64 - start as i64, end));
                 }
                 _ => {
-                    if let Some(r) = self.row_at(rows, area, p.y)
+                    if self.measure_enabled
+                        && let Some(r) = self.row_at(rows, area, p.y)
                         && let Some(sig) = &r.sig
                     {
                         self.measure = measure::mouse_measure(
@@ -1308,5 +1317,12 @@ impl TimeView {
     pub fn show_region(&mut self, s: &Session, start: u64, end: u64) {
         let tb = timebase(s);
         self.vp.show_region(start, end, false, &tb);
+    }
+
+    /// `set_cursor_middle`: sample `index` in the middle, the scale kept.
+    pub fn center_on(&mut self, s: &Session, index: u64) {
+        let tb = timebase(s);
+        let off = index as f64 / (tb.snap_samplerate * self.vp.scale) - (self.vp.width / 2) as f64;
+        self.vp.set_scale_offset(self.vp.scale, off as i64, &tb);
     }
 }

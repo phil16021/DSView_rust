@@ -35,6 +35,7 @@ pub struct App {
     pub protocol: ProtocolDock,
     pub dso_trigger: crate::dsotrigger::DsoTriggerDock,
     pub trigger: crate::triggerdock::TriggerDock,
+    pub measure: crate::measuredock::MeasureDock,
     pub fft: crate::fftview::FftState,
     pub shared: Shared,
     pub version: String,
@@ -72,6 +73,7 @@ impl App {
             protocol: ProtocolDock::default(),
             dso_trigger: crate::dsotrigger::DsoTriggerDock::default(),
             trigger: crate::triggerdock::TriggerDock::default(),
+            measure: crate::measuredock::MeasureDock::default(),
             fft: crate::fftview::FftState::default(),
             shared,
             version: version.into(),
@@ -201,18 +203,26 @@ impl eframe::App for App {
         if devices {
             self.hotplug();
         }
-        // S and I: run/stop and single, T: the trigger dock (MainWindow's
-        // shortcuts)
-        let (key_s, key_i, key_t) = ctx.input(|i| {
+        // S and I: run/stop and single; T, D, M: the trigger, protocol and
+        // measure docks (MainWindow's shortcuts)
+        let (key_s, key_i, key_t, key_d, key_m) = ctx.input(|i| {
             (
                 i.key_pressed(egui::Key::S),
                 i.key_pressed(egui::Key::I),
                 i.key_pressed(egui::Key::T),
+                i.key_pressed(egui::Key::D),
+                i.key_pressed(egui::Key::M),
             )
         });
         if !ctx.egui_wants_keyboard_input() {
             if key_t {
                 self.dso_trigger.open = !self.dso_trigger.open;
+            }
+            if key_d {
+                self.protocol.open = !self.protocol.open;
+            }
+            if key_m {
+                self.measure.open = !self.measure.open;
             }
             if key_s {
                 self.bar.run_stop(&self.session, false);
@@ -253,6 +263,7 @@ impl eframe::App for App {
                 ui.menu_button("View", |ui| {
                     ui.checkbox(&mut self.dso_trigger.open, "Trigger (T)");
                     ui.checkbox(&mut self.protocol.open, "Protocol (D)");
+                    ui.checkbox(&mut self.measure.open, "Measure (M)");
                     ui.checkbox(&mut self.view.dso.split, "Split DSO channels");
                     ui.horizontal(|ui| {
                         let l = ui.label("DSO persistence");
@@ -334,6 +345,16 @@ impl eframe::App for App {
                 });
         }
         let dso = self.session.mode() == dsview_core::Mode::Dso as i32;
+        if self.measure.open {
+            egui::Panel::right("measure")
+                .resizable(true)
+                .default_size(320.0)
+                .show(ui, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        self.measure.show(ui, &self.session, &mut self.view);
+                    });
+                });
+        }
         let logic = self.session.mode() == dsview_core::Mode::Logic as i32;
         if logic && self.dso_trigger.open {
             egui::Panel::right("trigger")

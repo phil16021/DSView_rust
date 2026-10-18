@@ -443,6 +443,25 @@ fn trigger_dock() {
 }
 
 #[test]
+fn measure_dock() {
+    let s = demo_session();
+    let mut view = TimeView::default();
+    view.cursors.samples = vec![45_147, 50_223];
+    let mut dock = dsview_gui::measuredock::MeasureDock::default();
+    dock.add_logic_rows(2, 1, 0);
+    let s2 = s.clone();
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(340.0, 520.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            dock.show(ui, &s2, &mut view);
+        });
+    harness.run();
+    harness.snapshot("measure_dock");
+    s.exit();
+}
+
+#[test]
 fn protocol_dock() {
     let s = demo_session();
     let mut dock = dsview_gui::protocol::ProtocolDock::default();
