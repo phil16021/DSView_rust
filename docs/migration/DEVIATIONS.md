@@ -468,7 +468,7 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
 | DSCope channel values during a capture (`hw_offset`, calibration V/div and offsets) | Written into `sdi->channels` by the driver | Copied into the C channel list before each packet is forwarded and after each poll | 3e ✔ |
 | Decoder `wait()` pin tuple | One tuple object, mutated in place | A fresh tuple per call | 2 |
 | Decoder options from files | Applied as stored | Path/exec options (`objdump`, `elffile`, `mapping`) reset to defaults until the user confirms | 2 |
-| USB stop/abort | No transfer cancellation, infinite timeouts, unbounded busy-polls | FORCE_RDY → grace period → cancel all transfers; every wait has a deadline | 3 |
+| USB stop/abort | No transfer cancellation, infinite timeouts, unbounded busy-polls | FORCE_RDY → grace period → cancel all transfers; every wait has a deadline | 3 ✔ |
 | `.dsl` samplerate | Fractional rates misread (F3); an unparsable string silently loads as 0 or garbage | Decodes the C writer's format; an unparsable string is an error | 1a ✔ |
 | `.dsl` misaligned logic block | Stream silently ends at that block | Load error ("logic block is not 8-byte aligned") | 1a ✔ |
 | `.dsl` version 1, data not a multiple of 128 bytes | Last partial 64-sample block converted from a stale buffer | Partial block dropped | 1a ✔ |
@@ -555,6 +555,15 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
 | Phase 2: one interpreter per build, tested on 3.10 and 3.12 | Both engines use the same interpreter (`PYO3_PYTHON`, else `python3`); the oracle no longer uses pkg-config `python3-embed` | A single process needs a single libpython; CI uses the runner's Python |
 | USB traces in the repository | Recorded 2026-10-17 (11 scenarios plus startup). The pcapng files stay out of git; `testdata/usb/dslogic/manifest.json` pins their sha256 | 16 MB of binary traces; the plan's separate test-data repository is not set up yet |
 | Phase 3a: demo random mode checked "structurally only" | Checked packet for packet | Both drivers run on one virtual clock and one random sequence (`dev/dsview-oracle/src/drv.rs`; `demo.c` is built with `g_timer_*`, `g_usleep`, `rand`, `srand` mapped onto it), so random and time-based output is deterministic |
+| `compat/` with the shims | The shims sit next to the C code they replace (`libsigrok4DSL/ds_api_rs.c`, `hardware/rust/rs_driver.c`, `output/rs_output.c`, `libsigrokdecode4DSL/rs_decode.c`) | Each builds with its own C library; they are deleted with it in Phase 6 |
+| `compat/impl_loader.c`: dlopen of per-subsystem `.so` files | One binary; `dsview-ffi/src/switch.rs` reads `DSVIEW_IMPL*` at run time | Same A/B power, no symbol-clash risk, no extra build artifacts |
+| `dev/dsview-usb-fake` and `dev/dsview-siggen` crates | The fake libusb is `dev/dsview-oracle/csrc/fake_libusb.c`; the generators live in `decode-diff` | They have no other users |
+| egui_dock, catppuccin-egui, egui_extras SVG icons in the GUI | Fixed panels; themes as hand-written `Visuals` and icons through resvg 0.44 (M6f) | Not in the offline registry in a version that fits egui 0.37; the docks need no tabbing |
+| `rtrb` ingest queue, mmap spill, `loom` (§1.4) | Mutex-wrapped stores, overflow reported by the driver | The capture path meets the DSLogic's rates without them; a decision for M7b |
+| `masks.toml` for the masked USB bytes (Phase 3) | The masks are in the comparing code (F22) | One place, next to the comparison |
+| Windows and macOS (portable design, PLAN context) | Linux only after Phase 6; release R1 is the last Qt Windows build | Decision 2026-10-18; the ports are follow-on work |
+| Packaging against the system Python | The deb and AppImage bundle libpython and the stdlib, with RUNPATH and `PYTHONHOME` | Decision 2026-10-18: one package for every distribution release |
+| gnuplot export (Qt's export list) | Dropped; srzip is ported (M6g) | Decision 2026-10-18 |
 | M6e: Rust GUI default | CMake option `DSVIEW_RUST_GUI` (on by default on Linux): the Rust GUI installs as `DSView`, the Qt GUI as `DSView-qt` with its own desktop entry, for one release; without cargo the Qt GUI stays `DSView` | `build.yml` (deb/AppImage) has no Rust toolchain, so its packages stay Qt until that workflow gets one; Windows and macOS keep Qt (PLAN: Linux first) |
 | M6e: AccessKit in the `dsview` binary | Widgets are labelled and checked by the kittest accessibility check, but eframe is built without its `accesskit` feature | It needs `accesskit_winit`, which is not in the offline cargo registry; added with the M6f audit |
 | Phase 3: `compat/rs_driver.c` | `libsigrok4DSL/hardware/rust/rs_driver.c`, next to the other shims (`output/rs_output.c`, `rs_decode.c`) | Same place as the code it stands in for |

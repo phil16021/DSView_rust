@@ -1,4 +1,4 @@
-<!-- Approved migration plan (2026-10-17). Phase status is tracked in STATUS.md. -->
+<!-- Approved migration plan (2026-10-17), comprehensively revised 2026-10-18 after M6e. Phase status is tracked in STATUS.md. -->
 
 # DSView → 100% Rust: migration, test and debug plan
 
@@ -22,6 +22,28 @@ Analysis findings that shape the plan:
 - **Decoder API:** DSView deviates from upstream sigrok (`matched` as a u64 bitmask, ann_type 3-tuples, `@hex`/int payloads, `end()`, per-channel bit-packed input). `wait()` semantics must be reproduced exactly, so golden outputs come from the **C engine**, not upstream.
 - **GUI shape:** about 70% custom-painted traces. The data core (LogicSnapshot mipmap and friends) is self-contained.
 - **No working tests exist today.** A differential oracle against the C code is therefore the backbone of the plan.
+
+### State on 2026-10-18 (revision after M6e)
+- **Done:** Phases 0-4 and GUI milestones M6.0-M6e.
+  - The Rust GUI is the default on Linux: CMake `DSVIEW_RUST_GUI` installs it as `DSView`, and the
+    Qt GUI as `DSView-qt`.
+  - PARITY.md stands at 41 of 52.
+- **Still open:**
+  - M6f polish;
+  - a hardening milestone (M6g, new);
+  - one A/B release (R1, new);
+  - Phase 6, which is milestone M7: removal and packaging (M7a) and the post-parity fixes (M7b);
+  - the follow-on work listed at the end of §2.
+- **This revision** schedules every open, deferred or "after the flip" item from STATUS, DEVIATIONS,
+  PARITY and the phase gates in exactly one place: a milestone, the follow-on list, or "dropped" with
+  a DEVIATIONS row.
+- **Decisions taken 2026-10-18:**
+  - **Linux only after Phase 6.** Windows and macOS become follow-on work. Deleting Qt also removes
+    today's Windows build.
+  - **srzip export is ported to Rust.** Gnuplot is dropped.
+  - **Packages bundle Python** (libpython and the stdlib), as `build.yml` does for Qt today.
+  - **One A/B release** (R1) ships Rust as the default everywhere, with C/Qt as the fallback. Phase
+    6 deletes the C/Qt code after it.
 
 ---
 
@@ -55,6 +77,26 @@ Dev crates:
 
 Other top-level directories: `compat/` (transitional C shims), `fuzz/`, `xtask/`.
 
+**As built (2026-10-18), where it differs from the table above:**
+- **`dsview-gui`:** egui/eframe 0.37 with glow (`DSVIEW_RENDERER=wgpu` optional), `rfd` file
+  dialogs and egui_kittest tests.
+  - **No egui_dock or catppuccin-egui.** Docks are fixed panels, and the themes come as hand-written
+    `Visuals` in M6f.
+  - **No AccessKit platform adapter yet.** It needs `accesskit_winit`, which is not in the offline
+    registry (M6f).
+- **`dsview-ffi`:** exists only for the Qt GUI and the oracle. It is archived with the oracle in
+  Phase 6.
+- **Not built:**
+  - `compat/`: the shims sit next to the C code (`libsigrok4DSL/ds_api_rs.c`,
+    `hardware/rust/rs_driver.c`, `output/rs_output.c`, `libsigrokdecode4DSL/rs_decode.c`).
+  - `dev/dsview-usb-fake`: the fake libusb is `dev/dsview-oracle/csrc/fake_libusb.c`.
+  - `dev/dsview-siggen`: the generators live in `decode-diff`.
+- **`dsview-formats`:**
+  - `.dsc` profiles are handled by `dsview-session::store`, not by a serde model.
+  - srzip export comes in M6g; gnuplot is dropped.
+  - The `.sr` converter is follow-on work.
+- **`dsview-cli`:** has only `serve` and `soak`. M6g adds the subcommands of §4.
+
 ### 1.2 Transition seam
 GVariant, `sr_*` and `srd_*` are spread across about 50 GUI files, so rewriting them in C++ would be throwaway work. Instead:
 
@@ -68,6 +110,18 @@ GVariant, `sr_*` and `srd_*` are spread across about 50 GUI files, so rewriting 
   - After each default flip, the C path stays for exactly **one** release and is then deleted.
 - **Snapshots:** the C++ snapshot classes get backend interfaces (`LogicStoreCpp` vs `LogicStoreRs` via FFI) and the views stay unchanged.
 - **Build:** CMake imports the Rust crates through **Corrosion**. Always call `/usr/bin/cmake` (xtask reads `$CMAKE`).
+
+**As built:**
+- **Switching:** `dsview-ffi/src/switch.rs` checks `DSVIEW_IMPL*` at run time (Rust only for
+  `rust`; the default is C). The C and Rust code sit in one binary; there is no dlopen loader and no
+  per-subsystem `.so`.
+- **Build:**
+  - Instead of Corrosion, CMake uses custom targets that run `cargo build --locked`:
+    `DSVIEW_RUST_CORE` (default off) links `dsview-ffi`, and `DSVIEW_RUST_GUI` (default on on Linux)
+    builds and installs the Rust GUI.
+  - The Rust GUI and `dsview-cli` always use the Rust code; they have no switch.
+- **The "one release" rule** is carried out by release R1. It flips every subsystem's default to
+  Rust inside `DSView-qt` and keeps C selectable; Phase 6 deletes C after it.
 
 ### 1.3 Key traits
 ```rust
@@ -93,6 +147,13 @@ trait ControlBackend { async fn call(method, params) -> Result<Value, RpcError> 
 - **Decode:** one thread per stack, using the same coroutine handoff as C. Rust-side scans run under `py.allow_threads`. Stacked decoders run inline in `put(OUTPUT_PYTHON)`.
 - **Hotplug:** a dedicated `nusb::watch_devices` thread. This removes the C bug where two threads pumped the same libusb context.
 - **Huge captures:** constant leaves cost nothing; above a RAM budget the store spills to mmap in `$XDG_CACHE_HOME/dsview`. Annotations are 24-byte records with interned text.
+
+**As built:**
+- The stores sit behind a mutex, as the C++ classes do.
+- There is no `rtrb` ingest queue: overflow is reported by the driver.
+- There is no mmap spill, no `loom` verification and no separate `AnnotationStore`. The Rust
+  `DecoderStack` has its own interval index since M6.0.
+- All four are performance decisions for M7 (§2, "M7"), not parity work.
 
 ---
 
@@ -122,6 +183,22 @@ Each phase lists scope, seam, exit criteria and what gets deleted.
   - `hw-dslogic`: self-hosted runner with the DSLogic attached; nightly and on demand.
 - **Exit:** oracle builds and runs in CI; baselines committed; Corrosion links; `cpp-build` green.
 - **Deleted:** the stale `DSView/test` and `libsigrok4DSL/tests`.
+- **Status 2026-10-18: done.**
+  - **CI that exists** (`rust.yml`):
+    - lint, tests and cargo-deny;
+    - golden check, `decode-diff`, `drv-diff` and `trigger_diff`;
+    - fuzz smoke tests (60 s per target on every push);
+    - `oracle-asan`, store diffs only;
+    - a portability job that only runs `cargo check -p dsview-ffi`;
+    - `cpp-with-rust-core`.
+  - **Missing CI:**
+    - the nightly fuzz run, `e2e-mcp` and the Python 3.10/3.12 matrix: M6g;
+    - Rust in `build.yml`: R1;
+    - `bench-gate` and `hw-dslogic`: follow-on.
+  - **Performance baselines:** `display_edges` (256M samples) and the aggregate decode rate were
+    measured in 1b/2. Per-decoder throughput and a 1G-sample run are follow-on.
+  - **Hardware traces not recorded:** firmware upload (follow-on), the test-counter trace under the C
+    driver, and advanced/serial trigger traces (M6g).
 
 ### Phase 1: Formats + store (M, 8-11 pw, milestones M1/M2)
 - **1a `dsview-formats`:**
@@ -138,6 +215,12 @@ Each phase lists scope, seam, exit criteria and what gets deleted.
   - 24 h of cumulative fuzzing with no findings.
   - `display_edges` ≤ 1.1× the C time; ingest ≥ 1 GB/s per core.
   - Rust is the default in a release.
+- **Status 2026-10-18: done**, behind `DSVIEW_IMPL_FORMATS` / `_STORE`. What remains:
+  - the default flip in R1; the deletions in Phase 6;
+  - srzip export: M6g;
+  - 24 h of cumulative fuzzing: M6g. So far 2.3M + 145k runs, and the stores 2 × 20 min;
+  - the ingest gate (766 MiB/s measured), mmap spill, `loom`, and fixes F8/F11 once Rust is the
+    default: M7.
 
 ### Phase 2: Decoder engine (L, 10-14 pw, milestone M3)
 - **`dsview-decode`:** PyO3 with embedded, versioned libpython (≥ 3.10).
@@ -162,6 +245,14 @@ Each phase lists scope, seam, exit criteria and what gets deleted.
   - Throughput ≥ 0.9× C.
   - Rust is the default.
 - **Deleted:** `libsigrokdecode4DSL/*.c`.
+- **Status 2026-10-18: done** (`DSVIEW_IMPL_DECODE`). What remains:
+  - the default flip in R1; deleting `libsigrokdecode4DSL/*.c` in Phase 6;
+  - resetting the path/exec decoder options from files: M6g. It was moved to the GUI work and is not
+    built yet;
+  - the chunking-invariance suite: M6g;
+  - the fresh pin tuple (F13), the skip-count check (F14), `OUTPUT_LOGIC`, `Quirks::FIXED`, the
+    decoder bugs of F16 and an `AnnotationStore` in `dsview-store`: M7;
+  - the sigrok-dumps corpus and `testdata/decoders/coverage.toml`: follow-on.
 
 ### Phase 3: Drivers (L, 14-19 pw, milestone M4)
 - **3a** Demo driver: `.demo` playback packet-identical to C; random mode is seeded and checked structurally only.
@@ -191,6 +282,21 @@ Each phase lists scope, seam, exit criteria and what gets deleted.
   - 1000 start/stop cycles without a hang.
   - DSCope/E8 Rust is made the default **only after one external hardware confirmation** (via `dsview-cli selftest` bundles); until then their C drivers stay the default.
 - **Deleted:** `hardware/demo`, `hardware/DSL/*` (DSCope part only after confirmation), `ezusb.c`, and `session_driver.c`.
+- **Status 2026-10-18: done except the hardware steps.**
+  - **M6g:**
+    - the DSLogic matrix of §3 item 6 (trigger at 0/50/100 %, the test counter at every rate and
+      channel count in buffer and stream, a 10 min stream, 1000 cycles);
+    - `dsview-cli selftest`, so external testers can confirm DSCope/E8;
+    - a clear error when firmware is missing. 16 of the FX2 `.fw` files that `dsl/tables.rs` names
+      are not in `DSView/res` (upstream removed them), among them `DSLogicPlus.fw`.
+  - **Follow-on:**
+    - the host firmware upload, which needs a device without firmware in flash, and the files;
+    - three nights in a row, which need a self-hosted runner;
+    - the DSCope/E8 confirmation.
+  - **As built, not as planned:** the masks live in code (F22) instead of a `masks.toml`, and there
+    is no `rusb` fallback. Neither is planned any more.
+  - **M7:** fixes F19 and F21 once Rust is the default.
+  - **Phase 6 caveat:** it removes the C fallback for DSCope/E8 even without a confirmation (§5).
 
 ### Phase 4: Session + control API (M, 6-9 pw, milestone M5)
 - **`dsview-session`:**
@@ -203,8 +309,14 @@ Each phase lists scope, seam, exit criteria and what gets deleted.
   - The Phase 0 control transcripts pass against both Qt and `dsview-cli serve`.
   - 1 h loop-mode soak with RSS growth under 1%.
 - **Deleted:** the rest of libsigrok4DSL and the libusb dependency.
+- **Status 2026-10-18: done.** What remains:
+  - **M6g:**
+    - the `dsview-cli` subcommands from §4;
+    - the hardware data scale in `measure_dso`/`read_waveform` (DEVIATIONS, 4b rows);
+    - a 1000-cycle start/stop soak.
+  - **Phase 6:** the deletions.
 
-### Phase 5: Rust GUI (XL, 35-46 pw, milestones M6a-f)
+### Phase 5: Rust GUI (XL, 35-46 pw, milestones M6.0, M6a-g)
 *Revised 2026-10-18 after Phase 4b, from a detailed analysis of `DSView/pv`, an egui rendering
 spike on the development VM, and the Rust session as it now stands.*
 
@@ -323,9 +435,14 @@ The egui CPU work stays under 1 ms per frame (p95 6-13 ms with the first frames)
 | **M6c decoders** | decoder picker (search, stacked decoders pull their bases), runtime option forms with channel binding and start/end cursors, decode traces (rows, colours, text fit, progress, errors, region), live decoding, protocol dock (virtual table, search with dash sequences and match count, jump, export) | the 8,379 demo annotations identical to the C GUI through `get_annotations` (as in 4b); protocol table and export compared with Qt's on protocol.demo; 100k-row table interactive | 6-8 pw |
 | **M6d DSO/analog** | DSO traces (polyline, column bars, envelope), dials, split layout, zero/trigger-level drag, probe factor, hover value, X/Y cursors, auto-set, persistence; DSO trigger dock; measurements panel; analog traces and mapping; FFT, math, lissajous, ref waves, histogram, channel measure | `dsview-dsp` against the C++ (FFT magnitudes ≤ 1e-9 relative with `PI = 3.1415` reproduced; math, envelopes and edge detection exact); DSO transcript steps value-identical | 8-10 pw |
 | **M6e docks/dialogs** | advanced 16-stage and serial trigger (validated mask inputs, Qt's exact `ds_trigger_*` sequence), measure and search docks, device options generated from `config_list` (with mode polling), calibration (manual and auto), store progress with cursor range, protocol export/list, app options, about/messages | full MCP suite green against `dsview`; trigger commits byte-identical to the Qt GUI's `ds_trigger` for a scenario set → **Rust GUI default** | 6-8 pw |
-| **M6f polish** | i18n (en/de/cn JSON, runtime switch, CJK font subset), four themes as egui visuals, 212 SVG icons with dark/light, shortcuts, command line (`-l -v -s --mcp FILE`), settings and first-run import of `DSView.conf`, help links, screenshot, AccessKit audit | PARITY.md 100 % | 3-4 pw |
+| **M6f polish** | settings and first-run import of `DSView.conf`; log file and log options; help/logo menu and About; shortcuts with debounce; docks per mode, start-up document and driver hint; i18n (en/de/cn, runtime switch, CJK font); four themes with SVG icons; AccessKit (detail in 5.5) | PARITY.md 52/52 | 3-4 pw |
+| **M6g hardening** | bundled-Python start-up, firmware errors, decoder option reset, DSO data scale, one version source, data dir, crash reports; srzip export; `dsview-cli` subcommands and `selftest`; the DSLogic matrix; CI gaps (detail in 5.6) | the DSLogic matrix recorded green; `e2e-mcp` and the nightly fuzz job green; srzip byte-identical to C | 3-4 pw |
 
-The total stays in the original 35-46 pw.
+The total stays in the original 35-46 pw. M6.0-M6e are done (STATUS.md). M6g is new; it gathers
+the work that must be done before release R1.
+
+**As built:** M6e did not use egui_dock (fixed panels) or egui_extras SVG icons (no icons yet);
+both are M6f items below, done without those crates.
 
 **Parallelism:**
 - M6.0's store fix can go first, on its own.
@@ -358,19 +475,269 @@ and snapshot exits.
 The parity checklist is PARITY.md (extended 2026-10-18 with features the first inventory missed).
 No new features are added before M7.
 
-### Phase 6: Removal + packaging (S, 3-5 pw, milestone M7)
-- **Delete:** `DSView/` (C++), `compat/`, CMake, and the Qt/boost/FFTW/glib dependencies. The oracle is kept as an archived dev crate pinned to the last C tag.
-- **Packaging:**
-  - `cargo-deb`: `/usr/share/dsview/{res,decoders,lang,demo,icons}`, udev rule `60-dreamsourcelab.rules` with `MODE="0660", TAG+="uaccess"`.
-  - AppImage with bundled Python (reusing the build.yml steps).
-  - A first-run hint when device access is denied; the app never escalates privileges itself.
-  - Windows MSI and macOS .app are follow-on work.
-- **Exit:** 100% Rust plus the decoders; clean installs on Ubuntu 22.04/24.04 and Fedora; hardware matrix green.
+#### 5.5 M6f in detail (offline items first)
+The analysis behind these steps was done 2026-10-18: Qt sources, the strings, and the crates in the
+offline registry.
+
+1. **Settings.**
+   - **Model:** a settings model in `dsview-viewmodel` with Qt's groups: `[Application]` (all
+     `appOptions`, including log level/file/append, `transDecoderDlg`, trace height factor, DSO split),
+     `[MainFrame]` (style, language, window geometry, docks per mode) and `[UserHistory]`
+     (directories, export format, `showDocuments`, `showDriverHint`).
+   - **Storage:** JSON next to `dsview-rs.json`.
+   - **First-run import of `~/.config/DreamSourceLab/DSView.conf`:**
+     - a small hand-written QSettings INI reader (no INI crate is cached): groups, `a\b` sub-keys,
+       quoted values, `true`/`false`;
+     - the clamping of `appconfig.cpp`;
+     - Qt's `windowState` blob is not imported.
+   - **Window geometry:** through `ViewportBuilder`. eframe's `persistence` feature needs ron 0.12.2,
+     which is not cached.
+   - **History:** `rfd` dialogs start in the directories from the history.
+2. **Log.**
+   - **File sink:** behind `dsview_drivers::sys::set_log_sink`, writing `~/DSView.log` (`DSView: <msg>`,
+     levels 0-5, append or overwrite, clear).
+   - **Log Options** dialog.
+   - **Command line:**
+     - `-s/--storelog`;
+     - the configured level wins when it is higher;
+     - "Only one file can be opened" for a second file.
+3. **Help menu (Qt's logo bar):**
+   - About, with the version, links and thanks;
+   - Manual: `ug<lang>.pdf`, falling back to `ug31`;
+   - Bug Report and Update links;
+   - Language;
+   - Log Options;
+   - all opened through the cached `open` crate.
+   - One message/confirm helper replaces the ad-hoc windows.
+4. **Shortcuts.**
+   - The key table, the 200 ms debounce and the Ctrl/Shift/Alt filter move to
+     `dsview-viewmodel/src/input.rs`.
+   - New keys:
+     - O: device options;
+     - 0/1: the active DSO dial;
+     - ↑/↓: V/div, through the existing `step_vdiv`;
+     - Esc: closes every dialog.
+   - T/D/M/R only for the docks the mode has (`TrigBar::reload`).
+5. **Docks and start-up.**
+   - Docks per work mode, saved per mode: logic has trigger/decode/measure/search, analog only
+     measure, DSO trigger and measure.
+   - The document dialog at start-up (`showDoc<lang>.png`, "Not show again").
+   - The driver hint: the udev rule paths, the bundled copy, and `UsbError::Access`. Phase 6's
+     device-access hint reuses it.
+6. **i18n.**
+   - **Lookup:** a `Lang` store over `lang/<cn|en|de>/*.json` (pages toolbar, msg, dlg, dsl, dec)
+     with `tr(page, id, default)`, Qt's `L_S` lookup rules (German falls back to English for the DSL
+     and decoder pages), and the locale taken from `LANG`.
+   - **Strings:** about 200 GUI strings move onto the existing `IDS_*` ids; device option and label
+     texts and decoder `idn` are looked up too.
+   - **Switching:** at run time, together with the per-language profile names and manuals.
+   - **CJK:** egui's fonts have no CJK glyphs. A fallback face is loaded only for Chinese: the
+     system's Noto Sans CJK (TTC index) or Droid Sans Fallback. A shipped OFL subset font follows with
+     the packaging (Phase 6).
+7. **Themes and icons.**
+   - Four `Visuals` from the qss palettes: dark `#1F1F1F`, light `#F8F8F8`, frappé `#303446`, latte
+     `#eff1f5`, with accent and text colours.
+   - A `Palette` replaces the about 116 hard-coded colours in the views.
+   - The theme choice goes in the Display menu.
+   - SVG icons (`DSView/icons/{dark,light}`, 53 each, plus flags) are rasterised with resvg/usvg 0.44
+     directly. egui_extras' `svg` feature needs resvg 0.45, which is not cached.
+8. **AccessKit.**
+   - The kittest accessibility check runs over every dialog and window (offline).
+   - Then eframe's `accesskit` feature is enabled. That needs one network fetch of
+     `accesskit_winit` (with `atspi`/`zbus`), asked for at that point.
+
+**Exit:** PARITY.md 52/52; `tests/app_flow.rs` cases for settings import, shortcuts, docks per mode
+and the language switch; snapshots per theme and for Chinese.
+
+#### 5.6 M6g hardening (before release R1)
+1. **Runtime.**
+   - **Bundled Python:** `dsview-decode::init` sets `PYTHONHOME`/`PYTHONPATH` for the bundled layout
+     (`<prefix>/lib/dsview/python3.X`) before `Python::initialize`. The binaries get a
+     `$ORIGIN/../lib/dsview` RUNPATH; today `dsview` and `dsview-cli` link `libpython3.12.so.1.0`
+     without one and do not start outside pyenv.
+   - **Firmware:** a clear error for a missing firmware or bitstream file.
+   - **Decoder options:** path/exec options from files (`objdump`, `elffile`, `mapping`) are reset
+     until the user confirms them (Phase 2 security item).
+   - **DSO:** the hardware data scale is applied in the control API's DSO voltages.
+   - **One version source:** the workspace version. CMake, `dsview-gui/src/lib.rs` and
+     `dsview-cli/src/main.rs` all hard-code 1.6.1 today.
+   - **Data dir:** `share/dsview` with `share/DSView` as the fallback.
+   - **Crash reports:** a panic hook writes them to `$XDG_STATE_HOME/dsview/crash/`.
+2. **srzip export.**
+   - A writer in `dsview-formats` (zip with `metadata` INI and `logic-1-N` chunks), offered by the GUI
+     and the control API.
+   - Byte-checked against `libsigrok4DSL/output/srzip.c` in `dev/dsview-oracle/tests/export_diff.rs`
+     while C still exists.
+   - Gnuplot is dropped, with a DEVIATIONS row.
+3. **`dsview-cli` subcommands** from §4:
+   - `devices`, `info`, `capture`, `decode`, `export`;
+   - `verify-counter`, from `crates/dsview-drivers/examples/dslogic.rs`;
+   - `selftest`: a trace bundle for DSCope/E8 owners.
+4. **The DSLogic matrix** (§3 item 6) on the DSLogic Plus, through `dsview-cli` and MCP scenarios:
+   - simple, advanced and serial trigger at 0/50/100 %;
+   - the test counter at every rate with 1/4/8/16 channels, in buffer and stream mode;
+   - stop while waiting and mid-transfer;
+   - a 10 min stream;
+   - 1000 start/stop cycles.
+   - The results go into STATUS. A nightly self-hosted runner stays a later decision.
+5. **Tests and CI.**
+   - an `e2e-mcp` job: `cargo xtask mcp suite` on `dsview-cli`;
+   - a nightly fuzz schedule, with new targets `dsc_json`, `decoders_json`, `demo`, `usb_header`,
+     `dso_status_block`, `jsonrpc_request`, `pcapng_reader` and `srzip`, until 24 h in total are
+     reached;
+   - proptests for the viewmodel (index↔pixel, zoom);
+   - the chunking-invariance suite;
+   - miri on the store's and bit-packing's `unsafe`;
+   - `cargo xtask golden bless`;
+   - the portability job checks every crate on Linux and macOS. Windows is dropped by decision; the
+     known blockers are `libc::localtime_r` in `dsview-session/src/store.rs` and the Unix socket in
+     `dsview-control/src/server.rs`;
+   - `libfftw3-dev` added to `ORACLE_DEPS`;
+   - the test job runs with Python 3.10 and 3.12, the interpreters of Ubuntu 22.04 and 24.04;
+   - M6c's unrecorded exit checks: a protocol table with 100k+ rows stays interactive, and the table
+     and its export are compared with Qt's on protocol.demo.
+6. **Documentation.**
+   - STATUS: the unplug traces were recorded 2026-10-18, but Phase 0 still lists them as missing; pin
+     them in the manifest.
+   - DEVIATIONS: tick the USB stop/abort row, and add departure rows for the "as built" points of §1.
+   - PARITY: a note that the export row lacks srzip until step 2.
+
+### Release R1: the A/B release (S, 1-2 pw)
+*New 2026-10-18. It carries out the "C stays for exactly one release" rule of §1.2 for every
+subsystem at once.*
+- **Defaults:** `dsview-ffi/src/switch.rs` makes Rust the default for every `DSVIEW_IMPL_*`
+  subsystem inside `DSView-qt`; `DSVIEW_IMPL=c` still selects C. The Rust GUI (`DSView`) is the
+  default program.
+- **`build.yml`:**
+  - gets a Rust toolchain;
+  - the deb and the AppImage carry the Rust `DSView` and `DSView-qt`, both with the bundled Python
+    (the existing patchelf, stdlib and `PYTHONHOME` steps, extended to the Rust binary);
+  - the Windows job stays as it is. It makes the last Qt Windows build.
+- **Release:** merge `philipp` into `master` and tag it (e.g. v1.7.0). The release notes list the
+  deviations, the Qt fallback, and that Windows ends with this release.
+- **Exit:**
+  - the packages install and run on Ubuntu 22.04, 24.04 and 26.04: the Rust GUI starts with the
+    bundled Python, the demo decodes, and the DSLogic captures;
+  - `DSView-qt` runs on Rust by default;
+  - CI is green.
+
+### Phase 6: Removal + packaging (M, 5-9 pw, milestone M7 = M7a removal and packaging + M7b fixes)
+*Rewritten 2026-10-18 from an inventory of the remaining C tree. Starts after R1.*
+
+#### M7a removal and packaging (3-5 pw), in this order
+1. **Assets out of `DSView/`.**
+   - Move `res/` (bitstreams, FX2 firmware, default profiles, `license.txt`), `demo/`, `icons/`, the
+     udev rule, the desktop file (without `Qt;`), `packaging/debian/{postinst,postrm}`, `README` and
+     `COPYING` to `assets/`.
+   - Update the Rust paths that point into `DSView/`: tests, `dsview-ffi/src/dsl.rs`,
+     `dsview-drivers/tests/demo.rs`, `testdata/corpus.json` (9 SHA-pinned entries) and
+     `xtask corpus init`.
+2. **Freeze what was generated from C.**
+   - `crates/dsview-drivers/src/dsl/tables.rs` becomes the source of truth; `tools/gen/dsl_tables.py`
+     (which reads `dsl.h`, `libsigrok.h` and `dslogic.c`) is removed.
+   - `crates/dsview-core/tests/keys.rs` checks a frozen key list instead of parsing `libsigrok.h`.
+3. **Archive the oracle.**
+   - Tag the last commit with C as `c-final`.
+   - `dev/dsview-oracle` (with `dsview-ffi`) builds against a checkout of that tag, which
+     `cargo xtask oracle-src` makes as a git worktree. Today its `build.rs` compiles straight out of
+     `DSView/`, `libsigrok4DSL/`, `libsigrokdecode4DSL/` and `common/`, and links Qt Core and FFTW.
+   - It leaves the workspace's default members.
+   - The C goldens stay as stored fixtures that Rust checks alone.
+   - These checks move to a manual "archive" workflow: `decode-diff`, `drv-diff`, `trigger_diff`,
+     `oracle-asan`, the store/dsp/export diffs, `xtask control ab` and `cpp-with-rust-core`.
+4. **CI for Rust only:** lint, tests, fuzz, `e2e-mcp` and the golden check, without the C, Qt, glib
+   or FFTW packages.
+5. **Delete (about 117k lines):**
+   - `DSView/`'s C++ and Qt resources (73k);
+   - `libsigrok4DSL/`, including the shims (27k);
+   - `libsigrokdecode4DSL/*.c|h` (7.5k). `decoders/` stays: 342 `.py` files;
+   - `common/` (8.5k);
+   - `CMakeLists.txt`, `CMake/`, `GNUmakefile`, `cross-compile-windows/` and the helper scripts;
+   - the `DSVIEW_IMPL_*` switches.
+   - The Windows installer files are kept for the follow-on port.
+6. **Packaging.**
+   - **cargo-deb**, with explicit dependencies. GL/EGL, the Vulkan loader, libX11/Xcursor/Xi/Xrandr,
+     libxkbcommon, wayland-client and libdbus are all loaded with `dlopen`, so `$auto` does not see
+     them. Recommends: `xdg-desktop-portal` or `zenity`, for the file dialogs.
+   - **Layout:** `/usr/share/dsview/{res,decoders,lang,demo,icons}`, decoders without `__pycache__`.
+     The bundled Python goes under `/usr/lib/dsview`.
+   - **udev:** `60-dreamsourcelab.rules` (`MODE="0660", TAG+="uaccess"`) in `/usr/lib/udev/rules.d`,
+     with postinst/postrm.
+   - **AppImage:** a new recipe without the Qt plugin.
+   - **`build.yml`:** Linux only (the Windows job removed); the release job reads the workspace
+     version.
+   - **Device access:** the first-run hint when it is denied (M6f's driver hint); the app never
+     escalates privileges itself.
+   - **Tools needing one fetch:** cargo-deb, plus linuxdeploy, appimagetool and patchelf, unless they
+     run in CI only.
+7. **Exit:**
+   - 100 % Rust plus the Python decoders;
+   - clean installs on Ubuntu 22.04, 24.04 and 26.04 (deb) and on Fedora (AppImage);
+   - the DSLogic matrix green.
+
+#### M7b post-parity fixes (2-4 pw; can start right after R1)
+- **Fixes that waited for Rust to be the default:**
+  - a fresh pin tuple per `wait()` (F13);
+  - the skip-count check (F14);
+  - `OUTPUT_LOGIC` for `pca9571`/`tca6408a`;
+  - F11 (loop offset in single mode), F8 (CSV header padding), F19 (analog demo spin), F21 (disabled
+    demo channels);
+  - `Quirks::FIXED` where a fix changes decoder output.
+- **Qt quirks kept for parity (5.0, F27):**
+  - 1-2-5 ruler steps;
+  - a float `x_offset`;
+  - kinetic scroll without the integer truncation;
+  - stable cursor numbers and colours;
+  - a time-aligned protocol table;
+  - a real TXT export;
+  - the FFT with the true π.
+- **"Ported as is" quirks (F24-F29):** reviewed one by one; each is fixed or kept with a reason.
+- **Decoder bugs (F16):** fixed as patches to the Python decoders, upstreamed where possible.
+- **Performance decisions:**
+  - the ingest gate: accept 766 MiB/s, or redesign around an `rtrb` queue and pooled leaves;
+  - the mmap spill for huge captures;
+  - an `AnnotationStore` in `dsview-store`;
+  - `loom` for the store's publication, once readers stop locking. `loom` needs a fetch.
+
+### Follow-on (not scheduled; listed so nothing is lost)
+- **Windows and macOS ports:**
+  - the `cfg` fixes (`localtime_r`, `/proc` in the soak tools);
+  - a control transport other than a Unix socket (named pipe or TCP on localhost);
+  - installers, re-using `installer/windows`.
+- **Hardware:**
+  - the DSCope/E8 confirmation through `dsview-cli selftest` bundles;
+  - a host firmware upload test, which needs a device without flash firmware and the 16 missing
+    `.fw` files;
+  - the GPU frame budget (≤ 8 ms at 4K × 32) on a real GPU;
+  - a nightly self-hosted runner with the DSLogic (three nights in a row);
+  - an RP2040 pattern generator for real decode and trigger signals.
+- **Decoder corpus:** sigrok-dumps through a `.sr` → `.dsl` converter, and
+  `testdata/decoders/coverage.toml`.
+- **Debug and measurement tooling:** tracing spans and exporters (`DSVIEW_LOG`, Perfetto, Tracy), the
+  crash ring buffer, `DSVIEW_PY_FAULTHANDLER`/`DSVIEW_DEBUGPY`, iai/criterion bench gates,
+  per-decoder throughput baselines, nightly heaptrack.
+- **Test data:** a repository or LFS for traces and large captures.
+- **Upstream:** a monthly diff review against DreamSourceLab.
 
 ### Effort
-About 80-109 person-weeks for one experienced developer, roughly 92-125 with 15% contingency. That is about 2 calendar years at 80% utilization.
+The original estimate was 80-109 person-weeks (92-125 with 15 % contingency). Phases 0-4 and
+M6.0-M6e are done.
 
-Critical path: P0 → P1a → P2 → P3d → P4 → P5. With two developers, P1b runs alongside P2, P3a-c alongside P2, and M6a can start against `dsview-cli serve`.
+Remaining, as of 2026-10-18:
+
+| Step | Estimate |
+|---|---|
+| M6f | 3-4 pw |
+| M6g | 3-4 pw |
+| R1 | 1-2 pw |
+| M7a | 3-5 pw |
+| M7b | 2-4 pw |
+| **Total** | **12-19 pw** |
+
+Follow-on work is not counted.
+
+**Order:** M6f → M6g → R1 → M7a. M7b runs alongside M7a after R1. M6g's hardware steps can run
+alongside M6f.
 
 ---
 
@@ -421,6 +788,21 @@ Critical path: P0 → P1a → P2 → P3d → P4 → P5. With two developers, P1b
    - soak tests with RSS limits.
 10. **File compatibility:** Rust-written `.dsl` files must load in the C reader until Phase 6; afterwards, a frozen corpus of C-written files is kept as fixtures.
 
+**Status of the test plan (2026-10-18):**
+
+| Item | Done | Scheduled |
+|---|---|---|
+| 1 Differential oracle | goldens, decode-diff, drv-diff, store/dsp/export/trigger diffs | archived with the oracle in M7a (manual workflow) |
+| 2 Property tests | store, formats, oracle | M6g: viewmodel. Follow-on: `DSL_setting`/`ext32`, LA_CROSS, INI/.dsc round trips, `wait_scan` against a brute-force evaluator |
+| 3 Decoder corpus | protocol.demo, generators and noise in `decode-diff` (about 120 of 153 decoders) | follow-on: sigrok-dumps, `coverage.toml` |
+| 4 Chunking invariance | Rust(X) == C(X) | M6g: Rust(X) == Rust(Y) with an allowlist |
+| 5 Fuzzing | `header`, `dsl_reader`, `stores`; 60 s smoke runs in CI | M6g: the eight new targets and the nightly schedule up to 24 h. Differential `.dsl` fuzzing: follow-on |
+| 6 USB and hardware | replay of the Phase 0 traces, the Sim devices, a part of the DSLogic matrix | M6g: the rest of the matrix. Follow-on: firmware upload, nightly runner, DSCope/E8 |
+| 7 GUI | 33 snapshot and interaction tests, 2 window tests, viewmodel unit tests, the MCP suite against `dsview`/`dsview-cli`/Qt | M6f: tests for every new flow. M6g: `e2e-mcp` in CI |
+| 8 Performance | `display_edges` and aggregate decode measured; `dsview --bench` frame times | follow-on: criterion/iai gates, GPU frame budget |
+| 9 Memory and safety | ASan on the store oracle; 1 h soaks with RSS limits | M6g: miri. M7b: loom. Follow-on: ASan on all oracle diffs, heaptrack |
+| 10 File compatibility | Rust-written files load in C (`golden check`) | M7a: frozen C-written fixtures |
+
 ## 4. Debug plan
 - **tracing:** `DSVIEW_LOG=dsview_usb=trace,...`. Spans: `capture`, `usb_xfer`, `ingest_leaf`, `decode_chunk{stack,start,end}`, `rpc{method}`, `frame`. Exporters: `tracing-chrome` (Perfetto) and `tracing-tracy`. A ring buffer holds the last 10k events for crash reports. During the hybrid phase, `pv/log` is routed through `dsv_log_*`.
 - **USB:** record to pcapng (Wireshark-readable). `dsview-cli usb-dump` decodes vendor commands, destinations and FPGA registers, prints `DSL_setting` field by field, and shows header packets and data rate. Optionally a Lua dissector generated from the same tables.
@@ -433,6 +815,23 @@ Critical path: P0 → P1a → P2 → P3d → P4 → P5. With two developers, P1b
   - `dsview-cli decode --pdb`.
 - **Crashes:** a panic hook writes local reports to `$XDG_STATE_HOME/dsview/crash/` (nothing is uploaded). Every `extern "C"` function is wrapped in `catch_unwind`, mapped to an error code, and keeps a thread-local last error (like `ds_get_last_error`).
 - **A/B:** use `DSVIEW_IMPL*` to bisect a regression to one subsystem in seconds.
+- **Status (2026-10-18):**
+  - **Done:**
+    - USB recording to pcapng (`cargo xtask usb record`) and `usb-diff`;
+    - `dsview-cli serve --mcp` and `soak`;
+    - `DSVIEW_IMPL*` bisecting;
+    - goldens `gen`/`check`.
+  - **M6g:**
+    - the `dsview-cli` subcommands `devices`, `info`, `capture`, `decode`, `export`,
+      `verify-counter`, `selftest`;
+    - the panic hook;
+    - `golden bless`.
+  - **Follow-on:**
+    - tracing and its exporters;
+    - `usb-dump`, `replay`, `diff-dsl`, `diff-ann`, `bench`, `decode --pdb`;
+    - the PyO3 debug switches;
+    - the Lua dissector.
+  - **Dropped:** routing `pv/log` through `dsv_log_*`, since Qt goes in M7a.
 - **Goldens:** `cargo xtask golden {gen,check,bless}`. Small goldens use insta; large ones are zstd JSONL plus a hash manifest. Intentional differences are recorded in `docs/migration/deviations.md`, e.g. the EEPROM overflow fix, the fresh pin tuples, and `Quirks::FIXED` cases.
 
 ## 5. Risk register
@@ -441,6 +840,13 @@ Critical path: P0 → P1a → P2 → P3d → P4 → P5. With two developers, P1b
 | No DSCope/E8/USB 3 hardware | Byte-identical C/Rust command streams under `dsview-usb-fake`; trace replay; E8 traces from the fork author if obtainable; `selftest` bundles from external testers; flip each driver's default only after external confirmation; C fallback kept until Phase 6 |
 | `wait()` semantic drift → silently wrong decodes | Transliterate first; pure `wait_scan` checked against a brute-force reference and the C oracle; noise differential for all 157 decoders; `Quirks::C_COMPAT` default; chunking-invariance suite |
 | GUI parity scope creep | Frozen parity checklist; milestone gates; Qt stays the default until M6e; feature freeze until M7 |
+| libpython at run time (found 2026-10-18: the binaries link `libpython3.12.so.1.0` with no RUNPATH) | Bundled Python with RUNPATH and `PYTHONHOME` (M6g); the R1 packages tested on three Ubuntu releases |
+| Missing FX2 firmware (16 `.fw` files named in `dsl/tables.rs` are not in the repo) | A clear error (M6g); the upload path stays untested until a device and the files are available (follow-on) |
+| The oracle and the C-vs-Rust CI compile out of the trees Phase 6 deletes | Archive against the `c-final` tag through `cargo xtask oracle-src` before deleting (M7a steps 3-4) |
+| Run-time libraries loaded with `dlopen` (GL, Vulkan, X11, Wayland, xkbcommon, dbus) are invisible to package tools | Explicit deb dependencies; AppImage tested on Fedora (M7a) |
+| Crates not in the offline registry (`accesskit_winit`, cargo-deb, loom) | One planned fetch per need, asked for at that step; resvg 0.44 and a hand-written INI reader avoid the others |
+| No Windows/macOS build after Phase 6 (decision 2026-10-18) | R1 is the last Qt Windows release; the ports are follow-on work with the known blockers listed |
+| No C fallback for DSCope/E8 after Phase 6, without a hardware confirmation | `dsview-cli selftest` in M6g; DEVIATIONS records the unconfirmed state; testers are asked before M7a |
 | Performance regression | Phase 0 baselines; iai gates; wgpu-callback escape hatch; mmap spill |
 | PyO3/GIL/embedding/packaging | Same thread-per-stack model as C; `allow_threads` only around Rust scans; stress tests; pinned Python per build; bundling reused from current CI |
 | nusb maturity (hotplug, FX2 re-enumeration, WinUSB) | Trait-based backend with an optional `rusb` fallback; hardware soak |
@@ -450,25 +856,16 @@ Critical path: P0 → P1a → P2 → P3d → P4 → P5. With two developers, P1b
 | Missing crates offline (nusb, pyo3, egui_dock, cbindgen, criterion not cached) | First fetch needs network; optionally `cargo vendor` |
 
 ## 6. Immediate next step
-*Updated 2026-10-18; Phases 0-4 and M6.0-M6e are done (STATUS.md). The Rust GUI is the default on
-Linux (`DSVIEW_RUST_GUI`); the Qt GUI ships as `DSView-qt` for one release.*
+*Updated 2026-10-18: Phases 0-4 and M6.0-M6e are done (STATUS.md); the plan was revised after M6e.*
 
-**M6f, polish, until PARITY.md is complete (11 items left):**
-1. **i18n:** `lang/{cn,en,de}` through `L_S(page, id, default)`, runtime switching, a CJK font
-   subset; with it the per-language profile names.
-2. **Themes and icons:** dark, light, frappé, latte as egui visuals, the display menu's choice,
-   the SVG icons.
-3. **The logo bar and help:** about, manual PDFs, bug-report and release links, log options
-   (file, append, level), the help-documents dialog and the driver hint at start-up.
-4. **Shortcuts:** O, 0/1, ↑/↓, Esc, Qt's modifier filter and the 200 ms debounce.
-5. **Settings:** window state and dock layout per mode, user history (directories), first-run
-   import of the Qt `DSView.conf`; command line `-s`.
-6. **AccessKit:** eframe's `accesskit` feature (needs `accesskit_winit` fetched once) and an
-   audit with the kittest accessibility check over every dialog.
-7. **Packaging:** a Rust toolchain in `build.yml`, so the deb and AppImage carry the Rust GUI.
+**M6f step 1: settings and the `DSView.conf` import**, then steps 2-8 of §5.5 in order. The hardware
+work of M6g (§5.6 item 4) can run alongside it.
+
+After M6f come M6g, release R1, then Phase 6 (M7a, with M7b alongside).
 
 Each milestone ends with a commit, STATUS/DEVIATIONS updates, and a report before the next one
-starts.
+starts. Steps that need the network (`accesskit_winit`, cargo-deb, loom) are asked for when they
+come up.
 
 ## Verification of this plan's own claims
 Every phase gate above can be checked by commands: `cargo nextest run`, `cargo xtask golden check`, `cargo fuzz run <t> -- -max_total_time=60`, `cargo bench`, the `hw-dslogic` runner, and the MCP end-to-end scenarios. No phase is declared done on inspection alone.

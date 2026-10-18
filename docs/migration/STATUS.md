@@ -2,13 +2,13 @@
 
 | Phase | State | Notes |
 |---|---|---|
-| 0 Infrastructure, oracle, baselines | **done, one item deferred** | Deferred: performance baselines (moved to Phase 1b/2, see DEVIATIONS.md). USB traces recorded 2026-10-17 |
+| 0 Infrastructure, oracle, baselines | **done, one item partly deferred** | Performance baselines: `display_edges` and the aggregate decode rate were measured in 1b/2; per-decoder throughput and 1G samples are follow-on (PLAN §2). USB traces recorded 2026-10-17 |
 | 1 Formats + store | **done**: 1a formats behind `DSVIEW_IMPL_FORMATS`, 1b sample stores behind `DSVIEW_IMPL_STORE`; Rust becomes the default after one release of A/B | See "Phase 1a" and "Phase 1b" below |
 | 2 Decoder engine | **done**: Rust/PyO3 engine behind `DSVIEW_IMPL_DECODE`; Rust becomes the default after one release of A/B | See "Phase 2" below |
 | 3 Drivers | **done except hardware steps**: 3a demo, 3b file, 3c USB layer, 3d DSLogic (replug tests passed 2026-10-18), 3e DSCope/MSO-E8 (`DSVIEW_IMPL_DRV_DEMO` / `_FILE` / `_DSLOGIC` / `_DSCOPE`). Open: a firmware upload from the host, the nightly runs, one DSCope/E8 hardware confirmation | See "Phase 3" below |
 | 4 Session + control API | **done**: 4a acquisition library in Rust behind `DSVIEW_IMPL_ACQ`; 4b capture session, control server, `dsview-cli serve --mcp` (transcript identical to the Qt GUI, 1 h soaks passed) | See "Phase 4" below |
 | 5 Rust GUI | **in progress**: M6.0, M6a-M6e done; the Rust GUI is the default on Linux (`DSVIEW_RUST_GUI`, Qt kept as `DSView-qt` for one release); next M6f polish | Plan revised 2026-10-18 (PLAN.md §5); PARITY.md 41 of 52, the rest M6f |
-| 6 Removal + packaging | not started | |
+| 6 Removal + packaging | planned after release R1: M7a removal and packaging, M7b post-parity fixes | PLAN.md (revised 2026-10-18): M6f → M6g → R1 → M7a/M7b |
 
 ## Phase 0 deliverables
 
@@ -52,6 +52,11 @@ sources:
   from the C driver's transfer sizing.
 - Not recorded yet (by hand, see `tools/usb/README.md`): firmware upload after a replug,
   unplug during a capture, and internal test-counter mode.
+  - Since then:
+    - unplug during a stream capture was tested with both drivers on 2026-10-18 (Phase 3d, "Replug
+      tests"), but its traces are not in the manifest yet (PLAN M6g);
+    - firmware upload cannot be tested with this device (follow-on);
+    - test-counter traces under the C driver are M6g.
 
 **CI:** `.github/workflows/rust.yml` runs lint, tests, cargo-deny, golden check and a portability check.
 
