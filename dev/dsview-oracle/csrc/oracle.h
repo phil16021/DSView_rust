@@ -305,6 +305,17 @@ int oracle_drv_capture(int stop_after, oracle_drv_packet_cb cb, void *user);
 int osdsp_power_spectrum(const uint8_t *samples, uint64_t n, uint16_t step, int offset,
                          uint64_t vdiv, uint64_t factor, int window, double *out);
 
+/* mathstack.cpp: calc_math's loops into `out` (n values); the dial
+ * defaults and values; one envelope level (returns its length). */
+int osdsp_math(int type, const uint8_t *codes1, const uint8_t *codes2, uint64_t n,
+               double scale1, double delta1, double scale2, double delta2, double rate,
+               int filter_width, uint64_t math_factor, double *out);
+void osdsp_math_dial(int type, uint64_t v1, uint64_t f1, uint64_t min1, uint64_t max1,
+                     uint64_t v2, uint64_t f2, uint64_t min2, uint64_t max2,
+                     uint64_t *out_value, uint64_t *out_factor, uint64_t *values, int *count);
+uint64_t osdsp_math_envelope(const double *math, uint64_t n, int level, double *out_min,
+                             double *out_max, uint64_t cap);
+
 /* The virtual clock (Rust side) behind demo.c's timers. */
 int64_t oracle_clock_now_us(void);
 

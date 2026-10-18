@@ -350,6 +350,44 @@ unsafe extern "C" {
     );
     pub fn osdso_append(s: *mut OsDso, data: *const u8, num_samples: c_int, samplerate_tog: c_int);
     pub fn osdso_enable_envelope(s: *mut OsDso, enable: c_int);
+    pub fn osdsp_math(
+        ty: c_int,
+        codes1: *const u8,
+        codes2: *const u8,
+        n: u64,
+        scale1: f64,
+        delta1: f64,
+        scale2: f64,
+        delta2: f64,
+        rate: f64,
+        filter_width: c_int,
+        math_factor: u64,
+        out: *mut f64,
+    ) -> c_int;
+    #[allow(clippy::too_many_arguments)]
+    pub fn osdsp_math_dial(
+        ty: c_int,
+        v1: u64,
+        f1: u64,
+        min1: u64,
+        max1: u64,
+        v2: u64,
+        f2: u64,
+        min2: u64,
+        max2: u64,
+        out_value: *mut u64,
+        out_factor: *mut u64,
+        values: *mut u64,
+        count: *mut c_int,
+    );
+    pub fn osdsp_math_envelope(
+        math: *const f64,
+        n: u64,
+        level: c_int,
+        out_min: *mut f64,
+        out_max: *mut f64,
+        cap: u64,
+    ) -> u64;
     pub fn osdsp_power_spectrum(
         samples: *const u8,
         n: u64,
