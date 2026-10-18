@@ -131,6 +131,8 @@ pub struct TimeView {
     pub measure_enabled: bool,
     /// The search cursor while the search dock shows: position and hit.
     pub search: Option<(u64, bool)>,
+    /// `cur_samplelimits - 1`, for the decode region's end.
+    last_sample: u64,
 }
 
 impl Default for TimeView {
@@ -161,6 +163,7 @@ impl Default for TimeView {
             dso_is_hardware: false,
             measure_enabled: true,
             search: None,
+            last_sample: 0,
         }
     }
 }
@@ -274,6 +277,7 @@ impl TimeView {
             return self.show_analog(ui, s);
         }
         let tb = timebase(s);
+        self.last_sample = tb.sample_limit.saturating_sub(1);
         let full = ui.max_rect();
         let header = Rect::from_min_max(full.min, pos2(full.left() + HEADER_WIDTH, full.bottom()));
         let ruler_rect = Rect::from_min_max(
@@ -456,6 +460,32 @@ impl TimeView {
         let (left, right) = (0.0, area.width() as f64);
         let start = ((left + off as f64) * spp).max(0.0) as u64;
         let end = ((right + off as f64) * spp).max(0.0) as u64;
+        // the decode region (`paint_back`): blue lines with a triangle on
+        // top, at the region's start and end
+        {
+            const W: f32 = 5.0; // ControlRectWidth
+            let snap_spp = (rate * self.vp.scale).max(f64::MIN_POSITIVE);
+            let (r0, r1) = st.region();
+            let last = self.last_sample;
+            let r1 = if r1 == u64::MAX { last } else { r1 };
+            let top = area.top() + row.y - self.v_scroll - row.height / 2.0 - W;
+            let blue = Color32::from_rgb(17, 133, 209);
+            for smp in [r0, r1] {
+                let x = area.left() + (smp as f64 / snap_spp - off as f64) as f32;
+                if x < area.left() - W || x > area.right() + W {
+                    continue;
+                }
+                painter.line_segment(
+                    [pos2(x, top), pos2(x, top + row.height + W)],
+                    Stroke::new(1.0, blue),
+                );
+                painter.add(egui::Shape::convex_polygon(
+                    vec![pos2(x - W, top), pos2(x + W, top), pos2(x, top + W)],
+                    blue,
+                    Stroke::NONE,
+                ));
+            }
+        }
         let mut y = area.top() + row.y - self.v_scroll - (row.height - h) / 2.0;
         let err = st.error_message();
         if !err.is_empty() {

@@ -244,12 +244,40 @@ fn profiles_store_load_default() {
     s.store_profile(&p).unwrap();
     s.set_signal_name(3, logic, "x");
     s.load_profile(&p).unwrap();
-    let name = s.state().signals.iter().find(|x| x.index == 3).map(|x| x.name.clone());
+    let name = s
+        .state()
+        .signals
+        .iter()
+        .find(|x| x.index == 3)
+        .map(|x| x.name.clone());
     assert_eq!(name.as_deref(), Some("MOSI"));
     // the demo's decoders come back with it
     assert_eq!(s.state().decoders.len(), 4);
     let d = s.default_profile_path().unwrap();
     assert!(d.ends_with("res/virtual-demo0.def.dsc"), "{}", d.display());
     let _ = std::fs::remove_dir_all(&dir);
+    s.exit();
+}
+
+/// A decode region (the decoder options' start and end cursors): the
+/// annotations lie inside it.
+#[test]
+fn decode_region() {
+    let (_g, s) = session("Demo Logic");
+    assert!(s.start_capture(false));
+    wait(&s, "capture end", |st| st.ended_seq > 0 && !st.working);
+    wait(&s, "decoding", |st| !st.decoding);
+    let t = s.state().decoders[0].clone();
+    let full = t.stack.result_count();
+    t.stack.set_region(40_000, 60_000);
+    s.start_decode(0);
+    wait(&s, "decoding", |st| !st.decoding);
+    let part = t.stack.result_count();
+    assert!(part > 0 && part < full, "{part} of {full}");
+    for (row, _) in t.stack.rows().iter().enumerate() {
+        for a in t.stack.row_sorted(row, 131_072) {
+            assert!(a.start >= 40_000 && a.end <= 60_001, "{}..{}", a.start, a.end);
+        }
+    }
     s.exit();
 }

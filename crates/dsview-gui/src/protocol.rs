@@ -61,6 +61,11 @@ struct AddDialog {
     error: Option<String>,
     /// Editing decoder trace `n` (its name and place are kept).
     replace: Option<(usize, String, i32)>,
+    /// The decode region's start and end cursor numbers (0: the capture's
+    /// start / end).
+    region: (usize, usize),
+    /// The region the edited stack had, as samples.
+    old_region: Option<(u64, u64)>,
 }
 
 impl AddDialog {
@@ -107,6 +112,8 @@ impl AddDialog {
             options,
             error: None,
             replace: None,
+            region: (0, 0),
+            old_region: None,
         }
     }
 
@@ -150,6 +157,8 @@ impl AddDialog {
             options,
             error: None,
             replace: Some((i, t.name(), *t.view_index.lock().unwrap())),
+            region: (0, 0),
+            old_region: Some(t.stack.region()),
         }
     }
 
@@ -221,6 +230,8 @@ pub struct ProtocolDock {
     pub message: Option<String>,
     /// The annotation clicked: the view jumps to it.
     pub jump: Option<(u64, u64)>,
+    /// The view's cursors (sample positions), for the decode region.
+    pub cursors: Vec<u64>,
 }
 
 impl Default for ProtocolDock {
@@ -231,6 +242,7 @@ impl Default for ProtocolDock {
             add: None,
             table: 0,
             filter_col: 0,
+            cursors: Vec::new(),
             filter: String::new(),
             matches: Vec::new(),
             cur_match: 0,
@@ -424,6 +436,45 @@ impl ProtocolDock {
                         }
                     });
             }
+            // the decode region (`update_decode_range`): cursors or the ends
+            ui.separator();
+            if let Some((a, b)) = dlg.old_region.take() {
+                let find = |v: u64| {
+                    self.cursors
+                        .iter()
+                        .position(|&c| c == v)
+                        .map_or(0, |p| p + 1)
+                };
+                dlg.region = (find(a), if b == u64::MAX { 0 } else { find(b) });
+            }
+            let names: Vec<String> = (1..=self.cursors.len())
+                .map(|i| format!("Cursor{i}"))
+                .collect();
+            egui::Grid::new("dec-region").num_columns(2).show(ui, |ui| {
+                for (label, first, v) in [
+                    ("Start", "Start", &mut dlg.region.0),
+                    ("End", "End", &mut dlg.region.1),
+                ] {
+                    let l = ui.label(label);
+                    *v = (*v).min(names.len());
+                    let text = if *v == 0 {
+                        first.to_string()
+                    } else {
+                        names[*v - 1].clone()
+                    };
+                    egui::ComboBox::from_id_salt(("dec-region", label))
+                        .selected_text(text)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(v, 0, first);
+                            for (i, n) in names.iter().enumerate() {
+                                ui.selectable_value(v, i + 1, n);
+                            }
+                        })
+                        .response
+                        .labelled_by(l.id);
+                    ui.end_row();
+                }
+            });
             if let Some(e) = &dlg.error {
                 ui.colored_label(egui::Color32::from_rgb(0xEF, 0x29, 0x29), e);
             }
@@ -451,6 +502,23 @@ impl ProtocolDock {
                             s.remove_decoder(old);
                             s.move_last_decoder_to(old);
                             index = old;
+                        }
+                        // the region in samples, inside the capture
+                        let last = s.state().cur_samplelimits.saturating_sub(1);
+                        let at =
+                            |n: usize| (n > 0).then(|| self.cursors.get(n - 1).copied()).flatten();
+                        let mut start = at(dlg.region.0).unwrap_or(0);
+                        let mut end = at(dlg.region.1).unwrap_or(last);
+                        if start > last {
+                            start = 0;
+                        }
+                        end = end.min(last);
+                        if start > end {
+                            std::mem::swap(&mut start, &mut end);
+                        }
+                        if let Some(t) = s.state().decoders.get(index) {
+                            t.stack
+                                .set_region(start, if dlg.region.1 == 0 { u64::MAX } else { end });
                         }
                         s.start_decode(index);
                         self.table = index;

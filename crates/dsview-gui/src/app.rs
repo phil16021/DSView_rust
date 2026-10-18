@@ -510,6 +510,7 @@ impl eframe::App for App {
                 .resizable(true)
                 .default_size(360.0)
                 .show(ui, |ui| {
+                    self.protocol.cursors = self.view.cursors.samples.clone();
                     self.protocol.show(ui, &self.session);
                 });
         }

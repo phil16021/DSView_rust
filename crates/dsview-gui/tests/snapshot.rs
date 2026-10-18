@@ -623,7 +623,10 @@ fn zero_calibration() {
     let ctx = egui::Context::default();
     let t0 = std::time::Instant::now();
     while s.config(key::ZERO, None).unwrap().get_bool() {
-        assert!(t0.elapsed() < Duration::from_secs(60), "calibration did not finish");
+        assert!(
+            t0.elapsed() < Duration::from_secs(60),
+            "calibration did not finish"
+        );
         let mut out = ctx.run_ui(Default::default(), |ui| {
             z.show(ui.ctx(), &s);
         });

@@ -239,6 +239,9 @@ pub struct DecoderStack {
     class_rows: HashMap<(usize, i32), usize>,
     results: Arc<Mutex<Results>>,
     stop: Arc<AtomicBool>,
+    /// `Decoder::set_decode_region` for the whole stack: first and last
+    /// sample (`u64::MAX`: the capture's end).
+    region: Mutex<(u64, u64)>,
 }
 
 fn load_index(info: &DecoderInfo) -> usize {
@@ -301,7 +304,18 @@ impl DecoderStack {
                 ..Results::default()
             })),
             stop: Arc::new(AtomicBool::new(false)),
+            region: Mutex::new((0, u64::MAX)),
         }
+    }
+
+    /// `set_decode_region` on every decoder: decode `start..=end` (the
+    /// decoder options' start and end cursors); `u64::MAX` is the end.
+    pub fn set_region(&self, start: u64, end: u64) {
+        *self.region.lock().unwrap_or_else(|e| e.into_inner()) = (start, end);
+    }
+
+    pub fn region(&self) -> (u64, u64) {
+        *self.region.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn decoders(&self) -> &[StackDecoder] {
@@ -449,13 +463,16 @@ impl DecoderStack {
         } else {
             last_sample.min(ring.wrapping_sub(1))
         };
-        self.execute(store, last, samplerate, capture_ended);
+        // execute_decode_stack(): the decoders' region inside the data
+        let (start, end) = self.region();
+        self.execute(store, start, end.min(last), samplerate, capture_ended);
     }
 
     /// `execute_decode_stack` + `decode_data`
     fn execute(
         &self,
         store: &Mutex<LogicStore>,
+        decode_start: u64,
         decode_end: u64,
         rate: f64,
         capture_ended: &AtomicBool,
@@ -494,7 +511,14 @@ impl DecoderStack {
             }
         });
         match session.start() {
-            Ok(()) => self.decode_data(store, &session, bottom.as_ref(), decode_end, capture_ended),
+            Ok(()) => self.decode_data(
+                store,
+                &session,
+                bottom.as_ref(),
+                decode_start,
+                decode_end,
+                capture_ended,
+            ),
             Err(e) if !e.is_empty() => self.results().error = e,
             Err(_) => {}
         }
@@ -516,11 +540,12 @@ impl DecoderStack {
         store: &Mutex<LogicStore>,
         session: &dsview_decode::Session,
         bottom: Option<&Arc<dsview_decode::Instance>>,
+        decode_start: u64,
         decode_end: u64,
         capture_ended: &AtomicBool,
     ) {
         let map = bottom.map(|b| b.channelmap()).unwrap_or_default();
-        let mut i = 0u64;
+        let mut i = decode_start;
         let mut end_index = decode_end;
         let mut decoded = 0u64;
         let mut end_time = false;
