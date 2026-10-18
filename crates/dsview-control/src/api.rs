@@ -1319,7 +1319,7 @@ impl Api {
                 continue;
             }
             for a in stack.annotations(ri, start, end) {
-                items.push((a.start, a.end, title.clone(), a.text));
+                items.push((a.start, a.end, title.clone(), a.text().to_owned()));
             }
         }
         items.sort_by_key(|x| x.0);
@@ -1335,7 +1335,7 @@ impl Api {
                     o.insert("start_ns".into(), crate::json::num(*s as f64 * 1e9 / rate));
                 }
                 o.insert("row".into(), row.clone().into());
-                o.insert("text".into(), text.to_string().into());
+                o.insert("text".into(), text.clone().into());
                 Value::Object(o)
             })
             .collect();

@@ -6,8 +6,11 @@ use std::time::Instant;
 
 use dsview_core::channel_type;
 use dsview_session::Session;
-use dsview_session::session::{Signal, TraceRef, trig};
+use std::sync::Arc;
+
+use dsview_session::session::{DecodeTrace, Signal, TraceRef, trig};
 use dsview_viewmodel::cursors::{Cursors, cursor_hsva};
+use dsview_viewmodel::decode::{self as vdec, AnnShape};
 use dsview_viewmodel::input::{self, DRAG_TIMER_INTERVAL_MS, Kinetic, Mods, WheelAction};
 use dsview_viewmodel::layout::{self, LayoutParams, Slot, TraceKind};
 use dsview_viewmodel::logic::{EdgeBuffers, logic_shape};
@@ -51,13 +54,45 @@ enum Action {
 }
 
 /// A trace placed in the view this frame.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct Row {
     r: TraceRef,
     sig: Option<Signal>,
+    /// A decoder trace: the trace and its drawn rows.
+    dec: Option<(Arc<DecodeTrace>, Vec<DecRow>)>,
     /// Vertical centre and height, in trace-area coordinates.
     y: f32,
     height: f32,
+}
+
+/// A row a decoder trace draws (`paint_mid`'s loop).
+#[derive(Clone, Debug)]
+enum DecRow {
+    /// Stack row `row`; its colour index is its place in the row map.
+    Row { row: usize, title: String },
+    /// A hidden decoder.
+    Unshown(String),
+}
+
+/// The rows `DecodeTrace::paint_mid` draws (and `rows_size` counts).
+fn decoder_rows(t: &DecodeTrace) -> Vec<DecRow> {
+    let st = &t.stack;
+    let mut out = Vec::new();
+    for d in st.decoders() {
+        if !d.shown {
+            out.push(DecRow::Unshown(d.info.name.clone()));
+            continue;
+        }
+        for (i, r) in st.rows().iter().enumerate() {
+            if r.decoder.id == d.info.id && st.row_stats(i).0 > 0 && r.shown {
+                out.push(DecRow::Row {
+                    row: i,
+                    title: r.title(),
+                });
+            }
+        }
+    }
+    out
 }
 
 pub struct TimeView {
@@ -213,8 +248,10 @@ impl TimeView {
             .filter(|x| x.ty == channel_type::LOGIC)
             .cloned()
             .collect();
+        let decoders: Vec<Arc<DecodeTrace>> = st.decoders.clone();
         drop(st);
-        let slots: Vec<Slot> = signals
+        let dec_rows: Vec<Vec<DecRow>> = decoders.iter().map(|t| decoder_rows(t)).collect();
+        let mut slots: Vec<Slot> = signals
             .iter()
             .map(|x| Slot {
                 kind: TraceKind::Logic,
@@ -223,6 +260,14 @@ impl TimeView {
                 view_index: x.view_index,
             })
             .collect();
+        for (t, r) in decoders.iter().zip(&dec_rows) {
+            slots.push(Slot {
+                kind: TraceKind::Decoder,
+                rows: r.len().max(1),
+                enabled: true,
+                view_index: *t.view_index.lock().unwrap(),
+            });
+        }
         let font_id = egui::FontId::proportional(13.0);
         let painter = ui.painter_at(full);
         let font_h = Font(&painter, font_id.clone()).height() as f64;
@@ -247,15 +292,27 @@ impl TimeView {
             .placed
             .iter()
             .map(|p| {
-                let sig = signals[p.slot].clone();
-                Row {
-                    r: TraceRef::Signal {
-                        index: sig.index,
-                        ty: sig.ty,
-                    },
-                    sig: Some(sig),
-                    y: p.v_offset as f32,
-                    height: p.total_height as f32,
+                if p.slot < signals.len() {
+                    let sig = signals[p.slot].clone();
+                    Row {
+                        r: TraceRef::Signal {
+                            index: sig.index,
+                            ty: sig.ty,
+                        },
+                        sig: Some(sig),
+                        dec: None,
+                        y: p.v_offset as f32,
+                        height: p.total_height as f32,
+                    }
+                } else {
+                    let k = p.slot - signals.len();
+                    Row {
+                        r: TraceRef::Decoder(k),
+                        sig: None,
+                        dec: Some((decoders[k].clone(), dec_rows[k].clone())),
+                        y: p.v_offset as f32,
+                        height: p.total_height as f32,
+                    }
                 }
             })
             .collect();
@@ -279,6 +336,10 @@ impl TimeView {
         let end_align = store.ring_sample_count().saturating_sub(1);
         let tpainter = ui.painter_at(area);
         for row in &rows {
+            if let Some((t, drows)) = &row.dec {
+                self.paint_decoder(&tpainter, area, row, t, drows, l.signal_height as f32);
+                continue;
+            }
             let Some(sig) = &row.sig else { continue };
             let y = area.top() + row.y - self.v_scroll;
             if y + row.height < area.top() || y - row.height > area.bottom() {
@@ -325,6 +386,180 @@ impl TimeView {
         self.paint_actions(&tpainter, area, &tb);
         self.paint_header(&painter, header, area, &rows, &font_id);
         changed
+    }
+
+    /// `DecodeTrace::paint_mid`: each drawn row, detailed or "Zoom in for
+    /// details"; the error message instead when the stack failed.
+    fn paint_decoder(
+        &self,
+        painter: &egui::Painter,
+        area: Rect,
+        row: &Row,
+        t: &DecodeTrace,
+        drows: &[DecRow],
+        h: f32,
+    ) {
+        let st = &t.stack;
+        let rate = (st.sample_rate() as f64).max(1.0);
+        let spp = rate * self.vp.scale;
+        let off = self.vp.x_offset;
+        let font = egui::FontId::proportional(11.0);
+        let m = Font(painter, font.clone());
+        let (left, right) = (0.0, area.width() as f64);
+        let start = ((left + off as f64) * spp).max(0.0) as u64;
+        let end = ((right + off as f64) * spp).max(0.0) as u64;
+        let mut y = area.top() + row.y - self.v_scroll - (row.height - h) / 2.0;
+        let err = st.error_message();
+        if !err.is_empty() {
+            painter.text(
+                pos2(area.left() + 4.0, y),
+                egui::Align2::LEFT_CENTER,
+                format!("Error: {err}"),
+                font,
+                Color32::from_rgb(0xEF, 0x29, 0x29),
+            );
+            return;
+        }
+        let grey = Color32::from_gray(170);
+        let x0 = area.left();
+        for dr in drows {
+            match dr {
+                DecRow::Unshown(name) => {
+                    painter.text(
+                        pos2(x0 + 4.0, y),
+                        egui::Align2::LEFT_CENTER,
+                        format!("{name}: Unshown"),
+                        font.clone(),
+                        grey,
+                    );
+                }
+                DecRow::Row { row: ri, title } => {
+                    let local_row = *ri;
+                    let (_, min_len, max_len) = st.row_stats(*ri);
+                    if vdec::row_detailed(min_len, max_len, spp) {
+                        let base = vdec::row_base_colour(local_row);
+                        let min_w = min_len as f64 / spp;
+                        let mut last_x = -1.0;
+                        for a in st.annotations(*ri, start, end) {
+                            let shape = vdec::annotation_shape(
+                                a.start,
+                                a.end,
+                                &a.lines,
+                                spp,
+                                off,
+                                left,
+                                right,
+                                h as f64,
+                                min_w,
+                                &mut last_x,
+                                &m,
+                            );
+                            let (fill, outline) = vdec::annotation_colours(base, local_row, a.ty);
+                            let rgb = |c: [u8; 3]| Color32::from_rgb(c[0], c[1], c[2]);
+                            let (fill_c, out_c) = (rgb(fill), rgb(outline));
+                            let text_c = rgb(vdec::text_colour(fill));
+                            match shape {
+                                AnnShape::None => {}
+                                AnnShape::Line { x } => {
+                                    painter.vline(
+                                        x0 + x as f32,
+                                        (y - h / 2.0)..=(y + h / 2.0),
+                                        Stroke::new(1.0, out_c),
+                                    );
+                                }
+                                AnnShape::Instant { x, w, text } => {
+                                    let r = Rect::from_center_size(
+                                        pos2(x0 + x as f32, y),
+                                        vec2(w as f32, h),
+                                    );
+                                    painter.rect_filled(r, h / 2.0, fill_c);
+                                    painter.text(
+                                        r.center(),
+                                        egui::Align2::CENTER_CENTER,
+                                        text,
+                                        font.clone(),
+                                        text_c,
+                                    );
+                                }
+                                AnnShape::Range {
+                                    start,
+                                    end,
+                                    cap,
+                                    text,
+                                } => {
+                                    let (s, e, c) =
+                                        (x0 + start as f32, x0 + end as f32, cap as f32);
+                                    let (top, bot) = (y - h / 2.0 + 0.5, y + h / 2.0 + 0.5);
+                                    painter.add(egui::Shape::convex_polygon(
+                                        vec![
+                                            pos2(s, y),
+                                            pos2(s + c, top),
+                                            pos2(e - c, top),
+                                            pos2(e, y),
+                                            pos2(e - c, bot),
+                                            pos2(s + c, bot),
+                                        ],
+                                        fill_c,
+                                        Stroke::new(1.0, out_c),
+                                    ));
+                                    if let Some((txt, faded)) = text {
+                                        let r = Rect::from_min_max(
+                                            pos2(s + c / 2.0, top),
+                                            pos2(e - c / 2.0, bot),
+                                        );
+                                        let p = painter.with_clip_rect(r.intersect(area));
+                                        if faded {
+                                            p.text(
+                                                pos2(r.left(), y),
+                                                egui::Align2::LEFT_CENTER,
+                                                txt,
+                                                font.clone(),
+                                                text_c,
+                                            );
+                                        } else {
+                                            p.text(
+                                                r.center(),
+                                                egui::Align2::CENTER_CENTER,
+                                                txt,
+                                                font.clone(),
+                                                text_c,
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // draw_nodetail: a line with the hint in the middle
+                        painter.hline(area.x_range(), y, Stroke::new(1.0, Color32::from_gray(90)));
+                        let r = painter.text(
+                            pos2(area.center().x, y),
+                            egui::Align2::CENTER_CENTER,
+                            "Zoom in for details",
+                            font.clone(),
+                            grey,
+                        );
+                        painter.rect_filled(r.expand(2.0), 0.0, Color32::from_gray(24));
+                        painter.text(
+                            pos2(area.center().x, y),
+                            egui::Align2::CENTER_CENTER,
+                            "Zoom in for details",
+                            font.clone(),
+                            grey,
+                        );
+                    }
+                    // the row heading at the left edge (Qt: paint_back)
+                    painter.text(
+                        pos2(x0 + 2.0, y - h / 2.0 + 1.0),
+                        egui::Align2::LEFT_TOP,
+                        title,
+                        egui::FontId::proportional(9.0),
+                        Color32::from_gray(140),
+                    );
+                }
+            }
+            y += h;
+        }
     }
 
     fn row_at(&self, rows: &[Row], area: Rect, y: f32) -> Option<Row> {
@@ -791,6 +1026,17 @@ impl TimeView {
         font: &egui::FontId,
     ) {
         for row in rows {
+            if let Some((t, _)) = &row.dec {
+                let cy = area.top() + row.y - self.v_scroll;
+                painter.text(
+                    pos2(header.left() + 22.0, cy),
+                    egui::Align2::LEFT_CENTER,
+                    t.name(),
+                    font.clone(),
+                    Color32::from_rgb(0x8c, 0xaa, 0xee),
+                );
+                continue;
+            }
             let Some(sig) = &row.sig else { continue };
             let mut cy = area.top() + row.y - self.v_scroll;
             if let Some((r, y)) = self.header_drag

@@ -139,7 +139,18 @@ impl Row {
 pub struct Ann {
     pub start: u64,
     pub end: u64,
-    pub text: Arc<str>,
+    /// `ann_type` (colour variant, marks on channels).
+    pub ty: i32,
+    /// The text lines as shown, longest first by decoder convention.
+    pub lines: Arc<Vec<String>>,
+}
+
+impl Ann {
+    /// `annotations().front()`: what the protocol list and the control API
+    /// show.
+    pub fn text(&self) -> &str {
+        self.lines.first().map_or("", String::as_str)
+    }
 }
 
 /// One row's annotations (`RowData`) with an index for range queries: the
@@ -152,12 +163,22 @@ struct RowData {
     /// Positions in `anns`, stably sorted by start sample.
     by_start: Vec<u32>,
     longest: u64,
+    /// `_min_annotation`: the shortest non-zero length.
+    shortest: u64,
 }
 
 impl RowData {
     fn push(&mut self, a: Ann) {
         let pos = self.anns.len() as u32;
-        self.longest = self.longest.max(a.end.saturating_sub(a.start));
+        let len = a.end.saturating_sub(a.start);
+        self.longest = self.longest.max(len);
+        if len != 0 {
+            self.shortest = if self.shortest == 0 {
+                len
+            } else {
+                self.shortest.min(len)
+            };
+        }
         // decoders mostly emit in order: appending is the common case
         let at = if self
             .by_start
@@ -204,7 +225,7 @@ struct Results {
     error: String,
     samplerate: f64,
     /// `AnnotationResTable`: the shown text per text key.
-    texts: HashMap<String, Arc<str>>,
+    texts: HashMap<String, Arc<Vec<String>>>,
 }
 
 /// `pv::data::DecoderStack`
@@ -319,6 +340,15 @@ impl DecoderStack {
             .get(row)
             .map(|r| r.subset(start, end))
             .unwrap_or_default()
+    }
+
+    /// (count, shortest non-zero length, longest length) of row `row`
+    /// (`has_annotations`, `get_min_annotation`, `get_max_annotation`).
+    pub fn row_stats(&self, row: usize) -> (usize, u64, u64) {
+        self.results()
+            .rows
+            .get(row)
+            .map_or((0, 0, 0), |r| (r.anns.len(), r.shortest, r.longest))
     }
 
     /// Annotations of row `row` (all of them, in arrival order).
@@ -563,13 +593,21 @@ fn annotation(
         return;
     };
     let text = shown_text(&mut r.texts, a);
-    r.rows[row].push(Ann { start, end, text });
+    r.rows[row].push(Ann {
+        start,
+        end,
+        ty: a.ann_type,
+        lines: text,
+    });
 }
 
 /// The first text line of an annotation as `Annotation::annotations()`
 /// shows it, interned by the same key as `AnnotationResTable::MakeIndex`
 /// (all texts plus the number), so equal keys share the first text seen.
-fn shown_text(table: &mut HashMap<String, Arc<str>>, a: &dsview_decode::Annotation) -> Arc<str> {
+fn shown_text(
+    table: &mut HashMap<String, Arc<Vec<String>>>,
+    a: &dsview_decode::Annotation,
+) -> Arc<Vec<String>> {
     let lines: Vec<&str> = a
         .texts
         .iter()
@@ -582,16 +620,22 @@ fn shown_text(table: &mut HashMap<String, Arc<str>>, a: &dsview_decode::Annotati
         return t.clone();
     }
     let numeric = !a.hex.is_empty() && a.hex.len() <= MAX_DATA_BLOCK_LEN;
-    let text: String = match (numeric, lines.first()) {
+    let shown: Vec<String> = if numeric {
         // the protocol list's default format is hex: the number as given
-        (true, Some(t)) => c_format_s(&t.replace("{$}", "%s"), &a.hex),
-        (true, None) => a.hex.clone(),
-        (false, Some(t)) => (*t).to_owned(),
-        (false, None) => String::new(),
+        if lines.is_empty() {
+            vec![a.hex.clone()]
+        } else {
+            lines
+                .iter()
+                .map(|t| c_format_s(&t.replace("{$}", "%s"), &a.hex))
+                .collect()
+        }
+    } else {
+        lines.iter().map(|t| (*t).to_owned()).collect()
     };
-    let text: Arc<str> = text.into();
-    table.insert(key, text.clone());
-    text
+    let shown = Arc::new(shown);
+    table.insert(key, shown.clone());
+    shown
 }
 
 /// `sprintf(fmt, s)` for the conversions decoder texts use: the first `%s`
@@ -713,7 +757,8 @@ mod tests {
             r.push(Ann {
                 start,
                 end: start + len,
-                text: "".into(),
+                ty: 0,
+                lines: Arc::new(Vec::new()),
             });
         }
         for _ in 0..500 {
