@@ -262,4 +262,40 @@ void osana_first_payload(osana *s, const uint8_t *data, int num_samples, uint8_t
                          uint16_t unit_pitch, uint64_t total, const uint16_t *idx, const int *enabled, int n);
 void osana_append(osana *s, const uint8_t *data, int num_samples, uint16_t unit_pitch);
 
+/* ------------------------------------------------------------ drivers */
+
+/* A datafeed packet as the GUI's callback sees it. */
+struct oracle_drv_packet {
+    int type;              /* SR_DF_* */
+    int status;            /* SR_PKT_* */
+    const void *data;
+    uint64_t len;          /* payload bytes the GUI reads */
+    int num_samples;
+    int format, index, order, unitsize, data_error;
+    uint64_t error_pattern;
+    int mq, unit;
+    uint64_t mqflags;
+    int samplerate_tog, trig_flag, trig_ch;
+    int unit_bits, unit_pitch;
+    int nprobes;
+    int feed_version;          /* SR_DF_HEADER (the start time is wall clock) */
+    uint32_t trig_real_pos;    /* SR_DF_TRIGGER */
+};
+
+typedef void (*oracle_drv_packet_cb)(void *user, const struct oracle_drv_packet *p);
+
+int oracle_drv_init(const char *user_dir, int log_level);
+void oracle_drv_exit(void);
+int oracle_drv_activate(const char *name);
+int oracle_drv_open_file(const char *path);
+char *oracle_drv_get(int key, int ch);
+char *oracle_drv_list(int key);
+int oracle_drv_set(int key, int ch, const char *text);
+int oracle_drv_enable(int ch, int enable);
+char *oracle_drv_state(void);
+int oracle_drv_capture(int stop_after, oracle_drv_packet_cb cb, void *user);
+
+/* The virtual clock (Rust side) behind demo.c's timers. */
+int64_t oracle_clock_now_us(void);
+
 #endif

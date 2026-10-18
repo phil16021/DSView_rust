@@ -95,6 +95,10 @@ extern SR_PRIV struct sr_dev_driver demo_driver_info;
 extern SR_PRIV struct sr_dev_driver DSLogic_driver_info;
 extern SR_PRIV struct sr_dev_driver DSCope_driver_info;
 #endif
+#ifdef DSVIEW_RUST_CORE
+#include "dsview_ffi.h"
+extern SR_PRIV struct sr_dev_driver rs_demo_driver_info;
+#endif
 /** @endcond */
 
 static struct sr_dev_driver *drivers_list[] = {
@@ -115,6 +119,19 @@ static struct sr_dev_driver *drivers_list[] = {
  */
 SR_PRIV struct sr_dev_driver **sr_driver_list(void)
 {
+#ifdef DSVIEW_RUST_CORE
+	/* DSVIEW_IMPL_DRV_<NAME>=rust: the Rust driver takes the C one's place. */
+	static int rust_chosen = 0;
+	if (!rust_chosen) {
+		rust_chosen = 1;
+		for (int i = 0; drivers_list[i]; i++) {
+#ifdef HAVE_LA_DEMO
+			if (drivers_list[i] == &demo_driver_info && dsv_use_rust("DRV_DEMO"))
+				drivers_list[i] = &rs_demo_driver_info;
+#endif
+		}
+	}
+#endif
 	return drivers_list;
 }
 

@@ -3,12 +3,16 @@
 //! binaries. Never shipped; see docs/migration/PLAN.md (Phase 0).
 
 pub mod capture;
+pub mod drv;
 pub mod ffi;
 pub mod rust_run;
 pub mod store;
 pub mod watchdog;
 
 use std::path::PathBuf;
+
+// The C libraries are built with DSVIEW_RUST_CORE and call the dsv_* ABI.
+use dsview_ffi as _;
 
 /// Repository root (this crate lives in dev/dsview-oracle).
 pub fn repo_root() -> PathBuf {

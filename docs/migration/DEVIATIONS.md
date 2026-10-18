@@ -221,6 +221,73 @@ Other decoder failures seen identically in both engines:
 restored, so `wait()` always fails as C does in practice. The names are interned as in C. Regression
 test: `crates/dsview-decode/tests/pending_error.rs`, which forces the cache miss.
 
+### F18. The demo driver reads past its buffers when a packet is larger than the data behind it
+**Observed (Phase 3, `drv-diff`; every C crash in the batches is one of these):**
+- Analog (`receive_data_analog`): a pattern is expanded into a buffer of about
+  `0.1 × sample limit` bytes, random data fills 1 MiB, and each packet takes `samplerate / 100`
+  bytes from it. When a packet
+  is longer than the buffer, the wrap-around `memcpy` reads past it. Once the read position is beyond
+  the buffer, `data_buf_len - analog_read_pos` underflows and the next copy is gigabytes long
+  (SIGSEGV at `demo.c:2489`). Smaller overruns read heap garbage into the packet without crashing.
+- Logic random data (`receive_data_logic`): packets of 2 MiB or more overrun the 2 MiB random
+  buffer. At exactly 2 MiB, `rand() % 0` raises SIGFPE; above it, the source offset is a wild
+  value (SIGSEGV).
+- DSO instant mode: the last packet points `packet_len` bytes past the end of the frame buffer and
+  hands those bytes to the GUI.
+
+The GUI's lists do not reach the analog and logic cases: the shortest DAQ duration is 200 ms, and
+each logic channel mode caps the samplerate. They are reached through `config_set` with other values
+(the control API, a profile). The DSO case happens on every instant capture.
+
+**Rust behaviour:** the same packets wherever C's are defined. Bytes C would read from beyond its
+buffers are 0, and the offsets are computed without underflow, so nothing crashes. `drv-diff`
+requires Rust to match C up to the crash or the undefined read, and to finish the scenario.
+
+### F19. The analog demo delivers no data for captures under 2048 samples
+**Observed (Phase 3, `drv-diff`):** for a pattern (not "random") the buffer size is
+`103/2048 × limit × 2` rounded down to whole 206-byte cycles. Under 2048 samples this is 0,
+`g_try_malloc0(0)` returns NULL, and `receive_data_analog` fails before sending anything. It fails
+the same way on every later callback, so the session loop spins at 100% CPU with no data until the
+user stops it. The GUI can choose such a limit: at 10 Hz its list includes 200 s, which is 2000
+samples.
+
+**Rust behaviour:** the same (no data, an error in the log, spinning until stopped), so the capture
+looks the same. To be fixed after the default flip.
+
+### F20. Driver packets carry uninitialised fields
+**Observed (Phase 3, `drv-diff`):** the demo driver and the session (file) driver fill the
+`sr_datafeed_*` structs on the stack and leave fields unset. The GUI then reads stack garbage:
+- DSO packets (demo, and file playback of version 3 DSO captures): `samplerate_tog`, `trig_flag`
+  and `trig_ch`. The GUI uses all three: `samplerate_tog` resets the DSO envelope, and the trigger
+  fields mark the trigger.
+- Analog packets (demo): `unit_pitch`. `AnalogSnapshot::append_data` decimates by it when it is
+  above 1, so the analog trace can depend on stack contents and read past the packet.
+- Logic packets: `unitsize`, `data_error` and `error_pattern` (unused by the GUI). In the file
+  driver's version-3 path also `index` and `order`.
+- The file driver's SR_DF_TRIGGER (`struct ds_trigger_pos`): every field except `real_pos`.
+
+**Rust behaviour:** all of them are 0. The oracle builds `demo.c` and `session_driver.c` with
+`-ftrivial-auto-var-init=zero`, so the C reference is what C with zeroed structs sends.
+
+### F21. Smaller defects in the demo and file drivers
+Found while porting, identical in Rust unless noted:
+- **Demo logic playback ignores which channels are disabled.** `protocol.demo` is read from `L-0` …
+  `L-<n-1>` for the n *enabled* channels. With channel 3 disabled, channels 4–15 show the data of
+  channels 3–14, and channel 15's data is lost. Same in Rust, until the flip.
+- **Dangling `map_unit`.** `config_set(SR_CONF_PROBE_MAP_UNIT)` keeps the pointer into the GVariant,
+  which `sr_config_set` frees right after. Rust copies the string; the shim hands out an interned
+  copy.
+- **NULL channel crash.** Channel keys (`PROBE_EN`, `PROBE_VDIV`, …) with no channel dereference
+  NULL in both drivers. Rust returns SR_ERR_ARG. The GUI always passes a channel.
+- **Two SR_DF_END packets per demo DSO capture.** The source callback sends one when it stops, and
+  `dev_acquisition_stop` sends another. Same in Rust.
+- **Pattern files.** Any name containing ".demo" counts, losing its last five characters. The
+  directory test checks the bare name against the current directory.
+- **Version 1 captures and live channel changes** (a Phase 1a gap, now fixed). C unpacks version-1
+  logic data for the channels enabled when the capture starts. The Rust reader used the flags stored
+  in the file, so after disabling a channel the packets differed. `DslReader::set_channel_enabled`
+  now takes the live flags, in the Rust file driver and in `session_driver.c`'s Rust path.
+
 ## Planned behaviour deviations (Rust intentionally differs)
 
 | Area | C behaviour | Rust behaviour | Phase |
@@ -253,6 +320,11 @@ test: `crates/dsview-decode/tests/pending_error.rs`, which forces the cache miss
 | `srd_exit` | `Py_Finalize()` | Python is not finalized (PyO3 does not support it); the process exits anyway | 2 ✔ |
 | Decoder directory that cannot be listed | Tried as a zip archive (zipimport) | Logged and skipped | 2 ✔ |
 | Python bytecode | `__pycache__` written into the decoder directories | `sys.dont_write_bytecode` | 2 ✔ |
+| Demo driver, buffer overruns (F18) | Reads past the analog pattern, the logic random buffer, the DSO frame; crashes on some inputs | Same packets where C's are defined; zeros for the rest; no crash | 3a ✔ |
+| Demo/file driver packet fields (F20) | Left uninitialised | 0 | 3a/3b ✔ |
+| Demo driver, channel keys without a channel | NULL dereference | SR_ERR_ARG | 3a ✔ |
+| Demo/file `map_unit` | Pointer into a freed GVariant | Copied string (interned in the shim) | 3a/3b ✔ |
+| Demo random data and timing | `rand()` and the wall clock | Same algorithm on `dsview_drivers::sys` (process-wide RNG and clock, replaceable in tests) | 3a ✔ |
 | DSO envelope, `cal_vrms`, `cal_vmean` | Implemented, never called | Not ported; under `DSVIEW_IMPL_STORE=rust`, `enable_envelope` is a no-op and the two return 0 | 1b ✔ |
 | Analog data/DSO frames/envelopes before they are written | `malloc`: uninitialised | Zeroed | 1b ✔ |
 
@@ -277,3 +349,7 @@ test: `crates/dsview-decode/tests/pending_error.rs`, which forces the cache miss
 | Phase 2: decoder corpus from sigrok-dumps and `dsview-siggen` | I2C, SPI and UART generators inside `decode-diff`, plus noise signals and protocol.demo | Raised decoder coverage from about 80 to 120 of 153 without new test data; sigrok-dumps comes with the CLI (Phase 4) |
 | Phase 2: one interpreter per build, tested on 3.10 and 3.12 | Both engines use the same interpreter (`PYO3_PYTHON`, else `python3`); the oracle no longer uses pkg-config `python3-embed` | A single process needs a single libpython; CI uses the runner's Python |
 | USB traces in the repository | Recorded 2026-10-17 (11 scenarios plus startup). The pcapng files stay out of git; `testdata/usb/dslogic/manifest.json` pins their sha256 | 16 MB of binary traces; the plan's separate test-data repository is not set up yet |
+| Phase 3a: demo random mode checked "structurally only" | Checked packet for packet | Both drivers run on one virtual clock and one random sequence (`dev/dsview-oracle/src/drv.rs`; `demo.c` is built with `g_timer_*`, `g_usleep`, `rand`, `srand` mapped onto it), so random and time-based output is deterministic |
+| Phase 3: `compat/rs_driver.c` | `libsigrok4DSL/hardware/rust/rs_driver.c`, next to the other shims (`output/rs_output.c`, `rs_decode.c`) | Same place as the code it stands in for |
+| Phase 3: `dsview-usb-fake` for the demo/file drivers | The real libsigrok4DSL `ds_*` API in the oracle, with the C and the Rust driver selected by `DSVIEW_IMPL_DRV_*` | The demo and file drivers do no USB; the fake is for 3c/3d |
+| Oracle C build | Now `NDEBUG` (as DSView's Release build) and `DSVIEW_RUST_CORE` (the shims are linked) | The driver oracle needs the shipped app's behaviour (`sr_config_get` asserts are off there) and the Rust drivers behind the same API. The goldens are unchanged |

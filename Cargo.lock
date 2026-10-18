@@ -371,6 +371,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "dsview-core"
+version = "0.1.0"
+
+[[package]]
 name = "dsview-decode"
 version = "0.1.0"
 dependencies = [
@@ -378,10 +382,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "dsview-drivers"
+version = "0.1.0"
+dependencies = [
+ "dsview-core",
+ "dsview-formats",
+]
+
+[[package]]
 name = "dsview-ffi"
 version = "0.1.0"
 dependencies = [
+ "dsview-core",
  "dsview-decode",
+ "dsview-drivers",
  "dsview-formats",
  "dsview-store",
 ]
@@ -416,7 +430,10 @@ dependencies = [
  "anyhow",
  "cc",
  "criterion",
+ "dsview-core",
  "dsview-decode",
+ "dsview-drivers",
+ "dsview-ffi",
  "dsview-formats",
  "dsview-store",
  "pkg-config",

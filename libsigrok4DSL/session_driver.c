@@ -47,6 +47,9 @@ extern struct sr_session *session;
 extern SR_PRIV struct sr_dev_driver session_driver;
 
 static int sr_load_virtual_device_session(struct sr_dev_inst *sdi);
+#ifdef DSVIEW_RUST_CORE
+SR_PRIV int rs_new_virtual_device(const char *filename, struct sr_dev_inst **out_di);
+#endif
 
 #define MAX_HEADER_SIZE (1024 * 1024)
 #define MAX_FILE_PROBES 64 /* logic data is unpacked through a uint64_t bit mask */
@@ -1612,6 +1615,12 @@ static int dev_acquisition_start(struct sr_dev_inst *sdi, void *cb_data)
             sr_err("%s: %s", __func__, dsv_last_error());
             return SR_ERR;
         }
+        /* version-1 logic data follows the channels enabled now (trans_data) */
+        {
+            uint32_t i = 0;
+            for (l = sdi->channels; l; l = l->next, i++)
+                dsv_dsl_set_channel_enabled(vdev->rs_reader, i, ((struct sr_channel *)l->data)->enabled);
+        }
         goto send_header;
     }
 #endif
@@ -1710,6 +1719,12 @@ SR_PRIV int sr_new_virtual_device(const char *filename, struct sr_dev_inst **out
 
     archive = NULL;
     sdi = NULL;
+
+#ifdef DSVIEW_RUST_CORE
+    /* DSVIEW_IMPL_DRV_FILE=rust: the Rust file driver (hardware/rust/rs_driver.c) */
+    if (dsv_use_rust("DRV_FILE"))
+        return rs_new_virtual_device(filename, out_di);
+#endif
 
     if (!filename)
     {

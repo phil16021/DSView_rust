@@ -21,8 +21,13 @@ pub fn set_error(msg: impl std::fmt::Display) {
 
 /// Runs `f`, turning a panic into `DSV_ERR_PANIC` so it never unwinds into C.
 pub fn guard(f: impl FnOnce() -> i32) -> i32 {
+    guard_or(DSV_ERR_PANIC, f)
+}
+
+/// Like [`guard`] for functions without an error code: a panic yields `fallback`.
+pub fn guard_or<T>(fallback: T, f: impl FnOnce() -> T) -> T {
     match catch_unwind(AssertUnwindSafe(f)) {
-        Ok(code) => code,
+        Ok(v) => v,
         Err(p) => {
             let msg = p
                 .downcast_ref::<&str>()
@@ -30,7 +35,7 @@ pub fn guard(f: impl FnOnce() -> i32) -> i32 {
                 .or_else(|| p.downcast_ref::<String>().cloned())
                 .unwrap_or_else(|| "panic".into());
             set_error(format!("internal error: {msg}"));
-            DSV_ERR_PANIC
+            fallback
         }
     }
 }

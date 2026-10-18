@@ -8,7 +8,6 @@ const LIBSIGROK: &[&str] = &[
     "version.c",
     "strutil.c",
     "std.c",
-    "session_driver.c",
     "session.c",
     "log.c",
     "hwdriver.c",
@@ -16,7 +15,6 @@ const LIBSIGROK: &[&str] = &[
     "backend.c",
     "output/output.c",
     "input/input.c",
-    "hardware/demo/demo.c",
     "input/in_binary.c",
     "input/in_vcd.c",
     "input/in_wav.c",
@@ -33,6 +31,8 @@ const LIBSIGROK: &[&str] = &[
     "hardware/DSL/command.c",
     "hardware/DSL/dsl.c",
     "lib_main.c",
+    "hardware/rust/rs_driver.c",
+    "output/rs_output.c",
 ];
 const LIBSIGROKDECODE: &[&str] = &[
     "type_decoder.c",
@@ -46,6 +46,7 @@ const LIBSIGROKDECODE: &[&str] = &[
     "session.c",
     "util.c",
     "version.c",
+    "rs_decode.c",
 ];
 const COMMON: &[&str] = &[
     "minizip/zip.c",
@@ -78,6 +79,11 @@ fn main() {
         .include(root.join("libsigrokdecode4DSL"))
         .include(root.join("common"))
         .include(manifest.join("csrc"))
+        .include(root.join("crates/dsview-ffi/include"))
+        // the Rust implementations behind DSVIEW_IMPL_* (dsview-ffi, linked in)
+        .define("DSVIEW_RUST_CORE", "1")
+        // DSView's CMakeLists forces a Release build: asserts are off in the app
+        .define("NDEBUG", None)
         .warnings(false)
         .opt_level(1)
         .debug(true);
@@ -102,6 +108,7 @@ fn main() {
     sources.push(manifest.join("csrc/oracle_decode.c"));
     sources.push(manifest.join("csrc/oracle_dsl.c"));
     sources.push(manifest.join("csrc/oracle_export.c"));
+    sources.push(manifest.join("csrc/oracle_drv.c"));
 
     for src in &sources {
         println!("cargo:rerun-if-changed={}", src.display());
@@ -109,7 +116,34 @@ fn main() {
     println!("cargo:rerun-if-changed=csrc/oracle.h");
     println!("cargo:rerun-if-env-changed=ORACLE_SANITIZE");
 
-    build.files(&sources).compile("dsview_oracle_c");
+    // The demo driver runs on the oracle's virtual clock and random sequence
+    // (shared with the Rust driver). It and the session driver leave packet
+    // fields uninitialized (DEVIATIONS.md F20); zeroed here, as Rust sends them.
+    let demo = root.join("libsigrok4DSL/hardware/demo/demo.c");
+    let session_driver = root.join("libsigrok4DSL/session_driver.c");
+    println!("cargo:rerun-if-changed={}", demo.display());
+    println!("cargo:rerun-if-changed={}", session_driver.display());
+    let mut demo_build = build.clone();
+    for (from, to) in [
+        ("g_usleep", "oracle_usleep"),
+        ("g_timer_new", "oracle_timer_new"),
+        ("g_timer_start", "oracle_timer_start"),
+        ("g_timer_elapsed", "oracle_timer_elapsed"),
+        ("rand", "oracle_rand"),
+        ("srand", "oracle_srand"),
+    ] {
+        demo_build.define(from, to);
+    }
+    let demo_objs = demo_build
+        .flag("-ftrivial-auto-var-init=zero")
+        .file(&demo)
+        .file(&session_driver)
+        .compile_intermediates();
+
+    build
+        .files(&sources)
+        .objects(demo_objs)
+        .compile("dsview_oracle_c");
     build_store(&root, &manifest, &includes, sanitize);
     println!("cargo:rustc-link-lib=m");
     println!("cargo:rustc-link-lib=pthread");

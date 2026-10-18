@@ -5,7 +5,7 @@
 | 0 Infrastructure, oracle, baselines | **done, one item deferred** | Deferred: performance baselines (moved to Phase 1b/2, see DEVIATIONS.md). USB traces recorded 2026-10-17 |
 | 1 Formats + store | **done**: 1a formats behind `DSVIEW_IMPL_FORMATS`, 1b sample stores behind `DSVIEW_IMPL_STORE`; Rust becomes the default after one release of A/B | See "Phase 1a" and "Phase 1b" below |
 | 2 Decoder engine | **done**: Rust/PyO3 engine behind `DSVIEW_IMPL_DECODE`; Rust becomes the default after one release of A/B | See "Phase 2" below |
-| 3 Drivers | not started | |
+| 3 Drivers | **in progress**: 3a demo and 3b file drivers done, behind `DSVIEW_IMPL_DRV_DEMO` / `DSVIEW_IMPL_DRV_FILE`; next 3c USB layer and 3d DSLogic | See "Phase 3" below |
 | 4 Session + control API | not started | |
 | 5 Rust GUI | not started | Parity checklist: PARITY.md |
 | 6 Removal + packaging | not started | |
@@ -247,3 +247,97 @@ C.
 - The annotation store: annotations are still kept by the C++ `pv::data::decode` classes. It moves to
   Rust with the GUI data model.
 - sigrok-dumps captures as decoder corpus, with the CLI (Phase 4).
+
+## Phase 3 (drivers): status
+
+### 3a demo driver, 3b file driver: done
+
+**Crates:**
+- `crates/dsview-core`: config keys (checked against `libsigrok.h` by a test), config values with
+  their GVariant types, channels, `struct sr_status` (same layout, checked), datafeed packets.
+- `crates/dsview-drivers`:
+  - the `Device` trait mirrors `struct sr_dev_driver`. Acquisition runs as in libsigrok's session
+    loop: one `poll` per source callback; pacing sleeps are returned to the caller, so it can sleep
+    without holding the device lock; packets come back owned, so the GUI's datafeed callback may call
+    into the device.
+  - `demo`: a transliteration of `hardware/demo/demo.c` (logic random and pattern playback,
+    DSO with its timebase/vdiv/offset reshaping and status measurements, analog), including its
+    timing and its order of `rand()` calls.
+  - `file`: `session_driver.c`'s driver part on top of dsview-formats' reader (Phase 1a):
+    `sr_new_virtual_device`, loading the header into config values and channels,
+    `config_get`/`set`/`list`, HEADER and TRIGGER packets, playback.
+  - `sys`: the clock, `rand()`, logging and `DS_USR_PATH`, process-wide like in C and replaceable
+    in tests.
+
+**C seam:**
+- `dsv_drv_*` in `crates/dsview-ffi/src/drv.rs`. Every entry point catches panics, and a panic does
+  not poison the device.
+- `libsigrok4DSL/hardware/rust/rs_driver.c` implements `sr_dev_driver` on top of it:
+  - GVariants are translated in both directions, including the `sr_list_item` lists handed out by
+    pointer.
+  - The `sr_channel` list stays in C because the GUI writes it directly. It is copied into Rust
+    before every call and back afterwards, and rebuilt only where the C driver would free and
+    recreate its channels, so the GUI's channel pointers live exactly as long.
+- `sr_driver_list()` swaps in the Rust demo driver when `DSVIEW_IMPL_DRV_DEMO=rust`.
+  `sr_new_virtual_device()` creates Rust file devices when `DSVIEW_IMPL_DRV_FILE=rust`. Both are on
+  with `DSVIEW_IMPL=rust`.
+- The `version` RPC reports `drv_demo` and `drv_file`.
+
+**Differential test (`drv-diff`, dev/dsview-oracle):**
+- Seeded scenarios run through libsigrok4DSL's public `ds_*` API, exactly as DSView calls it,
+  once with the C drivers and once with the Rust ones.
+  - Demo scenarios pick a device, a target mode and pattern, then random config changes, channel
+    switches, device switches and captures stopped after N packets.
+  - File scenarios open captures (the demo files plus synthesized logic v1/v2/v3 with several and
+    odd blocks, a DSO capture with a trigger position, and one with a missing block), change config
+    and channels, and replay them.
+- Compared: every config get (all 124 keys × every channel) and list value with its GVariant type,
+  the channel list, the mode list, the status block, every datafeed packet (all fields and a hash
+  of the data), and every return code.
+- Both drivers run on one virtual clock and one random sequence, so random data and time-based DSO
+  output are compared exactly. `demo.c` is built with its timers, `g_usleep`, `rand` and `srand`
+  mapped onto the oracle's.
+- Where C crashes or reads undefined memory (F18), Rust must match C up to that point and then finish
+  cleanly.
+- **Result:**
+  - 1000 scenarios (seeds 1000–1999): all identical. 1.22 million answers and 43,856 packets compared.
+    In 68 of them C crashed or read undefined memory; Rust matched it up to there and finished.
+  - Exit batch, 5000 scenarios (seeds 10000–14999): all identical. 6.18 million answers and 215,186
+    packets compared, in about 7 minutes with 6 jobs. In 355 of them the C driver crashed, every
+    time in F18 code (345 in the analog wrap-around `memcpy`, 10 in logic random), and 17 more read
+    undefined memory (F18). Rust matched C up to there and finished each scenario.
+- **Divergences found and fixed during the port:**
+  - The DSO stop order (C sleeps and restarts its timer before the final END).
+  - Rust panics on buffer overruns where C crashes.
+  - Version-1 captures streamed with the file's channel flags instead of the live ones. This gap
+    dated from Phase 1a and was fixed in both the Rust driver and `session_driver.c`'s Rust path.
+
+**Unit tests:** `crates/dsview-drivers/tests/demo.rs` covers the device list, a complete
+protocol.demo playback, channel keys without a channel, analog overruns and DSO stop.
+
+**Live A/B (staged DSView, headless, control API):**
+- The 38-step control scenario (logic capture with protocol.demo, decoders, save, export, reopen,
+  DSO capture and measurement) gives byte-identical transcripts with `DSVIEW_IMPL=c` and with
+  `DSVIEW_IMPL=rust` (formats, stores, decoders, demo and file drivers all in Rust). The log shows
+  both Rust drivers in use.
+- `cargo xtask control ab`: all 9 corpus captures open, export, save and decode identically, now
+  through the Rust file driver.
+
+**Findings in the original code** (DEVIATIONS.md):
+- **F18:** the demo driver reads past its buffers: analog patterns with long packets (crash),
+  logic random at rates the channel modes do not offer (`rand() % 0`, crash), and the last
+  instant DSO packet.
+- **F19:** the analog demo sends nothing and spins at 100% CPU for captures under 2048 samples. This
+  is reachable from the GUI (10 Hz, 200 s).
+- **F20:** packets carry uninitialised fields, among them DSO `samplerate_tog`/`trig_flag`/`trig_ch`
+  and analog `unit_pitch`, which the GUI uses.
+- **F21:** demo logic playback ignores disabled channels (it shifts data); `map_unit` dangles;
+  NULL-channel crash; two END packets per DSO capture.
+
+**Left for later in Phase 3:**
+- 3c USB layer: nusb backend, recording, replay of the Phase 0 traces, simulator.
+- 3d DSLogic driver.
+- 3e DSCope/E8.
+- Making the demo/file drivers the default (after one release of A/B, with Phase 1/2), then
+  deleting `hardware/demo` and `session_driver.c`.
+

@@ -88,6 +88,15 @@ impl<R: Read + Seek> DslReader<R> {
         })
     }
 
+    /// Overrides channel `i`'s enabled flag: version-1 logic data is unpacked
+    /// for the channels enabled at capture start, as the C driver reads them
+    /// from its live channel list, not from the file.
+    pub fn set_channel_enabled(&mut self, i: usize, enabled: bool) {
+        if let Some(c) = self.header.channels.get_mut(i) {
+            c.enabled = enabled;
+        }
+    }
+
     pub fn header(&self) -> &Header {
         &self.header
     }
@@ -130,7 +139,8 @@ impl<R: Read + Seek> DslReader<R> {
         read_entry(&mut self.zip, name, self.limits.max_meta_bytes)
     }
 
-    fn entry(&mut self, name: &str) -> Result<Vec<u8>, Error> {
+    /// A data entry (`L-0/0`, `O-1/0`, ...), size-limited; missing entries are an error.
+    pub fn entry(&mut self, name: &str) -> Result<Vec<u8>, Error> {
         read_entry(&mut self.zip, name, self.limits.max_entry_bytes)?
             .ok_or_else(|| Error::MissingEntry(name.to_string()))
     }
@@ -223,6 +233,16 @@ impl<R: Read + Seek> DslReader<R> {
         };
         StreamState {
             state,
+            buf: Vec::new(),
+        }
+    }
+
+    /// A logic stream over the given `L-<dir>` directories and `num_blocks`
+    /// blocks, `post_words` 64-sample words per channel and packet (the demo
+    /// driver's playback, which picks directories and packet size itself).
+    pub fn logic_stream(&self, dirs: Vec<u32>, num_blocks: u64, post_words: usize) -> StreamState {
+        StreamState {
+            state: State::Interleaved(Interleave::new('L', dirs, num_blocks, 8, post_words)),
             buf: Vec::new(),
         }
     }
@@ -418,6 +438,14 @@ enum State {
 pub struct StreamState {
     state: State,
     buf: Vec<u8>,
+}
+
+impl StreamState {
+    /// True once the interleaved stream has consumed its last block: the
+    /// packet just returned was the last one (C sends SR_DF_END with it).
+    pub fn is_done(&self) -> bool {
+        matches!(&self.state, State::Interleaved(st) if st.done)
+    }
 }
 
 /// A reader borrowed together with its stream position.

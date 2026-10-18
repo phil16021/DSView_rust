@@ -43,6 +43,11 @@ typedef struct dsv_analog_store dsv_analog_store;
 typedef struct dsv_decode_session dsv_decode_session;
 
 /**
+ * A device handle.
+ */
+typedef struct dsv_device dsv_device;
+
+/**
  * Opaque handle owned by C between `dsv_dsl_open` and `dsv_dsl_close`.
  */
 typedef struct dsv_dsl dsv_dsl;
@@ -187,6 +192,117 @@ typedef struct dsv_decode_event {
  * An instance handle (lives as long as its session).
  */
 typedef void dsv_decode_inst;
+
+/**
+ * A config value. `kind`: 0 none, 1 bool (`i`), 2 byte, 3 int16, 4 uint16,
+ * 5 int32, 6 uint32, 7 int64 (`i`), 8 uint64 (`u`), 9 double (`d`), 10 string
+ * (`s`), 11 strv (`strs`, `n`), 12 `ai` / 13 `at` / 14 `ay` (`arr`, `n`),
+ * 15 `a{sv}` (`strs` keys, `items` values, `n`), 16 `sr_list_item` list
+ * (`arr` int32 ids, `strs` names, `n`).
+ */
+typedef struct dsv_conf {
+  int32_t kind;
+  uint32_t n;
+  int64_t i;
+  uint64_t u;
+  double d;
+  const char *s;
+  const char *const *strs;
+  const void *arr;
+  const struct dsv_conf *items;
+} dsv_conf;
+
+/**
+ * `struct sr_dev_inst` identity fields.
+ */
+typedef struct dsv_dev_info {
+  const char *vendor;
+  const char *model;
+  /**
+   * NULL when unset
+   */
+  const char *version;
+  int32_t dev_type;
+  int32_t status;
+  int32_t mode;
+  /**
+   * NULL when unset
+   */
+  const char *path;
+} dsv_dev_info;
+
+/**
+ * `struct sr_channel` without the DSCope VGA pointer. Strings may be NULL.
+ */
+typedef struct dsv_channel {
+  uint16_t index;
+  int32_t ty;
+  int32_t enabled;
+  const char *name;
+  const char *trigger;
+  uint8_t bits;
+  uint64_t vdiv;
+  uint64_t vfactor;
+  uint16_t offset;
+  uint16_t zero_offset;
+  uint16_t hw_offset;
+  uint16_t vpos_trans;
+  uint8_t coupling;
+  uint8_t trig_value;
+  int8_t comb_diff_top;
+  int8_t comb_diff_bom;
+  int8_t comb_comp;
+  uint16_t digi_fgain;
+  double cali_fgain[4];
+  double cali_comb_fgain[4];
+  int32_t map_default;
+  const char *map_unit;
+  double map_min;
+  double map_max;
+} dsv_channel;
+
+/**
+ * A datafeed packet for `ds_data_forward`: `type` is `SR_DF_*`, `data`/`len`
+ * the payload bytes (logic: `length`), other fields as in the payload structs.
+ */
+typedef struct dsv_packet {
+  uint16_t ty;
+  uint16_t status;
+  const uint8_t *data;
+  uint64_t len;
+  int32_t num_samples;
+  int32_t format;
+  uint16_t index;
+  uint16_t order;
+  uint16_t unitsize;
+  uint16_t data_error;
+  uint64_t error_pattern;
+  int32_t mq;
+  int32_t unit;
+  uint64_t mqflags;
+  int32_t samplerate_tog;
+  int32_t trig_flag;
+  uint8_t trig_ch;
+  uint8_t unit_bits;
+  uint16_t unit_pitch;
+  /**
+   * SR_DF_HEADER
+   */
+  int32_t feed_version;
+  int64_t start_sec;
+  int64_t start_usec;
+  /**
+   * SR_DF_TRIGGER (`struct ds_trigger_pos`)
+   */
+  uint32_t trig_check_id;
+  uint32_t trig_real_pos;
+  uint32_t trig_ram_saddr;
+  uint32_t trig_remain_cnt_l;
+  uint32_t trig_remain_cnt_h;
+  uint32_t trig_status;
+} dsv_packet;
+
+typedef void (*dsv_emit)(void *ctx, const struct dsv_packet *p);
 
 typedef struct dsv_dsl_header_info {
   uint32_t version;
@@ -481,6 +597,178 @@ int32_t dsv_decode_end(struct dsv_decode_session *p);
 int32_t dsv_decode_terminate_reset(struct dsv_decode_session *p);
 
 /**
+ * Frees a value returned by `dsv_drv_config_get`/`dsv_drv_config_list`.
+ *
+ * # Safety
+ * `v` must come from those functions (or be NULL) and is freed once.
+ */
+void dsv_conf_free(struct dsv_conf *v);
+
+/**
+ * Logs through `cb(level, msg)` (sr_log levels, 1 error .. 5 detail).
+ */
+void dsv_drv_set_log(void (*cb)(int32_t, const char*));
+
+/**
+ * `DS_USR_PATH`: the demo patterns are read from `<dir>/demo`.
+ *
+ * # Safety
+ * `dir` must be NUL-terminated or NULL.
+ */
+void dsv_drv_set_user_dir(const char *dir);
+
+/**
+ * The demo driver's devices (hw_scan): up to `cap` handles into `out`;
+ * returns how many.
+ *
+ * # Safety
+ * `out` must have room for `cap` pointers.
+ */
+uint32_t dsv_drv_demo_scan(struct dsv_device **out, uint32_t cap);
+
+/**
+ * A device for the capture file `path` (sr_new_virtual_device): SR_OK and
+ * `*out`, or an error code.
+ *
+ * # Safety
+ * `path` must be NUL-terminated, `out` writable.
+ */
+int32_t dsv_drv_file_new(const char *path, struct dsv_device **out);
+
+/**
+ * # Safety
+ * `h` must come from a scan and is freed once.
+ */
+void dsv_drv_free(struct dsv_device *h);
+
+/**
+ * # Safety
+ * `h` must be a live handle, `out` writable.
+ */
+void dsv_drv_info(const struct dsv_device *h, struct dsv_dev_info *out);
+
+/**
+ * # Safety
+ * `h` must be a live handle.
+ */
+void dsv_drv_set_status(const struct dsv_device *h, int32_t status);
+
+/**
+ * The device's modes (`enum OPERATION_MODE`) in `sr_mode_list` order; returns the count.
+ *
+ * # Safety
+ * `h` must be a live handle, `out` must have room for `cap` ints.
+ */
+uint32_t dsv_drv_modes(const struct dsv_device *h, int32_t *out, uint32_t cap);
+
+/**
+ * # Safety
+ * `h` must be a live handle.
+ */
+uint32_t dsv_drv_channel_count(const struct dsv_device *h);
+
+/**
+ * Changes whenever the device rebuilt its channel list.
+ *
+ * # Safety
+ * `h` must be a live handle.
+ */
+uint64_t dsv_drv_channel_generation(const struct dsv_device *h);
+
+/**
+ * Channel `i` of the device's list. Strings stay valid until the next
+ * `dsv_drv_channel_get`/`dsv_drv_info` on this thread.
+ *
+ * # Safety
+ * `h` must be a live handle, `out` writable.
+ */
+int32_t dsv_drv_channel_get(const struct dsv_device *h, uint32_t i, struct dsv_channel *out);
+
+/**
+ * Copies the C side's channel `i` (which the GUI writes directly) into the device.
+ *
+ * # Safety
+ * `h` must be a live handle, `c` a valid channel with valid strings.
+ */
+int32_t dsv_drv_channel_put(const struct dsv_device *h, uint32_t i, const struct dsv_channel *c);
+
+/**
+ * # Safety
+ * `h` must be a live handle.
+ */
+int32_t dsv_drv_open(const struct dsv_device *h);
+
+/**
+ * # Safety
+ * `h` must be a live handle.
+ */
+int32_t dsv_drv_close(const struct dsv_device *h);
+
+/**
+ * `config_get` for channel position `ch` (-1: none). On SR_OK `*out` is a
+ * value to free with `dsv_conf_free`, or NULL when the driver set none.
+ *
+ * # Safety
+ * `h` must be a live handle, `out` writable.
+ */
+int32_t dsv_drv_config_get(const struct dsv_device *h,
+                           int32_t key,
+                           int32_t ch,
+                           struct dsv_conf **out);
+
+/**
+ * `config_set`; `value` NULL or of an unsupported kind reads as a GVariant of
+ * the wrong type (zero values).
+ *
+ * # Safety
+ * `h` must be a live handle, `value` NULL or valid.
+ */
+int32_t dsv_drv_config_set(const struct dsv_device *h,
+                           int32_t key,
+                           int32_t ch,
+                           const struct dsv_conf *value);
+
+/**
+ * `config_list`; on SR_OK `*out` must be freed with `dsv_conf_free`.
+ *
+ * # Safety
+ * `h` must be a live handle, `out` writable.
+ */
+int32_t dsv_drv_config_list(const struct dsv_device *h, int32_t key, struct dsv_conf **out);
+
+/**
+ * `dev_status_get` into a `struct sr_status` (`size` must be its size).
+ *
+ * # Safety
+ * `h` must be a live handle, `out` writable for `size` bytes.
+ */
+int32_t dsv_drv_status(const struct dsv_device *h, int32_t prg, void *out, size_t size);
+
+/**
+ * `dev_acquisition_start`; packets the driver sends here go through `emit`.
+ *
+ * # Safety
+ * `h` must be a live handle; `emit` is called with `ctx` and no lock held.
+ */
+int32_t dsv_drv_start(const struct dsv_device *h, dsv_emit emit, void *ctx);
+
+/**
+ * One source callback: returns 1 while the source stays, 0 once it is removed.
+ *
+ * # Safety
+ * `h` must be a live handle; `emit` is called with `ctx` and no lock held.
+ */
+int32_t dsv_drv_poll(const struct dsv_device *h, int32_t abort, dsv_emit emit, void *ctx);
+
+/**
+ * `dev_acquisition_stop`.
+ *
+ * # Safety
+ * `h` must be a live handle.
+ */
+int32_t dsv_drv_stop(const struct dsv_device *h, dsv_emit emit, void *ctx);
+
+/**
  * Opens and validates a capture. Returns DSV_OK and a handle, or an error code.
  *
  * # Safety
@@ -507,6 +795,15 @@ int32_t dsv_dsl_header(const struct dsv_dsl *h, struct dsv_dsl_header_info *out)
  * `h` from `dsv_dsl_open`; `out` writable.
  */
 int32_t dsv_dsl_channel(const struct dsv_dsl *h, uint32_t i, struct dsv_dsl_channel_info *out);
+
+/**
+ * Enables or disables channel `i` for streaming (version-1 logic captures
+ * unpack the channels enabled at capture start).
+ *
+ * # Safety
+ * `h` from `dsv_dsl_open`.
+ */
+int32_t dsv_dsl_set_channel_enabled(struct dsv_dsl *h, uint32_t i, int32_t enabled);
 
 /**
  * Status value `j` of channel `i` ("period", "pcnt", "max", ...).

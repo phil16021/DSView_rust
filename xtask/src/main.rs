@@ -6,6 +6,7 @@
 //!   cargo xtask golden check     regenerate in memory and diff against the stored goldens
 //!   cargo xtask control record   run the demo scenario against `DSView --mcp`, store the transcript
 //!   cargo xtask control check    run it again and compare with the stored transcript
+//!   cargo xtask control dump OUT  run it and write the transcript to OUT (A/B of two DSViews)
 //!   cargo xtask control ab --bin <DSView>   same probes with DSVIEW_IMPL=c and rust; must match
 //!   cargo xtask gen-header [--check]   regenerate crates/dsview-ffi/include/dsview_ffi.h (cbindgen)
 //!   cargo xtask usb record [--iface usbmonN] [--out DIR] [--dry-run]
@@ -40,6 +41,7 @@ fn main() -> Result<()> {
         ["golden", "check"] => golden_run(&root, Mode::Check),
         ["control", "record"] => control_run(&root, Mode::Generate),
         ["control", "check"] => control_run(&root, Mode::Check),
+        ["control", "dump", out] => control_dump(Path::new(out)),
         ["control", "ab", rest @ ..] => ab::run(&root, rest),
         ["usb", "record", rest @ ..] => usb::record(&root, rest),
         ["gen-header"] => gen_header(&root, false),
@@ -339,6 +341,18 @@ fn control_run(root: &Path, mode: Mode) -> Result<()> {
             println!("control transcript ok ({} steps)", transcript.len());
         }
     }
+    Ok(())
+}
+
+fn control_dump(out: &Path) -> Result<()> {
+    use dsview_testkit::control::{Client, default_socket_path, demo_scenario, run_scenario};
+
+    let dir = std::env::temp_dir().join(format!("dsview-control-{}", std::process::id()));
+    std::fs::create_dir_all(&dir)?;
+    let mut client = Client::new(default_socket_path());
+    let transcript = run_scenario(&mut client, &demo_scenario(), &dir);
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::write(out, serde_json::to_string_pretty(&transcript?)? + "\n")?;
     Ok(())
 }
 

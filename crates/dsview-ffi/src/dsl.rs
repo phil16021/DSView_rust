@@ -251,6 +251,23 @@ pub unsafe extern "C" fn dsv_dsl_channel(h: *const DsvDsl, i: u32, out: *mut Dsv
     })
 }
 
+/// Enables or disables channel `i` for streaming (version-1 logic captures
+/// unpack the channels enabled at capture start).
+///
+/// # Safety
+/// `h` from `dsv_dsl_open`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dsv_dsl_set_channel_enabled(h: *mut DsvDsl, i: u32, enabled: i32) -> i32 {
+    guard(|| {
+        let Some(h) = (unsafe { h.as_mut() }) else {
+            set_error("dsv_dsl_set_channel_enabled: NULL handle");
+            return DSV_ERR_ARG;
+        };
+        h.reader.set_channel_enabled(i as usize, enabled != 0);
+        DSV_OK
+    })
+}
+
 /// Status value `j` of channel `i` ("period", "pcnt", "max", ...).
 ///
 /// # Safety

@@ -1897,7 +1897,7 @@ void ControlApi::version(const QJsonObject &, const Reply &r)
 
     // Which implementation each migrated subsystem runs (DSVIEW_IMPL*).
     QJsonObject impl;
-    for (const char *sub : {"FORMATS", "STORE", "DECODE"}) {
+    for (const char *sub : {"FORMATS", "STORE", "DECODE", "DRV_DEMO", "DRV_FILE"}) {
         bool rust = false;
 #ifdef DSVIEW_RUST_CORE
         rust = dsv_use_rust(sub) != 0;
