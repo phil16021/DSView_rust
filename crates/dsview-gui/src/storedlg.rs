@@ -2,6 +2,7 @@
 //! file, start and end cursors (logic data), original or compressed data
 //! for CSV, then the work in a thread with a progress window.
 
+use crate::i18n::tr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, channel};
@@ -75,11 +76,11 @@ impl StoreDialog {
                     return Outcome::Done;
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => {
-                    egui::Window::new(if self.export {
+                    egui::Window::new(tr(if self.export {
                         "Exporting..."
                     } else {
                         "Saving..."
-                    })
+                    }))
                     .collapsible(false)
                     .resizable(false)
                     .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
@@ -88,7 +89,7 @@ impl StoreDialog {
                         let p = prog.percent();
                         ui.add(egui::ProgressBar::new(p as f32 / 100.0).text(format!("{p}%")));
                         // closing the window while it runs cancels it
-                        if ui.button("Cancel").clicked()
+                        if ui.button(tr("Cancel")).clicked()
                             || ui.input(|i| i.key_pressed(egui::Key::Escape))
                         {
                             prog.cancel
@@ -109,7 +110,7 @@ impl StoreDialog {
         let csv = self.path.extension().is_some_and(|e| e == "csv");
         let mut out = Outcome::Open;
         let mut open = true;
-        egui::Window::new(if self.export { "Export" } else { "Save" })
+        egui::Window::new(tr(if self.export { "Export" } else { "Save" }))
             .collapsible(false)
             .open(&mut open)
             .min_width(500.0)
@@ -138,15 +139,15 @@ impl StoreDialog {
                             }
                         });
                     if self.export && csv {
-                        ui.radio_value(&mut self.original, true, "Original data");
-                        ui.radio_value(&mut self.original, false, "Compressed data");
+                        ui.radio_value(&mut self.original, true, tr("Original data"));
+                        ui.radio_value(&mut self.original, false, tr("Compressed data"));
                     }
                 }
                 ui.horizontal(|ui| {
-                    if ui.button("OK").clicked() {
+                    if ui.button(tr("OK")).clicked() {
                         out = self.accept(s, cursors, logic, version);
                     }
-                    if ui.button("Cancel").clicked() || crate::msgbox::esc(ui.ctx()) {
+                    if ui.button(tr("Cancel")).clicked() || crate::msgbox::esc(ui.ctx()) {
                         out = Outcome::Done;
                     }
                 });

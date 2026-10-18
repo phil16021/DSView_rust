@@ -37,7 +37,7 @@ Milestones: **a** viewer, **b** logic capture, **c** decoders, **d** DSO/analog,
 ## Toolbars and dialogs
 - [ ] (e) Trig bar: trigger/decode/measure/search toggles, function menu (FFT, math, lissajous, ch-ch, histogram, reference), display menu — all but the display menu's theme choice, which comes with the themes (M6f)
 - [x] (a/e) File bar: open/save session, load/store/default profile, export, screenshot (export: CSV and VCD; srzip follows in M6g, gnuplot is dropped)
-- [ ] (f) Logo bar: about, manual, bug report, update, language, log options
+- [x] (f) Logo bar: about, manual, bug report, update, language, log options
 - [x] (e) Device options, generated at runtime from the device's option list; channel enable and layout
 - [x] (c) Decoder options, generated at runtime; channel binding; start/end cursor; stacked decoders
 - [x] (e) Calibration (VGAIN, VOFF, VCOMB; save, reset, reload)
@@ -50,7 +50,7 @@ Milestones: **a** viewer, **b** logic capture, **c** decoders, **d** DSO/analog,
 - [x] (f) Shortcuts: S, I, T, D, M, R, O, PgUp/PgDn, ←/→ zoom, 0/1 select DSO channel, ↑/↓ V/div, Esc; 200 ms debounce
 - [x] (f) Settings (app options, window state, user history, fonts, per-decoder format); first-run import of the Qt `DSView.conf`
 - [x] (a/f) `.dsl` open/save; `.dsc` profiles, including automatic `<driver><mode>.ses.dsc` and the shipped defaults
-- [ ] (f) i18n: cn/en/de from `lang/*.json`, runtime switching, CJK font
+- [x] (f) i18n: cn/en/de from `lang/*.json`, runtime switching, CJK font (the system's; a shipped font with the packaging, Phase 6)
 - [ ] (f) Themes: dark, light, frappé, latte; about 250 SVG icons
 - [x] (f) Help: user guide PDFs, bug-report and release URLs, open log file
 - [x] (a) Control API (`--mcp`) hosted natively: the 31 methods and `testdata/control/demo-scenario.json` pass

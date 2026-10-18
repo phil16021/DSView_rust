@@ -2,6 +2,7 @@
 //! `header.cpp`, `ruler.cpp`, `viewport.cpp`), painted from
 //! `dsview-viewmodel` with the session's data.
 
+use crate::i18n::tr;
 use std::time::Instant;
 
 use dsview_core::channel_type;
@@ -1629,7 +1630,7 @@ impl TimeView {
         // rename and colour popups
         if let Some((index, ty, mut text)) = self.rename.take() {
             let mut keep = true;
-            egui::Window::new("Rename")
+            egui::Window::new(tr("Rename"))
                 .collapsible(false)
                 .resizable(false)
                 .show(ui.ctx(), |ui| {
@@ -1657,7 +1658,7 @@ impl TimeView {
             let mut open = true;
             if let Some(sig) = sig {
                 let mut c = trace_colour(&sig);
-                egui::Window::new("Colour")
+                egui::Window::new(tr("Colour"))
                     .collapsible(false)
                     .resizable(false)
                     .open(&mut open)
@@ -1669,7 +1670,7 @@ impl TimeView {
                         ) {
                             s.set_signal_colour(index, ty, Some([c.r(), c.g(), c.b()]));
                         }
-                        if ui.button("Default").clicked() {
+                        if ui.button(tr("Default")).clicked() {
                             s.set_signal_colour(index, ty, None);
                         }
                     });

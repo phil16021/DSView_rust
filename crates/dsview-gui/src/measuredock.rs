@@ -2,6 +2,7 @@
 //! time between two cursors, edges between two cursors on a channel, and
 //! the cursor list (go to, delete). Rows are kept per work mode.
 
+use crate::i18n::tr;
 use dsview_core::channel_type;
 use dsview_session::Session;
 use dsview_viewmodel::measure;
@@ -67,7 +68,7 @@ fn cursor_button(
             }
         });
         if cursors == 0 {
-            ui.label("No cursors");
+            ui.label(tr("No cursors"));
         }
     });
 }
@@ -86,7 +87,7 @@ impl MeasureDock {
     }
 
     pub fn show(&mut self, ui: &mut Ui, s: &Session, view: &mut TimeView) {
-        ui.heading("Measure");
+        ui.heading(tr("Measure"));
         let rate = s.state().cur_snap_samplerate.max(1);
         let trig = s.state().trigger_pos;
         let cursors = view.cursors.samples.clone();
@@ -101,31 +102,31 @@ impl MeasureDock {
         egui::CollapsingHeader::new("Mouse measurement")
             .default_open(true)
             .show(ui, |ui| {
-                ui.checkbox(&mut view.measure_enabled, "Enable floating measurement");
+                ui.checkbox(&mut view.measure_enabled, tr("Enable floating measurement"));
                 let m = view.measure.clone();
                 let get = |f: fn(&measure::MouseMeasure) -> &String| {
                     m.as_ref().map_or("########".to_string(), |m| f(m).clone())
                 };
                 egui::Grid::new("mm").num_columns(4).show(ui, |ui| {
                     ui.label("");
-                    ui.label("Time");
+                    ui.label(tr("Time"));
                     ui.label("");
-                    ui.label("Samples");
+                    ui.label(tr("Samples"));
                     ui.end_row();
-                    ui.label("W: ");
+                    ui.label(tr("W: "));
                     ui.label(get(|m| &m.width_time));
                     ui.label("/");
                     ui.label(get(|m| &m.width_samples));
                     ui.end_row();
-                    ui.label("P: ");
+                    ui.label(tr("P: "));
                     ui.label(get(|m| &m.period_time));
                     ui.label("/");
                     ui.label(get(|m| &m.period_samples));
                     ui.end_row();
-                    ui.label("D: ");
+                    ui.label(tr("D: "));
                     ui.label(get(|m| &m.duty));
                     ui.end_row();
-                    ui.label("F: ");
+                    ui.label(tr("F: "));
                     ui.label(get(|m| &m.frequency));
                     ui.end_row();
                 });
@@ -134,13 +135,17 @@ impl MeasureDock {
         egui::CollapsingHeader::new("Cursor Distance")
             .default_open(true)
             .show(ui, |ui| {
-                if ui.button("+").on_hover_text("Add").clicked() {
+                if ui.button("+").on_hover_text(tr("Add")).clicked() {
                     rows.dist.push(Row::default());
                 }
                 let mut del = None;
                 for (i, r) in rows.dist.iter_mut().enumerate() {
                     ui.horizontal(|ui| {
-                        if ui.small_button("x").on_hover_text("Delete").clicked() {
+                        if ui
+                            .small_button(tr("x"))
+                            .on_hover_text(tr("Delete"))
+                            .clicked()
+                        {
                             del = Some(i);
                         }
                         cursor_button(ui, ("dist1", i), &mut r.c1, n);
@@ -172,7 +177,7 @@ impl MeasureDock {
         egui::CollapsingHeader::new("Edges")
             .default_open(true)
             .show(ui, |ui| {
-                if ui.button("+").on_hover_text("Add").clicked() {
+                if ui.button("+").on_hover_text(tr("Add")).clicked() {
                     rows.edge.push(Row::default());
                 }
                 let channels: Vec<u16> = s
@@ -185,13 +190,17 @@ impl MeasureDock {
                 let mut del = None;
                 for (i, r) in rows.edge.iter_mut().enumerate() {
                     ui.horizontal(|ui| {
-                        if ui.small_button("x").on_hover_text("Delete").clicked() {
+                        if ui
+                            .small_button(tr("x"))
+                            .on_hover_text(tr("Delete"))
+                            .clicked()
+                        {
                             del = Some(i);
                         }
                         cursor_button(ui, ("edge1", i), &mut r.c1, n);
                         ui.label("-");
                         cursor_button(ui, ("edge2", i), &mut r.c2, n);
-                        let at = ui.label("@").on_hover_text("Channel").id;
+                        let at = ui.label("@").on_hover_text(tr("Channel")).id;
                         if !channels.contains(&r.channel) {
                             r.channel = channels.first().copied().unwrap_or(0);
                         }
@@ -228,7 +237,7 @@ impl MeasureDock {
                 if let Some(i) = del {
                     rows.edge.remove(i);
                 }
-                ui.label("Channel / Rising/Falling/Edges");
+                ui.label(tr("Channel / Rising/Falling/Edges"));
             });
 
         egui::CollapsingHeader::new("Cursors")
@@ -238,7 +247,11 @@ impl MeasureDock {
                 let mut goto = None;
                 for (i, &c) in cursors.iter().enumerate() {
                     ui.horizontal(|ui| {
-                        if ui.small_button("x").on_hover_text("Delete").clicked() {
+                        if ui
+                            .small_button(tr("x"))
+                            .on_hover_text(tr("Delete"))
+                            .clicked()
+                        {
                             del = Some(i + 1);
                         }
                         let b = egui::Button::new(
@@ -246,7 +259,7 @@ impl MeasureDock {
                         )
                         .fill(cursor_colour(i + 1))
                         .min_size(egui::vec2(24.0, 18.0));
-                        if ui.add(b).on_hover_text("Go to").clicked() {
+                        if ui.add(b).on_hover_text(tr("Go to")).clicked() {
                             goto = Some(c);
                         }
                         // trigger-relative, as update_cursor_info shows them

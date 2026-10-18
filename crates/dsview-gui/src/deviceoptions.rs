@@ -5,6 +5,7 @@
 //! entries. Values go to the device on OK, except "Operation Mode" and the
 //! channel mode, which apply at once (they change what the dialog shows).
 
+use crate::i18n::{tr, tr_dsl};
 use dsview_core::{ConfValue, ListItem, Mode, key};
 use dsview_formats::cfmt;
 use dsview_session::Session;
@@ -73,15 +74,16 @@ impl Prop {
 
     /// The control; true when the value changed.
     fn ui(&mut self, ui: &mut Ui, id: usize) -> bool {
-        let l = ui.label(&self.label);
+        // the driver's texts in the language (`STR_PAGE_DSL`)
+        let l = ui.label(tr_dsl(&self.label));
         let r = match &mut self.kind {
             Kind::Enum(items, sel) => {
                 let mut i = *sel;
                 let r = egui::ComboBox::from_id_salt(("opt", id))
-                    .selected_text(items.get(i).map_or("", |x| x.1.as_str()))
+                    .selected_text(items.get(i).map_or(String::new(), |x| tr_dsl(&x.1)))
                     .show_ui(ui, |ui| {
                         for (k, (_, t)) in items.iter().enumerate() {
-                            ui.selectable_value(&mut i, k, t);
+                            ui.selectable_value(&mut i, k, tr_dsl(t));
                         }
                     })
                     .response;
@@ -94,12 +96,12 @@ impl Prop {
                 let cur = items
                     .iter()
                     .find(|it| it.id == x as i32)
-                    .map_or("", |it| it.name.as_str());
+                    .map_or(String::new(), |it| tr_dsl(&it.name));
                 egui::ComboBox::from_id_salt(("opt", id))
                     .selected_text(cur)
                     .show_ui(ui, |ui| {
                         for it in items.iter() {
-                            ui.selectable_value(&mut x, it.id as i16, &it.name);
+                            ui.selectable_value(&mut x, it.id as i16, tr_dsl(&it.name));
                         }
                     })
                     .response
@@ -462,14 +464,14 @@ impl DeviceOptions {
             self.build_channels(s);
         }
         let mut open = !crate::msgbox::esc(ctx);
-        egui::Window::new("Device Options")
+        egui::Window::new(tr("Device Options"))
             .collapsible(false)
             .open(&mut open)
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical()
                     .max_height(600.0)
                     .show(ui, |ui| {
-                        ui.strong("Mode");
+                        ui.strong(tr("Mode"));
                         egui::Grid::new("dev-props").num_columns(2).show(ui, |ui| {
                             for (i, p) in self.props.iter_mut().enumerate() {
                                 if p.ui(ui, i) && p.auto {
@@ -484,11 +486,11 @@ impl DeviceOptions {
                             m if m == Mode::Analog as i32 => self.analog_channels(ui, s),
                             _ => {
                                 if s.config(key::HAVE_ZERO, None).is_some_and(|v| v.get_bool()) {
-                                    ui.strong("Calibration");
-                                    if ui.button("Auto Calibration").clicked() {
+                                    ui.strong(tr("Calibration"));
+                                    if ui.button(tr("Auto Calibration")).clicked() {
                                         out = Outcome::AutoCalibration;
                                     }
-                                    if ui.button("Manual Calibration").clicked() {
+                                    if ui.button(tr("Manual Calibration")).clicked() {
                                         out = Outcome::ManualCalibration;
                                     }
                                 }
@@ -496,7 +498,7 @@ impl DeviceOptions {
                         }
                     });
                 ui.separator();
-                if ui.button("OK").clicked() {
+                if ui.button(tr("OK")).clicked() {
                     out = self.accept(s);
                 }
             });
@@ -511,12 +513,12 @@ impl DeviceOptions {
     }
 
     fn logic_channels(&mut self, ui: &mut Ui, s: &Session) {
-        ui.strong("Channel");
+        ui.strong(tr("Channel"));
         // channel mode, applied at once
         if let Some(ConfValue::List(modes)) = s.config_list(key::CHANNEL_MODE) {
             let cur = s.config(key::CHANNEL_MODE, None).map_or(0, |v| v.get_i16());
             for m in modes {
-                if ui.radio(cur == m.id as i16, &m.name).clicked() && cur != m.id as i16 {
+                if ui.radio(cur == m.id as i16, tr_dsl(&m.name)).clicked() && cur != m.id as i16 {
                     s.set_config(key::CHANNEL_MODE, ConfValue::I16(m.id as i16), None);
                     self.build_channels(s);
                 }
@@ -568,7 +570,7 @@ impl DeviceOptions {
             }
         });
         ui.horizontal(|ui| {
-            if ui.button("Enable All").clicked() {
+            if ui.button(tr("Enable All")).clicked() {
                 if stream && let Some(v) = vld {
                     // enable_max_probes
                     let mut on = self.enables.iter().filter(|x| **x).count();
@@ -585,14 +587,14 @@ impl DeviceOptions {
                     self.enables.iter_mut().for_each(|e| *e = true);
                 }
             }
-            if ui.button("Disable All").clicked() {
+            if ui.button(tr("Disable All")).clicked() {
                 self.enables.iter_mut().for_each(|e| *e = false);
             }
         });
     }
 
     fn analog_channels(&mut self, ui: &mut Ui, s: &Session) {
-        ui.strong("Channel");
+        ui.strong(tr("Channel"));
         let chans = s.channels();
         ui.horizontal(|ui| {
             for (i, c) in chans.iter().enumerate() {
@@ -601,7 +603,7 @@ impl DeviceOptions {
         });
         let i = self.tab.min(chans.len().saturating_sub(1));
         if let Some(on) = self.enables.get_mut(i) {
-            ui.checkbox(on, "Enable: ");
+            ui.checkbox(on, tr("Enable: "));
             let enabled = *on;
             let map_default = self
                 .probes

@@ -238,6 +238,9 @@ pub struct State {
     /// `swapBackBufferAlways`: a repeat capture ending after the stop is
     /// shown too.
     pub swap_back_buffer_always: bool,
+    /// The GUI's language id (25, 31, 7), for the older per-language
+    /// profiles; 0 when unknown.
+    pub language: i64,
     pub ended_seq: u64,
     pub cur_snap_samplerate: u64,
     pub cur_samplelimits: u64,
@@ -695,12 +698,17 @@ impl Session {
     }
 
     /// `gen_config_file_path(false)`: the profile of DSView versions that
-    /// kept one per language, `<driver><mode>.ses<language>.dsc`. The
-    /// language is Qt's setting, unknown here: the first such file by name.
+    /// kept one per language, `<driver><mode>.ses<language>.dsc`: the
+    /// current language's, else (language unknown) the first by name.
     fn legacy_profile_path(&self) -> Option<PathBuf> {
         let d = self.state().device.clone()?;
         let dir = self.0.profile_dir.as_ref()?;
         let prefix = format!("{}{}.ses", d.driver, self.mode());
+        let lang = self.state().language;
+        let own = dir.join(format!("{prefix}{lang}.dsc"));
+        if lang > 0 && own.is_file() {
+            return Some(own);
+        }
         let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
             .ok()?
             .filter_map(|e| e.ok().map(|e| e.path()))

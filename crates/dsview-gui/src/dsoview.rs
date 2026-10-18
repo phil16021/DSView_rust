@@ -3,6 +3,7 @@
 //! the header (V/div dial, probe factor, enable, coupling), the hover value;
 //! wheel zoom steps the timebase.
 
+use crate::i18n::tr;
 use dsview_core::{ConfValue, channel_type, key};
 use dsview_session::Session;
 use dsview_session::session::Signal;
@@ -1372,7 +1373,7 @@ impl TimeView {
                             }
                         }
                     });
-                    if ui.button("Reset").clicked() {
+                    if ui.button(tr("Reset")).clicked() {
                         self.dso.measures[i] = (-1, 0);
                         done = true;
                     }

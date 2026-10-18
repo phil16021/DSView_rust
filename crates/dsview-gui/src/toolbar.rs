@@ -1,6 +1,7 @@
 //! The sampling bar (`pv/toolbars/samplingbar.cpp`): device, mode,
 //! channels, duration and rate, collect mode, start/stop and single shot.
 
+use crate::i18n::tr;
 use dsview_core::{Mode, channel_type};
 use dsview_formats::cfmt::{samplerate_string, time_string};
 use dsview_session::Session;
@@ -40,12 +41,13 @@ impl Default for SamplingBar {
     }
 }
 
-fn mode_name(m: Mode) -> &'static str {
-    match m {
+/// The work mode's name in the language (`IDS_TOOLBAR_MODE_*`).
+fn mode_name(m: Mode) -> String {
+    tr(match m {
         Mode::Logic => "Logic Analyzer",
         Mode::Dso => "Oscilloscope",
         Mode::Analog => "Data Acquisition",
-    }
+    })
 }
 
 impl SamplingBar {
@@ -107,7 +109,7 @@ impl SamplingBar {
                             modes
                                 .iter()
                                 .find(|m| **m as i32 == mode)
-                                .map_or("", |m| mode_name(*m)),
+                                .map_or(String::new(), |m| mode_name(*m)),
                         )
                         .show_ui(ui, |ui| {
                             for m in &modes {
@@ -123,14 +125,14 @@ impl SamplingBar {
                         .widget_info(|| named("Mode"));
                 }
                 if ui
-                    .button("Options")
-                    .on_hover_text("Device options")
+                    .button(tr("Options"))
+                    .on_hover_text(tr("Device options"))
                     .clicked()
                     && self.options.is_none()
                 {
                     self.options = Some(crate::deviceoptions::DeviceOptions::new(s));
                 }
-                if ui.button("Channels").clicked() {
+                if ui.button(tr("Channels")).clicked() {
                     self.channels_open = !self.channels_open;
                 }
                 // duration (DSO: per division) @ rate
@@ -178,15 +180,23 @@ impl SamplingBar {
                 // collect mode (logic only)
                 if s.mode() == Mode::Logic as i32 {
                     egui::ComboBox::from_id_salt("collect")
-                        .selected_text(match self.collect {
+                        .selected_text(tr(match self.collect {
                             CollectMode::Single => "Single",
-                            CollectMode::Repeat => "Repeat",
+                            CollectMode::Repeat => "Repetitive",
                             CollectMode::Loop => "Loop",
-                        })
+                        }))
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.collect, CollectMode::Single, "Single");
-                            ui.selectable_value(&mut self.collect, CollectMode::Repeat, "Repeat");
-                            ui.selectable_value(&mut self.collect, CollectMode::Loop, "Loop");
+                            ui.selectable_value(
+                                &mut self.collect,
+                                CollectMode::Single,
+                                tr("Single"),
+                            );
+                            ui.selectable_value(
+                                &mut self.collect,
+                                CollectMode::Repeat,
+                                tr("Repetitive"),
+                            );
+                            ui.selectable_value(&mut self.collect, CollectMode::Loop, tr("Loop"));
                         })
                         .response
                         .widget_info(|| named("Collect mode"));
@@ -201,10 +211,10 @@ impl SamplingBar {
                 }
             });
             let run = if working { "Stop" } else { "Start" };
-            if ui.button(run).clicked() {
+            if ui.button(tr(run)).clicked() {
                 self.run_stop(s, false);
             }
-            if s.mode() != Mode::Analog as i32 && !working && ui.button("Single").clicked() {
+            if s.mode() != Mode::Analog as i32 && !working && ui.button(tr("Single")).clicked() {
                 self.run_stop(s, true);
             }
             if working {
@@ -212,11 +222,11 @@ impl SamplingBar {
                 match st {
                     Some((true, p)) => ui.label(format!("Triggered {p}%")),
                     Some((false, p)) if p > 0 => ui.label(format!("{p}%")),
-                    _ => ui.label(if s.state().triged {
+                    _ => ui.label(tr(if s.state().triged {
                         "Capturing"
                     } else {
-                        "Waiting for trigger"
-                    }),
+                        "Waiting for Trigger"
+                    })),
                 };
                 ui.ctx()
                     .request_repaint_after(std::time::Duration::from_millis(200));
@@ -224,7 +234,7 @@ impl SamplingBar {
         });
         if self.channels_open {
             let mut open = !crate::msgbox::esc(ui.ctx());
-            egui::Window::new("Channels")
+            egui::Window::new(tr("Channels"))
                 .open(&mut open)
                 .resizable(false)
                 .show(ui.ctx(), |ui| {
@@ -311,15 +321,15 @@ impl SamplingBar {
             }
         }
         if self.confirm_zero {
-            egui::Window::new("Auto Calibration").collapsible(false).show(ctx, |ui| {
-                ui.label("Auto Calibration program will be started. Don't connect any probes. \nIt can take a while!");
+            egui::Window::new(tr("Auto Calibration")).collapsible(false).show(ctx, |ui| {
+                ui.label(tr("Auto Calibration program will be started. Don't connect any probes. \nIt can take a while!"));
                 ui.horizontal(|ui| {
-                    if ui.button("OK").clicked() {
+                    if ui.button(tr("OK")).clicked() {
                         s.set_config(dsview_core::key::ZERO, dsview_core::ConfValue::Bool(true), None);
                         self.confirm_zero = false;
                         self.zero = Some(crate::zerocal::ZeroCal::start(s));
                     }
-                    if ui.button("Cancel").clicked() || crate::msgbox::esc(ui.ctx()) {
+                    if ui.button(tr("Cancel")).clicked() || crate::msgbox::esc(ui.ctx()) {
                         s.set_config(dsview_core::key::ZERO, dsview_core::ConfValue::Bool(false), None);
                         self.confirm_zero = false;
                     }

@@ -2,6 +2,7 @@
 //! (`pv/dialogs/dsohistogram.cpp`) and channel-to-channel measure
 //! (`pv/dialogs/chanmeasure.cpp`), computed by `dsview_dsp::analysis`.
 
+use crate::i18n::tr;
 use dsview_dsp::analysis::{self, Histogram};
 use dsview_session::Session;
 use eframe::egui::{self, Color32, Rect, Stroke, Ui, pos2, vec2};
@@ -150,24 +151,24 @@ impl AnalysisDialogs {
     pub(crate) fn show(&mut self, ctx: &egui::Context, s: &Session, chans: &[ChanView]) {
         if let Some((mut ch, mut volts)) = self.histogram {
             let mut open = !crate::msgbox::esc(ctx);
-            egui::Window::new("Histogram")
+            egui::Window::new(tr("Histogram"))
                 .open(&mut open)
                 .default_width(420.0)
                 .show(ctx, |ui| {
                     ui.horizontal(|ui| {
                         channel_combo(ui, "hist-ch", "Channel", &mut ch, chans);
-                        ui.selectable_value(&mut volts, false, "mV");
-                        ui.selectable_value(&mut volts, true, "V");
+                        ui.selectable_value(&mut volts, false, tr("mV"));
+                        ui.selectable_value(&mut volts, true, tr("V"));
                     });
                     let c = chans.iter().find(|c| c.sig.index == ch);
                     let Some(c) = c.filter(|c| c.enabled) else {
-                        ui.label("No enabled DSO channel selected.");
+                        ui.label(tr("No enabled DSO channel selected."));
                         return;
                     };
                     let Some(h) = source(s, c).and_then(|(codes, hw, mv, rate)| {
                         analysis::histograms(&codes, hw, mv, rate)
                     }) else {
-                        ui.label("No captured data. Run an acquisition first.");
+                        ui.label(tr("No captured data. Run an acquisition first."));
                         return;
                     };
                     let (fac, unit, prec) = if volts {
@@ -218,7 +219,7 @@ impl AnalysisDialogs {
         }
         if let Some((mut a, mut b)) = self.chan_measure {
             let mut open = !crate::msgbox::esc(ctx);
-            egui::Window::new("Channel-to-channel measure")
+            egui::Window::new(tr("Channel-to-channel measure"))
                 .open(&mut open)
                 .show(ctx, |ui| {
                     channel_combo(ui, "cm-a", "1st Source", &mut a, chans);
@@ -248,10 +249,10 @@ impl AnalysisDialogs {
                                 (Some(ea), Some(eb)) => {
                                     analysis::channel_measure(&ca.sig.name, &ea, &cb.sig.name, &eb)
                                 }
-                                _ => "No captured data. Run an acquisition first.".to_string(),
+                                _ => tr("No captured data. Run an acquisition first."),
                             }
                         }
-                        _ => "Select two DSO channels.".to_string(),
+                        _ => tr("Select two DSO channels."),
                     };
                     ui.label(text);
                 });

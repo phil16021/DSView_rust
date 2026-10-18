@@ -3,6 +3,7 @@
 //! kept in `$XDG_CONFIG_HOME/DreamSourceLab/dsview-rs.json`. Without that
 //! file the Qt DSView's `DSView.conf` next to it is imported once.
 
+use crate::i18n::tr;
 use std::path::{Path, PathBuf};
 
 use dsview_viewmodel::qsettings::{self, QSettings};
@@ -375,7 +376,7 @@ impl AppOptions {
             add(ui, l.id);
             ui.end_row();
         };
-        ui.strong("Logic");
+        ui.strong(tr("Logic"));
         egui::Grid::new("opt-logic").num_columns(2).show(ui, |ui| {
             row(ui, "Quick scroll", &mut |ui, l| {
                 ui.checkbox(&mut self.quick_scroll, "").labelled_by(l);
@@ -390,14 +391,14 @@ impl AppOptions {
             });
             row(ui, "Vertical Scroll Action", &mut |ui, _| {
                 ui.horizontal(|ui| {
-                    ui.radio_value(&mut self.vertical_scroll_is_zoom, true, "Zoom");
-                    ui.radio_value(&mut self.vertical_scroll_is_zoom, false, "Scroll");
+                    ui.radio_value(&mut self.vertical_scroll_is_zoom, true, tr("Zoom"));
+                    ui.radio_value(&mut self.vertical_scroll_is_zoom, false, tr("Scroll"));
                 });
             });
             row(ui, "Ruler / Cursor units", &mut |ui, _| {
                 ui.horizontal(|ui| {
-                    ui.radio_value(&mut self.ruler_samples, false, "Time");
-                    ui.radio_value(&mut self.ruler_samples, true, "Samples");
+                    ui.radio_value(&mut self.ruler_samples, false, tr("Time"));
+                    ui.radio_value(&mut self.ruler_samples, true, tr("Samples"));
                 });
             });
             row(ui, "Signal line width", &mut |ui, l| {
@@ -433,7 +434,7 @@ impl AppOptions {
             });
         });
         ui.separator();
-        ui.strong("Scope");
+        ui.strong(tr("Scope"));
         egui::Grid::new("opt-dso").num_columns(2).show(ui, |ui| {
             row(ui, "Tig pos in middle", &mut |ui, l| {
                 ui.checkbox(&mut self.trig_pos_display_in_mid, "")
@@ -459,7 +460,7 @@ impl AppOptions {
             });
         });
         ui.separator();
-        ui.strong("UI");
+        ui.strong(tr("UI"));
         egui::Grid::new("opt-ui").num_columns(2).show(ui, |ui| {
             row(ui, "Profile in bar", &mut |ui, l| {
                 ui.checkbox(&mut self.display_profile_in_bar, "")
@@ -483,10 +484,10 @@ impl AppOptions {
             });
         });
         ui.horizontal(|ui| {
-            if ui.button("OK").clicked() {
+            if ui.button(tr("OK")).clicked() {
                 done = Some(true);
             }
-            if ui.button("Cancel").clicked() || crate::msgbox::esc(ui.ctx()) {
+            if ui.button(tr("Cancel")).clicked() || crate::msgbox::esc(ui.ctx()) {
                 done = Some(false);
             }
         });

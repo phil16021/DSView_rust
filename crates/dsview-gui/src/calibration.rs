@@ -4,6 +4,7 @@
 //! device as the sliders move; Save, Abort (reload the stored values),
 //! Reset (the defaults) and Exit.
 
+use crate::i18n::tr;
 use std::sync::mpsc::{Receiver, channel};
 
 use dsview_core::{ConfValue, channel_type, key};
@@ -94,7 +95,7 @@ impl Calibration {
             self.update_device_info(s);
         }
         let mut exit = false;
-        egui::Window::new("Manual Calibration")
+        egui::Window::new(tr("Manual Calibration"))
             .collapsible(false)
             .default_width(620.0)
             .show(ctx, |ui| {
@@ -130,41 +131,44 @@ impl Calibration {
                         }
                     });
                 ui.horizontal(|ui| {
-                    if ui.button("Save").clicked() {
+                    if ui.button(tr("Save")).clicked() {
                         self.run(
                             s,
                             "Save calibration results... It can take a while.",
                             key::ZERO_SET,
                         );
                     }
-                    if ui.button("Abort").clicked() {
+                    if ui.button(tr("Abort")).clicked() {
                         self.run(
                             s,
                             "Reload last calibration results... It can take a while.",
                             key::ZERO_LOAD,
                         );
                     }
-                    if ui.button("Reset").clicked() {
+                    if ui.button(tr("Reset")).clicked() {
                         self.confirm_reset = true;
                     }
-                    if ui.button("Exit").clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape))
+                    if ui.button(tr("Exit")).clicked()
+                        || ui.input(|i| i.key_pressed(egui::Key::Escape))
                     {
                         exit = true;
                     }
                 });
             });
         if self.confirm_reset {
-            egui::Window::new("Reset calibration")
+            egui::Window::new(tr("Reset calibration"))
                 .collapsible(false)
                 .show(ctx, |ui| {
-                    ui.label("All calibration settings will become the defualt values!");
+                    ui.label(tr(
+                        "All calibration settings will become the defualt values!",
+                    ));
                     ui.horizontal(|ui| {
-                        if ui.button("OK").clicked() {
+                        if ui.button(tr("OK")).clicked() {
                             s.set_config(key::ZERO_DEFAULT, ConfValue::Bool(true), None);
                             self.update_device_info(s);
                             self.confirm_reset = false;
                         }
-                        if ui.button("Cancel").clicked() || crate::msgbox::esc(ui.ctx()) {
+                        if ui.button(tr("Cancel")).clicked() || crate::msgbox::esc(ui.ctx()) {
                             self.confirm_reset = false;
                         }
                     });

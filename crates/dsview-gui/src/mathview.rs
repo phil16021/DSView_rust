@@ -2,6 +2,7 @@
 //! dialog (`pv/dialogs/mathoptions.cpp`): the result of `dsview_dsp::math`
 //! over the shown frame, drawn in red with its own V/div dial and zero line.
 
+use crate::i18n::tr;
 use dsview_dsp::math::{self, Dial, MathType, Source};
 use dsview_session::Session;
 use dsview_viewmodel::dso::{self, IRect, TraceShape};
@@ -84,11 +85,11 @@ impl MathState {
             return;
         };
         let mut keep = true;
-        egui::Window::new("Math Options")
+        egui::Window::new(tr("Math Options"))
             .collapsible(false)
             .resizable(false)
             .show(ctx, |ui| {
-                ui.checkbox(&mut d.enabled, "Enable");
+                ui.checkbox(&mut d.enabled, tr("Enable"));
                 ui.separator();
                 let src = |ui: &mut Ui, id: &str, v: &mut u16| {
                     let cur = names
@@ -106,10 +107,10 @@ impl MathState {
                 egui::Grid::new("math-options")
                     .num_columns(2)
                     .show(ui, |ui| {
-                        ui.label("Source 1");
+                        ui.label(tr("Source 1"));
                         src(ui, "math-src1", &mut d.src1);
                         ui.end_row();
-                        ui.label("Source 2");
+                        ui.label(tr("Source 2"));
                         ui.add_enabled_ui(!d.ty.is_unary(), |ui| src(ui, "math-src2", &mut d.src2));
                         ui.end_row();
                     });
@@ -127,14 +128,14 @@ impl MathState {
                     matches!(d.ty, MathType::LowPass | MathType::HighPass),
                     |ui| {
                         ui.horizontal(|ui| {
-                            let l = ui.label("Filter window (samples)");
+                            let l = ui.label(tr("Filter window (samples)"));
                             ui.add(egui::DragValue::new(&mut d.filter_width).range(1..=100000))
                                 .labelled_by(l.id);
                         });
                     },
                 );
                 ui.horizontal(|ui| {
-                    if ui.button("OK").clicked() {
+                    if ui.button(tr("OK")).clicked() {
                         self.enabled = d.enabled;
                         self.ty = d.ty;
                         self.src1 = d.src1;
@@ -144,7 +145,7 @@ impl MathState {
                         self.rebuild = true;
                         keep = false;
                     }
-                    if ui.button("Cancel").clicked() || crate::msgbox::esc(ui.ctx()) {
+                    if ui.button(tr("Cancel")).clicked() || crate::msgbox::esc(ui.ctx()) {
                         keep = false;
                     }
                 });

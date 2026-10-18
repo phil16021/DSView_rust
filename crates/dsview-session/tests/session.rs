@@ -341,7 +341,7 @@ fn hardware_profile_names() {
     let dir = std::env::temp_dir().join(format!("dsv-hwprof-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let open = || {
+    let open = |language: i64| {
         let hub = Arc::new(Mutex::new(Hub::new(SimConfig::new(
             0x2A0E,
             0x0034,
@@ -359,6 +359,7 @@ fn hardware_profile_names() {
             },
             sim,
         );
+        s.state().language = language;
         let (list, _) = s.devices();
         let e = list
             .iter()
@@ -376,7 +377,7 @@ fn hardware_profile_names() {
             .map(|x| x.name.clone())
             .unwrap()
     };
-    let s = open();
+    let s = open(0);
     s.set_signal_name(3, logic, "MOSI");
     s.save_config();
     s.exit();
@@ -386,12 +387,28 @@ fn hardware_profile_names() {
         .collect();
     assert_eq!(files.len(), 1, "{files:?}");
     assert!(files[0].ends_with("0.ses.dsc"), "{files:?}");
-    assert_eq!(name3(&open()), "MOSI");
+    assert_eq!(name3(&open(0)), "MOSI");
     // only an older per-language profile
     let legacy = files[0].replace(".ses.dsc", ".ses25.dsc");
     std::fs::rename(dir.join(&files[0]), dir.join(&legacy)).unwrap();
-    let s = open();
+    let s = open(0);
     assert_eq!(name3(&s), "MOSI");
+    s.exit();
+    // with the language known, its own file wins over the first by name
+    let other = files[0].replace(".ses.dsc", ".ses31.dsc");
+    let text = std::fs::read_to_string(dir.join(&legacy))
+        .unwrap()
+        .replace("\"MOSI\"", "\"MISO\"");
+    std::fs::write(dir.join(&other), text).unwrap();
+    // (each exit writes the new-format file, which is read first)
+    let new = dir.join(&files[0]);
+    let _ = std::fs::remove_file(&new);
+    let s = open(0);
+    assert_eq!(name3(&s), "MOSI", "first by name without a language");
+    s.exit();
+    let _ = std::fs::remove_file(&new);
+    let s = open(31);
+    assert_eq!(name3(&s), "MISO");
     s.exit();
     let _ = std::fs::remove_dir_all(&dir);
 }

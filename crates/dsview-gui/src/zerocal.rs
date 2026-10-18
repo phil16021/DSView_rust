@@ -3,6 +3,7 @@
 //! capture while the driver calibrates (it clears `ZERO` when done), then
 //! Save (`ZERO_SET`) or Abort (`ZERO_LOAD`), and the timebase back.
 
+use crate::i18n::tr;
 use std::sync::mpsc::{Receiver, channel};
 
 use dsview_core::{ConfValue, channel_type, key};
@@ -67,14 +68,14 @@ impl ZeroCal {
         }
         let done = !s.config(key::ZERO, None).is_some_and(|v| v.get_bool());
         let mut choice = None;
-        egui::Window::new("Auto Calibration")
+        egui::Window::new(tr("Auto Calibration"))
             .collapsible(false)
             .resizable(false)
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
-                ui.strong("Don't connect any probes!");
+                ui.strong(tr("Don't connect any probes!"));
                 if done {
-                    ui.label("Finished!");
+                    ui.label(tr("Finished!"));
                 } else {
                     ui.spinner();
                     // "Waiting", then a dot every 300 ms
@@ -83,10 +84,10 @@ impl ZeroCal {
                     ctx.request_repaint_after(std::time::Duration::from_millis(300));
                 }
                 ui.horizontal(|ui| {
-                    if done && ui.button("Save").clicked() {
+                    if done && ui.button(tr("Save")).clicked() {
                         choice = Some(true);
                     }
-                    if ui.button("Abort").clicked() {
+                    if ui.button(tr("Abort")).clicked() {
                         choice = Some(false);
                     }
                 });

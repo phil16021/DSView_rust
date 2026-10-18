@@ -3,6 +3,7 @@
 //! The spectrum is recomputed when a new DSO frame arrives or a setting
 //! changes (`SigSession` runs `calc_fft` per frame).
 
+use crate::i18n::tr;
 use dsview_core::{channel_type, key};
 use dsview_dsp::spectrum::{Window, power_spectrum, volts_per_code};
 use dsview_session::Session;
@@ -246,17 +247,17 @@ impl FftState {
         };
         let mut keep = true;
         let max_limits = s.config_u64(key::MAX_DSO_SAMPLELIMITS).unwrap_or(0);
-        egui::Window::new("FFT Options")
+        egui::Window::new(tr("FFT Options"))
             .collapsible(false)
             .resizable(false)
             .show(ctx, |ui| {
                 egui::Grid::new("fft-options")
                     .num_columns(2)
                     .show(ui, |ui| {
-                        ui.label("FFT Enable: ");
+                        ui.label(tr("FFT Enable: "));
                         ui.checkbox(&mut d.spec.enabled, "");
                         ui.end_row();
-                        ui.label("FFT Source: ");
+                        ui.label(tr("FFT Source: "));
                         let names: Vec<(u16, String)> = s
                             .state()
                             .signals
@@ -284,7 +285,7 @@ impl FftState {
                         ui.end_row();
                         let (lengths, _) =
                             spectrum::lengths_and_intervals(max_limits, d.spec.sample_num);
-                        ui.label("FFT Length: ");
+                        ui.label(tr("FFT Length: "));
                         egui::ComboBox::from_id_salt("fft-len")
                             .selected_text(d.spec.sample_num.to_string())
                             .show_ui(ui, |ui| {
@@ -299,7 +300,7 @@ impl FftState {
                         if !intervals2.contains(&d.spec.interval) {
                             d.spec.interval = intervals2.last().copied().unwrap_or(1);
                         }
-                        ui.label("Sample Interval: ");
+                        ui.label(tr("Sample Interval: "));
                         egui::ComboBox::from_id_salt("fft-int")
                             .selected_text(d.spec.interval.to_string())
                             .show_ui(ui, |ui| {
@@ -308,7 +309,7 @@ impl FftState {
                                 }
                             });
                         ui.end_row();
-                        ui.label("FFT Window: ");
+                        ui.label(tr("FFT Window: "));
                         egui::ComboBox::from_id_salt("fft-win")
                             .selected_text(WINDOWS[d.spec.window.clamp(0, 4) as usize])
                             .show_ui(ui, |ui| {
@@ -317,10 +318,10 @@ impl FftState {
                                 }
                             });
                         ui.end_row();
-                        ui.label("DC Ignored: ");
+                        ui.label(tr("DC Ignored: "));
                         ui.checkbox(&mut d.spec.dc_ignore, "");
                         ui.end_row();
-                        ui.label("Y-axis Mode: ");
+                        ui.label(tr("Y-axis Mode: "));
                         egui::ComboBox::from_id_salt("fft-mode")
                             .selected_text(VIEW_MODES[d.spec.view_mode.min(1)])
                             .show_ui(ui, |ui| {
@@ -329,7 +330,7 @@ impl FftState {
                                 }
                             });
                         ui.end_row();
-                        ui.label("DBV Range: ");
+                        ui.label(tr("DBV Range: "));
                         ui.add_enabled_ui(d.spec.view_mode == 1, |ui| {
                             egui::ComboBox::from_id_salt("fft-dbv")
                                 .selected_text(d.spec.dbv_range.to_string())
@@ -346,7 +347,7 @@ impl FftState {
                         ui.end_row();
                     });
                 ui.horizontal(|ui| {
-                    if ui.button("OK").clicked() {
+                    if ui.button(tr("OK")).clicked() {
                         // accept(): every trace off, the chosen one as set
                         for (k, sp) in self.specs.iter_mut().enumerate() {
                             sp.enabled = false;
@@ -363,7 +364,7 @@ impl FftState {
                         }
                         keep = false;
                     }
-                    if ui.button("Cancel").clicked() || crate::msgbox::esc(ui.ctx()) {
+                    if ui.button(tr("Cancel")).clicked() || crate::msgbox::esc(ui.ctx()) {
                         keep = false;
                     }
                 });

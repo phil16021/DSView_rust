@@ -2,6 +2,7 @@
 //! source, slope, hold-off and sensitivity, written to the device as they
 //! change.
 
+use crate::i18n::tr;
 use dsview_core::{ConfValue, channel_type, key};
 use dsview_session::Session;
 use eframe::egui::{self, Ui};
@@ -31,12 +32,12 @@ fn byte(s: &Session, k: i32) -> Option<u8> {
 
 impl DsoTriggerDock {
     pub fn show(&mut self, ui: &mut Ui, s: &Session) {
-        ui.heading("Trigger");
+        ui.heading(tr("Trigger"));
         let dev = s.state().device.clone();
         let is_file = dev.as_ref().is_some_and(|d| d.is_file());
         let is_demo = dev.as_ref().is_some_and(|d| d.is_demo());
         if is_file {
-            ui.label("A file has no trigger settings.");
+            ui.label(tr("A file has no trigger settings."));
             return;
         }
         // update_view(): the demo only moves the position
@@ -47,7 +48,7 @@ impl DsoTriggerDock {
         let mut pos = cur;
         let l = ui
             .horizontal(|ui| {
-                let l = ui.label("Trigger Position: ");
+                let l = ui.label(tr("Trigger Position: "));
                 ui.add(egui::DragValue::new(&mut pos).range(1..=99).suffix("%"))
                     .labelled_by(l.id);
                 l.id
@@ -62,7 +63,7 @@ impl DsoTriggerDock {
 
         ui.add_enabled_ui(!locked, |ui| {
             // source
-            let src_label = ui.label("Trigger Source: ").id;
+            let src_label = ui.label(tr("Trigger Source: ")).id;
             let src = byte(s, key::TRIGGER_SOURCE).unwrap_or(0);
             let enabled = |i: u16| {
                 s.channels()
@@ -128,7 +129,7 @@ impl DsoTriggerDock {
             ui.add_space(8.0);
 
             // slope
-            ui.label("Trigger Type: ");
+            ui.label(tr("Trigger Type: "));
             let slope = byte(s, key::TRIGGER_SLOPE).unwrap_or(0);
             for (id, name) in [(0u8, "Rising Edge"), (1, "Falling Edge")] {
                 if ui.radio(slope == id, name).clicked()
@@ -152,7 +153,7 @@ impl DsoTriggerDock {
             let mut new_unit = unit;
             let hl = ui
                 .horizontal(|ui| {
-                    let l = ui.label("Hold Off Time: ");
+                    let l = ui.label(tr("Hold Off Time: "));
                     ui.add(egui::DragValue::new(&mut value).range(0..=max))
                         .labelled_by(l.id);
                     egui::ComboBox::from_id_salt("dso-holdoff-unit")
@@ -185,7 +186,7 @@ impl DsoTriggerDock {
             ui.add_space(8.0);
 
             // sensitivity
-            let ml = ui.label("Noise Sensitivity: ").id;
+            let ml = ui.label(tr("Noise Sensitivity: ")).id;
             let margin = byte(s, key::TRIGGER_MARGIN).unwrap_or(0);
             let mut m = margin as i32;
             ui.add(egui::Slider::new(&mut m, 0..=15).show_value(false))

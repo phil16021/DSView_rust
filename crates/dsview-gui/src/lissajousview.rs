@@ -2,6 +2,7 @@
 //! DSO traces while enabled, and its options dialog
 //! (`pv/dialogs/lissajousoptions.cpp`).
 
+use crate::i18n::tr;
 use dsview_session::Session;
 use dsview_viewmodel::dso;
 use eframe::egui::{self, Color32, Pos2, Rect, Stroke, pos2, vec2};
@@ -35,13 +36,13 @@ impl LissajousState {
         };
         let min = dso::lissajous_min_percent(s.state().cur_samplelimits);
         let mut keep = true;
-        egui::Window::new("Lissajous Options")
+        egui::Window::new(tr("Lissajous Options"))
             .collapsible(false)
             .resizable(false)
             .show(ctx, |ui| {
-                ui.checkbox(&mut en, "Enable");
+                ui.checkbox(&mut en, tr("Enable"));
                 ui.horizontal(|ui| {
-                    let l = ui.label("Data Percentage");
+                    let l = ui.label(tr("Data Percentage"));
                     ui.add_enabled(
                         min < 100,
                         egui::Slider::new(&mut percent, min..=100).suffix("%"),
@@ -50,24 +51,24 @@ impl LissajousState {
                 });
                 ui.horizontal(|ui| {
                     ui.vertical(|ui| {
-                        ui.label("X-axis");
+                        ui.label(tr("X-axis"));
                         for (i, n) in names {
                             ui.radio_value(&mut x, *i, n);
                         }
                     });
                     ui.vertical(|ui| {
-                        ui.label("Y-axis");
+                        ui.label(tr("Y-axis"));
                         for (i, n) in names {
                             ui.radio_value(&mut y, *i, n);
                         }
                     });
                 });
                 ui.horizontal(|ui| {
-                    if ui.button("OK").clicked() {
+                    if ui.button(tr("OK")).clicked() {
                         (self.enabled, self.x, self.y, self.percent) = (en, x, y, percent);
                         keep = false;
                     }
-                    if ui.button("Cancel").clicked() || crate::msgbox::esc(ui.ctx()) {
+                    if ui.button(tr("Cancel")).clicked() || crate::msgbox::esc(ui.ctx()) {
                         keep = false;
                     }
                 });

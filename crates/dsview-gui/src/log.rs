@@ -3,6 +3,7 @@
 //! `DSView: <message>` lines. The Log Options dialog
 //! (`LogoBar::on_action_setting_log`) sets level, file and append mode.
 
+use crate::i18n::tr;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
@@ -68,6 +69,11 @@ pub fn init(level: i32) {
             let _ = f.flush();
         }
     }));
+}
+
+/// An info message (level 3).
+pub fn info(msg: &str) {
+    dsview_drivers::sys::log(3, msg);
 }
 
 pub fn level() -> i32 {
@@ -189,12 +195,12 @@ impl LogOptions {
     ) -> Option<bool> {
         let mut done = None;
         let exists = path().is_file();
-        egui::Window::new("Log Options")
+        egui::Window::new(tr("Log Options"))
             .collapsible(false)
             .resizable(false)
             .show(ctx, |ui| {
                 egui::Grid::new("log-opts").num_columns(2).show(ui, |ui| {
-                    let l = ui.label("Log Level");
+                    let l = ui.label(tr("Log Level"));
                     egui::ComboBox::from_id_salt("log-level")
                         .selected_text(self.level.to_string())
                         .show_ui(ui, |ui| {
@@ -205,27 +211,35 @@ impl LogOptions {
                         .response
                         .labelled_by(l.id);
                     ui.end_row();
-                    let l = ui.label("Save To File");
+                    let l = ui.label(tr("Save To File"));
                     ui.checkbox(&mut self.save, "").labelled_by(l.id);
                     ui.end_row();
-                    let l = ui.label("Append mode");
+                    let l = ui.label(tr("Append mode"));
                     ui.checkbox(&mut self.append, "").labelled_by(l.id);
                     ui.end_row();
                 });
                 ui.horizontal(|ui| {
-                    if ui.add_enabled(exists, egui::Button::new("Open")).clicked() {
+                    if ui
+                        .add_enabled(exists, egui::Button::new(tr("Open")))
+                        .clicked()
+                    {
                         let _ = open::that_detached(path());
                     }
-                    if ui.add_enabled(exists, egui::Button::new("Clear")).clicked() {
+                    if ui
+                        .add_enabled(exists, egui::Button::new(tr("Clear")))
+                        .clicked()
+                    {
                         self.confirm_clear = true;
                     }
                 });
                 ui.separator();
                 ui.horizontal(|ui| {
-                    if ui.button("OK").clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    if ui.button(tr("OK")).clicked()
+                        || ui.input(|i| i.key_pressed(egui::Key::Enter))
+                    {
                         done = Some(true);
                     }
-                    if ui.button("Cancel").clicked()
+                    if ui.button(tr("Cancel")).clicked()
                         || ui.input(|i| i.key_pressed(egui::Key::Escape))
                     {
                         done = Some(false);

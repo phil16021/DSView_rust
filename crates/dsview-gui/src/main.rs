@@ -204,8 +204,17 @@ fn main() -> eframe::Result {
             // benchmarks and soaks run without anti-aliasing as measured in
             // PLAN.md §5.1 (trace meshes are never feathered, so the option
             // touches lines and text only)
+            // CJK glyphs for Chinese (and the language menu's 中文)
+            if let Some(p) = dsview_gui::i18n::add_cjk_font(&cc.egui_ctx) {
+                dsview_gui::log::info(&format!("CJK font: {}", p.display()));
+            }
             match saved {
                 Some(o) => {
+                    dsview_gui::i18n::load(
+                        &dsview_gui::i18n::lang_dir(app.session.data_dir()),
+                        o.frame.language,
+                    );
+                    app.session.state().language = o.frame.language;
                     app.startup = Some(dsview_gui::startup::Startup::new(
                         &o,
                         app.session.data_dir(),

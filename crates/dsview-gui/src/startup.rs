@@ -3,6 +3,7 @@
 //! hint with the user guide (`show_doc`). "Not Show Again" turns either off
 //! for good (`UserHistory`).
 
+use crate::i18n::tr;
 use std::path::{Path, PathBuf};
 
 use eframe::egui;
@@ -111,22 +112,22 @@ impl Startup {
                 let size = tex.size_vec2();
                 let id = tex.id();
                 let mut action = None;
-                egui::Window::new("Document")
+                egui::Window::new(tr("Document"))
                     .collapsible(false)
                     .resizable(false)
                     .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                     .show(ctx, |ui| {
                         ui.image((id, size));
                         ui.horizontal(|ui| {
-                            if ui.button("Not Show Again").clicked() {
+                            if ui.button(tr("Not Show Again")).clicked() {
                                 o.history.show_documents = false;
                                 o.save();
                                 self.stage = Stage::Done;
                             }
-                            if ui.button("Ignore").clicked() || crate::msgbox::esc(ctx) {
+                            if ui.button(tr("Ignore")).clicked() || crate::msgbox::esc(ctx) {
                                 self.stage = Stage::Done;
                             }
-                            if ui.button("Open").clicked() {
+                            if ui.button(tr("Open")).clicked() {
                                 action = Some(Action::OpenManual);
                                 self.stage = Stage::Done;
                             }
@@ -155,10 +156,10 @@ fn buttons_window(
             body(ui);
             ui.add_space(6.0);
             ui.horizontal(|ui| {
-                if ui.button("Not Show Again").clicked() {
+                if ui.button(tr("Not Show Again")).clicked() {
                     answer = Some(true);
                 }
-                if ui.button("Ignore").clicked() || crate::msgbox::esc(ctx) {
+                if ui.button(tr("Ignore")).clicked() || crate::msgbox::esc(ctx) {
                     answer = Some(false);
                 }
             });

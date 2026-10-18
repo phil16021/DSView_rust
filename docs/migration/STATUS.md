@@ -1033,3 +1033,33 @@ the demo transcript is unchanged.
   in tests or benchmarks.
 - **Tests:** the hint texts, and the sequence through the window.
 
+**Step 6, i18n (done 2026-10-19):**
+- **`crates/dsview-gui/src/i18n.rs`** reads `lang/<cn|en|de>`:
+  - the toolbar, msg and dlg pages;
+  - for Chinese also the device texts (`dsl_*.json`) and the decoder texts (`dec/*.json` by
+    `idn`).
+- **Lookup:** `tr()` finds a GUI text through Qt's English text of the same id, compared without
+  `&` accelerators, a trailing ellipsis or colon, and case. The ellipsis or colon of the Rust text
+  is kept. Texts Qt does not have stay English.
+- **Applied to:**
+  - about 230 GUI texts (buttons, labels, menus, window titles, combos, hints);
+  - the message boxes, which translate their text;
+  - the device options (DSL page) and the decoder dialog (channel and option descriptions by
+    `idn`, with Qt's "Translate param names" switch for Chinese).
+  - German has no device or decoder texts, as in Qt (`is_lang_en()`).
+- **Labels aligned to Qt's wording** where both name the same thing:
+  - File menu: Load Session, Save Session, Load Default Session, Capture;
+  - Function menu;
+  - "Repetitive";
+  - the docks: Trigger, Decode, Measure, Search, with their keys;
+  - the decoder channel rows: "name (description) *".
+- **Help > Language:** English / 中文 / Deutsch, switched at run time and saved. The older
+  per-language profile `<driver><mode>.ses<N>.dsc` of the current language is preferred.
+- **Fonts:** a system CJK font is added as the last fallback (Droid Sans Fallback, Noto Sans CJK SC
+  face, or WenQuanYi). The language menu's 中文 needs it in every language.
+- **Tests:**
+  - accelerator and ending rules, and the three languages through local stores;
+  - `tests/i18n_flow.rs`, in its own binary: switching to Chinese and back through the menu, with a
+    snapshot; skipped without a CJK font;
+  - the per-language profile choice.
+

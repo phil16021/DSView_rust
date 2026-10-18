@@ -3,6 +3,7 @@
 //! copies of a DSO channel, drawn translucent on the channel's current
 //! V/div and zero line.
 
+use crate::i18n::tr;
 use dsview_session::Session;
 use dsview_viewmodel::dso::{self, IRect, RefWave};
 use eframe::egui::{self, Color32, Pos2, Rect, Stroke, pos2};
@@ -44,13 +45,13 @@ impl RefState {
     pub(crate) fn dialog(&mut self, ctx: &egui::Context, s: &Session, chans: &[ChanView]) {
         let Some(mut ch) = self.dialog else { return };
         let mut open = !crate::msgbox::esc(ctx);
-        egui::Window::new("Reference Waveforms")
+        egui::Window::new(tr("Reference Waveforms"))
             .collapsible(false)
             .resizable(false)
             .open(&mut open)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    let l = ui.label("Channel");
+                    let l = ui.label(tr("Channel"));
                     let cur = chans
                         .iter()
                         .find(|c| c.sig.index == ch)
@@ -66,12 +67,12 @@ impl RefState {
                         .labelled_by(l.id);
                 });
                 ui.horizontal(|ui| {
-                    if ui.button("Save reference").clicked()
+                    if ui.button(tr("Save reference")).clicked()
                         && let Some(c) = chans.iter().find(|c| c.sig.index == ch)
                     {
                         self.save(s, c);
                     }
-                    if ui.button("Clear all").clicked() {
+                    if ui.button(tr("Clear all")).clicked() {
                         self.waves.clear();
                     }
                 });

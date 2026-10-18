@@ -5,14 +5,17 @@
 
 use eframe::egui;
 
+use crate::i18n::tr;
+
+/// Texts are translated here (`L_S` in the callers in Qt).
 fn frame(ctx: &egui::Context, id: &str, title: &str, text: &str, add: impl FnOnce(&mut egui::Ui)) {
-    egui::Window::new(title)
+    egui::Window::new(tr(title))
         .id(egui::Id::NULL.with(("msgbox", id)))
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
-            ui.label(text);
+            ui.label(tr(text));
             ui.add_space(6.0);
             ui.horizontal(add);
         });
@@ -22,7 +25,7 @@ fn frame(ctx: &egui::Context, id: &str, title: &str, text: &str, add: impl FnOnc
 pub fn show(ctx: &egui::Context, id: &str, text: &str) -> bool {
     let mut done = false;
     frame(ctx, id, "Message", text, |ui| {
-        done = ui.button("OK").clicked()
+        done = ui.button(tr("OK")).clicked()
             || ui.input(|i| i.key_pressed(egui::Key::Enter) || i.key_pressed(egui::Key::Escape));
     });
     done
@@ -32,10 +35,10 @@ pub fn show(ctx: &egui::Context, id: &str, text: &str) -> bool {
 pub fn confirm(ctx: &egui::Context, id: &str, text: &str) -> Option<bool> {
     let mut answer = None;
     frame(ctx, id, "Confirm", text, |ui| {
-        if ui.button("Yes").clicked() {
+        if ui.button(tr("Yes")).clicked() {
             answer = Some(true);
         }
-        if ui.button("No").clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        if ui.button(tr("No")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
             answer = Some(false);
         }
     });

@@ -1,5 +1,6 @@
 //! The main window: menu, device line, the time view, the status bar.
 
+use crate::i18n::tr;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, channel};
 use std::time::Instant;
@@ -137,6 +138,15 @@ impl App {
             return true;
         }
         false
+    }
+
+    /// `MainWindow::switchLanguage`: saved, and every text in it from the
+    /// next frame on.
+    pub fn set_language(&mut self, lang: i64) {
+        self.options.frame.language = lang;
+        self.options.save();
+        self.session.state().language = lang;
+        crate::i18n::load(&crate::i18n::lang_dir(self.session.data_dir()), lang);
     }
 
     /// `MainWindow::openDoc`: the user guide in the language.
@@ -670,8 +680,8 @@ impl App {
 
         egui::Panel::top("menu").show(ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
-                ui.menu_button("File", |ui| {
-                    if ui.button("Open…").clicked() {
+                ui.menu_button(tr("File"), |ui| {
+                    if ui.button(tr("Open…")).clicked() {
                         self.pick(
                             &ctx,
                             "Open File",
@@ -681,7 +691,7 @@ impl App {
                         );
                         ui.close();
                     }
-                    if ui.button("Save…").clicked() {
+                    if ui.button(tr("Save…")).clicked() {
                         self.pick(
                             &ctx,
                             "Save File",
@@ -691,7 +701,7 @@ impl App {
                         );
                         ui.close();
                     }
-                    if ui.button("Export…").clicked() {
+                    if ui.button(tr("Export…")).clicked() {
                         self.pick(
                             &ctx,
                             "Export Data",
@@ -703,7 +713,7 @@ impl App {
                     }
                     ui.separator();
                     // the profile menu (FileBar's session menu)
-                    if ui.button("Load profile…").clicked() {
+                    if ui.button(tr("Load Session…")).clicked() {
                         self.pick(
                             &ctx,
                             "Open Session",
@@ -713,7 +723,7 @@ impl App {
                         );
                         ui.close();
                     }
-                    if ui.button("Store profile…").clicked() {
+                    if ui.button(tr("Save Session…")).clicked() {
                         self.pick(
                             &ctx,
                             "Save Session",
@@ -723,7 +733,7 @@ impl App {
                         );
                         ui.close();
                     }
-                    if ui.button("Default profile").clicked() {
+                    if ui.button(tr("Load Default Session")).clicked() {
                         match self.session.default_profile_path() {
                             Some(p) => {
                                 if let Err(e) = self.session.load_profile(&p) {
@@ -735,7 +745,7 @@ impl App {
                         ui.close();
                     }
                     ui.separator();
-                    if ui.button("Screenshot…").clicked() {
+                    if ui.button(tr("Capture…")).clicked() {
                         self.pick(
                             &ctx,
                             "Save As",
@@ -746,29 +756,31 @@ impl App {
                         ui.close();
                     }
                 });
-                ui.menu_button("Options", |ui| {
-                    if ui.button("Application options…").clicked() {
+                ui.menu_button(tr("Options"), |ui| {
+                    if ui.button(tr("Application options…")).clicked() {
                         self.options_edit = Some(self.options.clone());
                         ui.close();
                     }
                 });
-                ui.menu_button("View", |ui| {
+                ui.menu_button(tr("View"), |ui| {
                     // only the docks this mode offers (`TrigBar::reload`)
                     use dsview_viewmodel::input::{Shortcut as K, dock_offered};
                     let mode = self.session.mode();
                     for (d, label) in [
-                        (K::Trigger, "Trigger (T)"),
-                        (K::Protocol, "Protocol (D)"),
-                        (K::Measure, "Measure (M)"),
-                        (K::Search, "Search (R)"),
+                        (K::Trigger, ("Trigger", 'T')),
+                        (K::Protocol, ("Decode", 'D')),
+                        (K::Measure, ("Measure", 'M')),
+                        (K::Search, ("Search", 'R')),
                     ] {
                         if dock_offered(mode, d) {
-                            ui.checkbox(self.dock_flag(d), label);
+                            // Qt's trig bar buttons, with their keys
+                            let text = format!("{} ({})", tr(label.0), label.1);
+                            ui.checkbox(self.dock_flag(d), text);
                         }
                     }
-                    ui.checkbox(&mut self.view.dso.split, "Split DSO channels");
+                    ui.checkbox(&mut self.view.dso.split, tr("Split DSO channels"));
                     ui.horizontal(|ui| {
-                        let l = ui.label("DSO persistence");
+                        let l = ui.label(tr("DSO persistence"));
                         ui.add(
                             egui::DragValue::new(&mut self.view.dso.persist.ms)
                                 .range(0..=10000)
@@ -779,52 +791,65 @@ impl App {
                 });
                 let dso = self.session.mode() == dsview_core::Mode::Dso as i32;
                 ui.add_enabled_ui(dso, |ui| {
-                    ui.menu_button("Functions", |ui| {
-                        if ui.button("FFT…").clicked() {
+                    ui.menu_button(tr("Function"), |ui| {
+                        if ui.button(tr("FFT…")).clicked() {
                             self.fft.open_dialog();
                             ui.close();
                         }
-                        if ui.button("Math…").clicked() {
+                        if ui.button(tr("Math…")).clicked() {
                             self.view.dso.math.open_dialog();
                             ui.close();
                         }
-                        if ui.button("Lissajous…").clicked() {
+                        if ui.button(tr("Lissajous…")).clicked() {
                             self.view.dso.lissajous.open_dialog(&self.session);
                             ui.close();
                         }
-                        if ui.button("Reference…").clicked() {
+                        if ui.button(tr("Reference…")).clicked() {
                             self.view.dso.refs.dialog = Some(0);
                             ui.close();
                         }
-                        if ui.button("Histogram…").clicked() {
+                        if ui.button(tr("Histogram…")).clicked() {
                             self.view.dso.analysis.histogram = Some((0, false));
                             ui.close();
                         }
-                        if ui.button("Channel measure…").clicked() {
+                        if ui.button(tr("Channel measure…")).clicked() {
                             self.view.dso.analysis.chan_measure = Some((0, 1));
                             ui.close();
                         }
                     });
                 });
                 // Qt's logo bar
-                ui.menu_button("Help", |ui| {
-                    if ui.button("About…").clicked() {
+                ui.menu_button(tr("Help"), |ui| {
+                    // `switchLanguage`: each language named in itself
+                    ui.menu_button(tr("Language"), |ui| {
+                        use dsview_viewmodel::qsettings::{LAN_CN, LAN_DE, LAN_EN};
+                        for (lang, name) in
+                            [(LAN_EN, "English"), (LAN_CN, "中文"), (LAN_DE, "Deutsch")]
+                        {
+                            let on = self.options.frame.language == lang;
+                            if ui.radio(on, name).clicked() {
+                                self.set_language(lang);
+                                ui.close();
+                            }
+                        }
+                    });
+                    if ui.button(tr("About…")).clicked() {
                         self.about = true;
                         ui.close();
                     }
-                    if ui.button("Manual…").clicked() {
+                    if ui.button(tr("Manual…")).clicked() {
                         self.open_manual();
                         ui.close();
                     }
-                    if ui.button("Bug Report").clicked() {
+                    if ui.button(tr("Bug Report")).clicked() {
                         crate::help::open(crate::help::BUG_REPORT_URL);
                         ui.close();
                     }
-                    if ui.button("Update").clicked() {
+                    if ui.button(tr("Update")).clicked() {
                         crate::help::open(crate::help::UPDATE_URL);
                         ui.close();
                     }
-                    if ui.button("Log Options").clicked() {
+                    if ui.button(tr("Log Options")).clicked() {
                         self.log_options = Some(crate::log::LogOptions::new(&self.options));
                         ui.close();
                     }
@@ -969,6 +994,11 @@ impl App {
             self.message = Some(m);
         }
         self.view.map_zoom_fixed = self.protocol.map_zoom_fixed;
+        if let Some(t) = self.protocol.translate_changed.take() {
+            self.options.trans_decoder_dlg = t;
+            self.options.save();
+        }
+        self.protocol.translate = self.options.trans_decoder_dlg;
         // the protocol export's directory (`protocolExportPath`)
         self.protocol.export_dir = Some(self.options.history.protocol_export_path.clone());
         if let Some(p) = self.protocol.exported_to.take()
@@ -998,7 +1028,7 @@ impl App {
                 });
             } else if self.search.busy() || self.store.as_ref().is_some_and(|d| d.busy()) {
                 // the search holds the logic store; the view waits for it
-                ui.centered_and_justified(|ui| ui.label("Searching…"));
+                ui.centered_and_justified(|ui| ui.label(tr("Searching…")));
             } else {
                 self.view.show(ui, &self.session);
             }
@@ -1038,7 +1068,7 @@ impl App {
         }
         if let Some(mut o) = self.options_edit.take() {
             let mut done = None;
-            egui::Window::new("Application Options")
+            egui::Window::new(tr("Application Options"))
                 .collapsible(false)
                 .show(&ctx, |ui| done = o.dialog(ui));
             match done {

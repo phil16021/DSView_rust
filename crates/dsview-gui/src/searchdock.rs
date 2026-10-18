@@ -3,6 +3,7 @@
 //! searched forwards or backwards from the search cursor in a thread, with
 //! a cancel button while it runs.
 
+use crate::i18n::tr;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -52,7 +53,7 @@ impl SearchDock {
         }
         ui.horizontal(|ui| {
             ui.add_space((ui.available_width() / 2.0 - 120.0).max(0.0));
-            if ui.button("<").on_hover_text("Previous").clicked() {
+            if ui.button("<").on_hover_text(tr("Previous")).clicked() {
                 self.start(s, view, false);
             }
             let label: String = self.pattern.values().map(|&c| c as char).collect();
@@ -63,7 +64,7 @@ impl SearchDock {
             };
             if ui
                 .button(format!("Search: {text}"))
-                .on_hover_text("Search options")
+                .on_hover_text(tr("Search options"))
                 .clicked()
             {
                 self.dialog = Some(
@@ -81,7 +82,7 @@ impl SearchDock {
                         .collect(),
                 );
             }
-            if ui.button(">").on_hover_text("Next").clicked() {
+            if ui.button(">").on_hover_text(tr("Next")).clicked() {
                 self.start(s, view, true);
             }
         });
@@ -162,7 +163,7 @@ impl SearchDock {
                     .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                     .show(ctx, |ui| {
                         ui.spinner();
-                        if ui.button("Cancel").clicked()
+                        if ui.button(tr("Cancel")).clicked()
                             || ui.input(|i| i.key_pressed(egui::Key::Escape))
                         {
                             job.cancelled = true;
@@ -181,7 +182,7 @@ impl SearchDock {
             return;
         };
         let mut keep = true;
-        egui::Window::new("Search Options")
+        egui::Window::new(tr("Search Options"))
             .collapsible(false)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
@@ -211,7 +212,7 @@ impl SearchDock {
                     ui.label(NOTE);
                 });
                 ui.horizontal(|ui| {
-                    if ui.button("OK").clicked() {
+                    if ui.button(tr("OK")).clicked() {
                         let new: BTreeMap<u16, u8> = rows
                             .iter()
                             .map(|(i, _, v)| (*i, v.bytes().next().unwrap_or(b'X')))
@@ -225,7 +226,7 @@ impl SearchDock {
                         }
                         keep = false;
                     }
-                    if ui.button("Cancel").clicked() || crate::msgbox::esc(ui.ctx()) {
+                    if ui.button(tr("Cancel")).clicked() || crate::msgbox::esc(ui.ctx()) {
                         keep = false;
                     }
                 });

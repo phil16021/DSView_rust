@@ -12,6 +12,7 @@ pub mod dsoview;
 pub mod fftview;
 pub mod help;
 pub mod hooks;
+pub mod i18n;
 pub mod lissajousview;
 pub mod log;
 pub mod mathview;

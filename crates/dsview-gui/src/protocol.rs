@@ -2,6 +2,7 @@
 //! dialog (`dialogs/decoderoptionsdlg.cpp`) and the protocol export
 //! (`dialogs/protocolexp.cpp`).
 
+use crate::i18n::tr;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -284,6 +285,19 @@ pub struct ProtocolDock {
     /// an export went to, for the app to remember.
     pub export_dir: Option<String>,
     pub exported_to: Option<PathBuf>,
+    /// Decoder texts in the language (`transDecoderDlg`); a change made in
+    /// the decoder dialog, for the app to save.
+    pub translate: bool,
+    pub translate_changed: Option<bool>,
+}
+
+/// A decoder's channel or option text: by its `idn` in the language when
+/// translating, else as the decoder gives it.
+fn dec_text(translate: bool, idn: Option<&str>, text: &str) -> String {
+    match idn {
+        Some(idn) if translate => crate::i18n::tr_dec(idn, text),
+        _ => text.to_owned(),
+    }
 }
 
 const EXPORT_FORMATS: [&str; 2] = ["Comma-Separated Values (*.csv)", "Text files (*.txt)"];
@@ -354,6 +368,8 @@ impl Default for ProtocolDock {
             map_zoom_fixed: false,
             export_dir: None,
             exported_to: None,
+            translate: true,
+            translate_changed: None,
             filter: String::new(),
             matches: Vec::new(),
             cur_match: 0,
@@ -368,16 +384,16 @@ impl Default for ProtocolDock {
 impl ProtocolDock {
     pub fn show(&mut self, ui: &mut Ui, s: &Session) {
         let logic_mode = s.mode() == Mode::Logic as i32;
-        ui.heading("Decoders");
+        ui.heading(tr("Decoders"));
         if !logic_mode {
-            ui.label("Protocol decoders need logic analyzer mode.");
+            ui.label(tr("Protocol decoders need logic analyzer mode."));
             return;
         }
         // the searchable picker
         ui.horizontal(|ui| {
             ui.add(
                 egui::TextEdit::singleline(&mut self.search)
-                    .hint_text("Search decoders")
+                    .hint_text(tr("Search decoders"))
                     .desired_width(150.0),
             );
         });
@@ -442,7 +458,7 @@ impl ProtocolDock {
                         }
                     })
                     .response
-                    .on_hover_text("Number format");
+                    .on_hover_text(tr("Number format"));
                 if f != t.stack.format() {
                     t.stack.set_format(f);
                     if let Some(id) = t.stack.decoders().last().map(|d| d.info.id.clone()) {
@@ -451,16 +467,20 @@ impl ProtocolDock {
                     }
                 }
                 if ui
-                    .small_button("Decode")
-                    .on_hover_text("Decode again")
+                    .small_button(tr("Decode"))
+                    .on_hover_text(tr("Decode again"))
                     .clicked()
                 {
                     s.start_decode(i);
                 }
-                if ui.small_button("Settings").clicked() {
+                if ui.small_button(tr("Settings")).clicked() {
                     self.add = Some(AddDialog::edit(i, t));
                 }
-                if ui.small_button("x").on_hover_text("Remove").clicked() {
+                if ui
+                    .small_button(tr("x"))
+                    .on_hover_text(tr("Remove"))
+                    .clicked()
+                {
                     remove = Some(i);
                 }
             });
@@ -503,27 +523,31 @@ impl ProtocolDock {
             return;
         }
         let mut open = !crate::msgbox::esc(ctx);
-        egui::Window::new("Protocol List Viewer")
+        egui::Window::new(tr("Protocol List Viewer"))
             .open(&mut open)
             .collapsible(false)
             .resizable(false)
             .show(ctx, |ui| {
                 egui::Grid::new("list_opts").num_columns(2).show(ui, |ui| {
-                    let l = ui.label("Map Zoom: ");
+                    let l = ui.label(tr("Map Zoom: "));
                     egui::ComboBox::from_id_salt("map_zoom")
-                        .selected_text(if self.map_zoom_fixed {
+                        .selected_text(tr(if self.map_zoom_fixed {
                             "Fixed"
                         } else {
                             "Fit to Window"
-                        })
+                        }))
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.map_zoom_fixed, false, "Fit to Window");
-                            ui.selectable_value(&mut self.map_zoom_fixed, true, "Fixed");
+                            ui.selectable_value(
+                                &mut self.map_zoom_fixed,
+                                false,
+                                tr("Fit to Window"),
+                            );
+                            ui.selectable_value(&mut self.map_zoom_fixed, true, tr("Fixed"));
                         })
                         .response
                         .labelled_by(l.id);
                     ui.end_row();
-                    let l = ui.label("Decoded Protocols: ");
+                    let l = ui.label(tr("Decoded Protocols: "));
                     egui::ComboBox::from_id_salt("list_protocol")
                         .selected_text(traces.get(self.table).map(|t| t.name()).unwrap_or_default())
                         .show_ui(ui, |ui| {
@@ -545,7 +569,7 @@ impl ProtocolDock {
                         }
                     }
                 });
-                if ui.button("OK").clicked() {
+                if ui.button(tr("OK")).clicked() {
                     self.list_opts = false;
                 }
             });
@@ -555,6 +579,7 @@ impl ProtocolDock {
     }
 
     fn add_dialog(&mut self, ctx: &egui::Context, s: &Session) {
+        let mut translate = self.translate;
         let Some(dlg) = &mut self.add else { return };
         let mut keep = true;
         let mut ok = false;
@@ -571,6 +596,14 @@ impl ProtocolDock {
         ))
         .collapsible(false)
         .show(ctx, |ui| {
+            // `IDS_DLG_DECODER_IF_TRANS`: only where decoder texts exist
+            if crate::i18n::language() == dsview_viewmodel::qsettings::LAN_CN {
+                let mut t = translate;
+                if ui.checkbox(&mut t, tr("Translate param names")).changed() {
+                    translate = t;
+                    self.translate_changed = Some(t);
+                }
+            }
             let root = dlg.stack[0].clone();
             egui::Grid::new("dec-channels")
                 .num_columns(2)
@@ -582,11 +615,17 @@ impl ProtocolDock {
                             .chain(&root.opt_channels)
                             .find(|c| c.id == *id);
                         let required = root.channels.iter().any(|c| c.id == *id);
-                        let l = ui.label(format!(
-                            "{}{}",
-                            info.map_or(id.as_str(), |c| c.name.as_str()),
-                            if required { " *" } else { "" }
-                        ));
+                        // "name (description) *", the description in the
+                        // language (`decoderoptionsdlg.cpp`)
+                        let text = match info {
+                            Some(c) => format!(
+                                "{} ({})",
+                                c.name,
+                                dec_text(translate, c.idn.as_deref(), &c.desc)
+                            ),
+                            None => id.clone(),
+                        };
+                        let l = ui.label(format!("{text}{}", if required { " *" } else { "" }));
                         let current = ch
                             .and_then(|c| logic.iter().find(|x| x.0 == c))
                             .map_or("-".to_owned(), |x| format!("{}: {}", x.0, x.1));
@@ -647,7 +686,8 @@ impl ProtocolDock {
                             let Some(o) = d.options.iter().find(|o| o.id == *id) else {
                                 continue;
                             };
-                            let l = ui.label(o.desc.clone().unwrap_or_else(|| id.clone()));
+                            let desc = o.desc.clone().unwrap_or_else(|| id.clone());
+                            let l = ui.label(dec_text(translate, o.idn.as_deref(), &desc));
                             if o.values.is_empty() {
                                 ui.text_edit_singleline(text).labelled_by(l.id);
                             } else {
@@ -709,10 +749,10 @@ impl ProtocolDock {
                 ui.colored_label(egui::Color32::from_rgb(0xEF, 0x29, 0x29), e);
             }
             ui.horizontal(|ui| {
-                if ui.button("OK").clicked() {
+                if ui.button(tr("OK")).clicked() {
                     ok = true;
                 }
-                if ui.button("Cancel").clicked() || crate::msgbox::esc(ui.ctx()) {
+                if ui.button(tr("Cancel")).clicked() || crate::msgbox::esc(ui.ctx()) {
                     keep = false;
                 }
             });
@@ -799,7 +839,7 @@ impl ProtocolDock {
         ui.horizontal(|ui| {
             ui.add(
                 egui::TextEdit::singleline(&mut self.filter)
-                    .hint_text("Search")
+                    .hint_text(tr("Search"))
                     .desired_width(120.0),
             );
             let key = (
@@ -841,13 +881,13 @@ impl ProtocolDock {
                 }
             }
             if ui
-                .button("List…")
-                .on_hover_text("Protocol list options")
+                .button(tr("List…"))
+                .on_hover_text(tr("Protocol list options"))
                 .clicked()
             {
                 self.list_opts = true;
             }
-            if ui.button("Export…").clicked() && self.export.is_none() {
+            if ui.button(tr("Export…")).clicked() && self.export.is_none() {
                 // the rows listed; the first one chosen
                 let rows = t
                     .stack
@@ -927,13 +967,13 @@ impl ProtocolDock {
             Export::Options { mut txt, mut rows } => {
                 let mut go = None;
                 let mut open = !crate::msgbox::esc(ctx);
-                egui::Window::new("Protocol Export")
+                egui::Window::new(tr("Protocol Export"))
                     .open(&mut open)
                     .collapsible(false)
                     .resizable(false)
                     .show(ctx, |ui| {
                         egui::Grid::new("pexp").num_columns(2).show(ui, |ui| {
-                            let l = ui.label("Export Format: ");
+                            let l = ui.label(tr("Export Format: "));
                             egui::ComboBox::from_id_salt("pexp_fmt")
                                 .selected_text(EXPORT_FORMATS[usize::from(txt)])
                                 .show_ui(ui, |ui| {
@@ -950,10 +990,10 @@ impl ProtocolDock {
                             }
                         });
                         ui.horizontal(|ui| {
-                            if ui.button("OK").clicked() {
+                            if ui.button(tr("OK")).clicked() {
                                 go = Some(true);
                             }
-                            if ui.button("Cancel").clicked() || crate::msgbox::esc(ui.ctx()) {
+                            if ui.button(tr("Cancel")).clicked() || crate::msgbox::esc(ui.ctx()) {
                                 go = Some(false);
                             }
                         });
@@ -1035,7 +1075,7 @@ impl ProtocolDock {
                     None
                 }
                 Err(_) => {
-                    egui::Window::new("Export Protocol List Result... It can take a while.")
+                    egui::Window::new(tr("Export Protocol List Result... It can take a while."))
                         .collapsible(false)
                         .resizable(false)
                         .show(ctx, |ui| {
@@ -1045,7 +1085,7 @@ impl ProtocolDock {
                                     .desired_width(260.0)
                                     .text(format!("{p}%")),
                             );
-                            if ui.button("Cancel").clicked() || crate::msgbox::esc(ui.ctx()) {
+                            if ui.button(tr("Cancel")).clicked() || crate::msgbox::esc(ui.ctx()) {
                                 cancel.store(true, Ordering::Relaxed);
                             }
                         });

@@ -542,12 +542,14 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
 | Ranged `.dsl` save (F29) | Full capture length; first block starts mid-block | Whole blocks of the range, its length, trigger position moved by the start | M6e ✔ |
 | Region dialog (F29) | Built, never opened | Not ported | M6e ✔ |
 | Settings storage | `QSettings` INI (`DSView.conf`); `windowState` as Qt's dock blob | JSON (`dsview-rs.json`), the Qt file imported once on the first start; `windowState` is not imported (egui has no equivalent) | M6f ✔ |
+| Text lookup | `L_S(page, id, default)` at each call site | The GUI's English texts are looked up through Qt's English text of the same id (`lang/en`), without accelerators, ellipsis or colon; texts Qt does not have stay English. Device option and decoder texts by text and `idn` as in Qt | M6f ✔ |
+| CJK glyphs | Qt's font fallback | A system CJK font (Droid Sans Fallback, Noto Sans CJK SC, WenQuanYi) as egui's last fallback; a shipped font comes with the packaging (Phase 6) | M6f ✔ |
 | Esc in dialogs | Closes the focused dialog | Closes every open dialog window (egui has no focused window) | M6f ✔ |
 | Shortcuts while a dialog is open | The filter sits on the view, bars and docks, so keys in a dialog are not shortcuts | Shortcuts work unless a text field has the keyboard | M6f ✔ |
 | Screen check of the restored window | All screens' geometry | The current monitor's size (egui knows no others before the window exists) | M6f ✔ |
 | Decoder dynamic font width | `QFont::setStretch` between the minimum and maximum percent | A smaller font down to the minimum percent; never wider than the font (egui has no stretch, and a larger font would not fit the row) | M6e ✔ |
 | Y-scale badge | Reset glyph U+27F2 | A painted arrow (no egui font has the glyph) | M6e ✔ |
-| Older per-language profile `<driver><mode>.ses<N>.dsc` | The file of the configured language | The first such file by name (the Rust GUI has no language setting before M6f) | M6e |
+| Older per-language profile `<driver><mode>.ses<N>.dsc` | The file of the configured language | The same since M6f (the first such file by name only where no language is known, e.g. `dsview-cli`) | M6f ✔ |
 | Saving with a range | The range dialog first, with a default file name and a "path" button | The file dialog first, then the range dialog | M6e ✔ |
 | Protocol export progress | `QProgressDialog` over the export thread | A window with a progress bar and Cancel; the lines written are kept, as in Qt | M6e ✔ |
 

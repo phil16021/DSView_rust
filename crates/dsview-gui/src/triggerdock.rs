@@ -3,6 +3,7 @@
 //! the serial trigger. The settings live in the session
 //! (`State::adv_trigger`), which commits them when a capture starts.
 
+use crate::i18n::tr;
 use dsview_core::{Mode, key};
 use dsview_session::Session;
 use dsview_session::trigger::{AdvTrigger, normalise, serial_from_hex, serial_hex};
@@ -39,9 +40,9 @@ fn value_edit(ui: &mut Ui, label: &str, v: &mut String, allowed: &str) -> bool {
 
 impl TriggerDock {
     pub fn show(&mut self, ui: &mut Ui, s: &Session) {
-        ui.heading("Trigger");
+        ui.heading(tr("Trigger"));
         if s.mode() != Mode::Logic as i32 {
-            ui.label("The logic trigger applies in logic mode.");
+            ui.label(tr("The logic trigger applies in logic mode."));
             return;
         }
         let dev = s.state().device.clone();
@@ -80,7 +81,7 @@ impl TriggerDock {
             ui.add_enabled_ui(!stream, |ui| {
                 let l = ui
                     .horizontal(|ui| {
-                        let l = ui.label("Trigger Position: ");
+                        let l = ui.label(tr("Trigger Position: "));
                         ui.add(egui::DragValue::new(&mut pos).range(lo..=hi).suffix("%"))
                             .labelled_by(l.id);
                         l.id
@@ -95,7 +96,7 @@ impl TriggerDock {
             // stages
             ui.add_enabled_ui(a.advanced, |ui| {
                 ui.horizontal(|ui| {
-                    let l = ui.label("Total Trigger Stages: ");
+                    let l = ui.label(tr("Total Trigger Stages: "));
                     egui::ComboBox::from_id_salt("trig-stages")
                         .selected_text((a.stages + 1).to_string())
                         .show_ui(ui, |ui| {
@@ -108,8 +109,8 @@ impl TriggerDock {
                 });
                 ui.separator();
                 ui.horizontal(|ui| {
-                    ui.selectable_value(&mut a.tab, 0, "Stage Trigger");
-                    ui.selectable_value(&mut a.tab, 1, "Serial Trigger");
+                    ui.selectable_value(&mut a.tab, 0, tr("Stage Trigger"));
+                    ui.selectable_value(&mut a.tab, 1, tr("Serial Trigger"));
                 });
                 if a.tab == 0 {
                     self.stage_tab = self.stage_tab.min(a.stages);
@@ -182,9 +183,9 @@ impl TriggerDock {
 
             combo(ui, "Inv", "trig-inv1", &mut st.inv1, ["==", "!="]);
 
-            ui.checkbox(&mut st.contiguous, "Contiguous");
+            ui.checkbox(&mut st.contiguous, tr("Contiguous"));
 
-            let l = ui.label("Counter");
+            let l = ui.label(tr("Counter"));
             let mut c = st.count as i64;
             ui.add(egui::DragValue::new(&mut c).range(1..=i32::MAX as i64))
                 .labelled_by(l.id);
@@ -208,7 +209,7 @@ impl TriggerDock {
                     }
                     value_edit(ui, if ch_num == 32 { "" } else { label }, v, "X01RFC");
                 }
-                let l = ui.label("Data Channel: ");
+                let l = ui.label(tr("Data Channel: "));
                 egui::ComboBox::from_id_salt("trig-serial-ch")
                     .selected_text(sr.channel.to_string())
                     .show_ui(ui, |ui| {
@@ -219,7 +220,7 @@ impl TriggerDock {
                     .response
                     .labelled_by(l.id);
 
-                ui.label("Data Bits");
+                ui.label(tr("Data Bits"));
                 egui::ComboBox::from_id_salt("trig-serial-bits")
                     .selected_text((sr.bits + 1).to_string())
                     .show_ui(ui, |ui| {
@@ -231,7 +232,7 @@ impl TriggerDock {
                 value_edit(ui, "Data Value: ", &mut sr.data, "X01");
 
                 // the value as hex, typed when "Input hex" is on
-                let l = ui.label("Hex: ");
+                let l = ui.label(tr("Hex: "));
                 let mut on = self.hex.is_some();
                 ui.horizontal(|ui| match &mut self.hex {
                     Some(h) => {
@@ -255,7 +256,7 @@ impl TriggerDock {
                     }
                 });
 
-                if ui.checkbox(&mut on, "Input hex").changed() {
+                if ui.checkbox(&mut on, tr("Input hex")).changed() {
                     self.hex = on.then(|| serial_hex(&sr.data));
                 }
             });

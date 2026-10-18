@@ -2,6 +2,7 @@
 //! (`pv/dialogs/about.cpp`), the user guide, the bug tracker and the
 //! release page.
 
+use crate::i18n::tr;
 use std::path::{Path, PathBuf};
 
 use eframe::egui;
@@ -53,7 +54,7 @@ fn arch() -> &'static str {
 /// The About window; false once closed.
 pub fn about(ctx: &egui::Context, version: &str) -> bool {
     let mut open = true;
-    egui::Window::new("About")
+    egui::Window::new(tr("About"))
         .open(&mut open)
         .collapsible(false)
         .resizable(false)
@@ -65,20 +66,20 @@ pub fn about(ctx: &egui::Context, version: &str) -> bool {
                 ui.label(egui::RichText::new(format!("DSView {version} ({})", arch())).size(24.0));
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    ui.label("Website:");
+                    ui.label(tr("Website:"));
                     link(ui, WEBSITE, WEBSITE);
                 });
-                ui.label("Copyright: © DreamSourceLab. All rights reserved.");
+                ui.label(tr("Copyright: © DreamSourceLab. All rights reserved."));
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    ui.label("Fork by Schildkroet:");
+                    ui.label(tr("Fork by Schildkroet:"));
                     link(ui, FORK_URL, FORK_URL);
                 });
                 ui.add_space(16.0);
                 ui.label(egui::RichText::new("Special Thanks").size(16.0));
                 link(ui, "All backers on kickstarter", KICKSTARTER_URL);
                 link(ui, "All members of Sigrok project", SIGROK_URL);
-                ui.label("All contributors of all open-source projects");
+                ui.label(tr("All contributors of all open-source projects"));
                 ui.add_space(8.0);
             });
         });
