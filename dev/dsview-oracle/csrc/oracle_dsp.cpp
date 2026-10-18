@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <vector>
 #include <fftw3.h>
+#include <stdio.h>
 
 #include "libsigrok.h"
 
@@ -430,4 +431,15 @@ uint64_t osdsp_math_envelope(const double *math, uint64_t _sample_num, int level
     for (auto &l : _envelope_level)
         free(l.samples);
     return e.length;
+}
+
+/* ---- pv/data/decode/annotationrestable.cpp ------------------------------
+ * format_numberic of the protocol list, on the original class. */
+#include "pv/data/decode/annotationrestable.h"
+
+void osann_format_numberic(const char *hex, int fmt, char *out, int cap)
+{
+    static AnnotationResTable table;
+    const char *r = table.format_numberic(hex, fmt);
+    snprintf(out, cap, "%s", r);
 }

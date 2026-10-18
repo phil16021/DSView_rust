@@ -1101,7 +1101,7 @@ pub fn export_protocol(
         for (k, a) in anns.iter().enumerate() {
             match a.get(read[k]) {
                 Some(x) if x.start == sample => {
-                    cells.push(x.text().to_owned());
+                    cells.push(x.text_in(st.format()));
                     read[k] += 1;
                     written += 1;
                 }

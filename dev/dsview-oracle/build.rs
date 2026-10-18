@@ -204,6 +204,7 @@ fn build_store(root: &Path, manifest: &Path, includes: &[PathBuf], sanitize: boo
         manifest.join("csrc/oracle_store.cpp"),
         manifest.join("csrc/oracle_store_ad.cpp"),
         manifest.join("csrc/oracle_dsp.cpp"),
+        root.join("DSView/pv/data/decode/annotationrestable.cpp"),
     ];
     for src in &sources {
         println!("cargo:rerun-if-changed={}", src.display());

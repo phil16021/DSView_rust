@@ -1304,7 +1304,7 @@ impl Api {
                 continue;
             }
             for a in stack.annotations(ri, start, end) {
-                items.push((a.start, a.end, title.clone(), a.text().to_owned()));
+                items.push((a.start, a.end, title.clone(), a.text_in(stack.format())));
             }
         }
         items.sort_by_key(|x| x.0);

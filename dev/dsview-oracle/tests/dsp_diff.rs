@@ -261,3 +261,36 @@ fn math_dials_match() {
     }
     eprintln!("{cases} dial cases");
 }
+
+/// The protocol list's number formats against `AnnotationResTable`.
+#[test]
+fn number_formats_match() {
+    use dsview_session::numfmt::{Format, format_numberic};
+    let mut r = Rng(0xf0_4ea7);
+    let mut cases = 0;
+    for _ in 0..20_000 {
+        let groups = 1 + r.below(4) as usize;
+        let mut hex = String::new();
+        for g in 0..groups {
+            if g > 0 {
+                hex.push([' ', ':', ',', '-'][r.below(4) as usize]);
+            }
+            let max = if r.below(5) == 0 { 80 } else { 10 };
+            let n = 1 + r.below(max) as usize;
+            for _ in 0..n {
+                hex.push(b"0123456789ABCDEFabcdef"[r.below(22) as usize] as char);
+            }
+        }
+        for f in Format::ALL {
+            let c_hex = std::ffi::CString::new(hex.clone()).unwrap();
+            let mut out = vec![0 as std::ffi::c_char; 2048];
+            unsafe {
+                dsview_oracle::ffi::osann_format_numberic(c_hex.as_ptr(), f as i32, out.as_mut_ptr(), 2048)
+            };
+            let c = unsafe { std::ffi::CStr::from_ptr(out.as_ptr()) }.to_string_lossy().into_owned();
+            assert_eq!(format_numberic(&hex, f), c, "{hex:?} as {f:?}");
+            cases += 1;
+        }
+    }
+    eprintln!("{cases} number formats identical");
+}

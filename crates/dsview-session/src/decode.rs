@@ -146,6 +146,21 @@ pub struct Ann {
     pub ty: i32,
     /// The text lines as shown, longest first by decoder convention.
     pub lines: Arc<Vec<String>>,
+    /// A numeric annotation's source: shown again in another format.
+    pub num: Option<Arc<NumText>>,
+}
+
+/// Interned annotation texts: the hex lines and the numeric source.
+type Texts = HashMap<String, (Arc<Vec<String>>, Option<Arc<NumText>>)>;
+
+/// A numeric annotation (`AnnotationSourceItem` with `str_number_hex`):
+/// its source lines (with `{$}` or `%s` for the number), the number in hex,
+/// and the lines already made per format.
+#[derive(Debug)]
+pub struct NumText {
+    src: Vec<String>,
+    hex: String,
+    made: Mutex<[Option<Arc<Vec<String>>>; 5]>,
 }
 
 impl Ann {
@@ -153,6 +168,35 @@ impl Ann {
     /// show.
     pub fn text(&self) -> &str {
         self.lines.first().map_or("", String::as_str)
+    }
+
+    /// `annotations()` with the decoder's number format.
+    pub fn lines_in(&self, fmt: crate::numfmt::Format) -> Arc<Vec<String>> {
+        use crate::numfmt::{Format, format_numberic};
+        let Some(n) = self.num.as_ref().filter(|_| fmt != Format::Hex) else {
+            return self.lines.clone();
+        };
+        let mut made = lock(&n.made);
+        if let Some(l) = &made[fmt as usize] {
+            return l.clone();
+        }
+        let num = format_numberic(&n.hex, fmt);
+        let lines: Vec<String> = if n.src.is_empty() {
+            vec![num]
+        } else {
+            n.src
+                .iter()
+                .map(|t| c_format_s(&t.replace("{$}", "%s"), &num))
+                .collect()
+        };
+        let lines = Arc::new(lines);
+        made[fmt as usize] = Some(lines.clone());
+        lines
+    }
+
+    /// The first line in `fmt`.
+    pub fn text_in(&self, fmt: crate::numfmt::Format) -> String {
+        self.lines_in(fmt).first().cloned().unwrap_or_default()
     }
 }
 
@@ -228,7 +272,7 @@ struct Results {
     error: String,
     samplerate: f64,
     /// `AnnotationResTable`: the shown text per text key.
-    texts: HashMap<String, Arc<Vec<String>>>,
+    texts: Texts,
 }
 
 /// `pv::data::DecoderStack`
@@ -242,6 +286,8 @@ pub struct DecoderStack {
     /// `Decoder::set_decode_region` for the whole stack: first and last
     /// sample (`u64::MAX`: the capture's end).
     region: Mutex<(u64, u64)>,
+    /// The protocol list's number format (`DecoderStatus::m_format`).
+    format: std::sync::atomic::AtomicU8,
 }
 
 fn load_index(info: &DecoderInfo) -> usize {
@@ -305,7 +351,17 @@ impl DecoderStack {
             })),
             stop: Arc::new(AtomicBool::new(false)),
             region: Mutex::new((0, u64::MAX)),
+            format: std::sync::atomic::AtomicU8::new(0),
         }
+    }
+
+    /// The number format annotations show in.
+    pub fn format(&self) -> crate::numfmt::Format {
+        crate::numfmt::Format::from_index(self.format.load(Ordering::Relaxed))
+    }
+
+    pub fn set_format(&self, f: crate::numfmt::Format) {
+        self.format.store(f as u8, Ordering::Relaxed);
     }
 
     /// `set_decode_region` on every decoder: decode `start..=end` (the
@@ -679,12 +735,13 @@ fn annotation(
         );
         return;
     };
-    let text = shown_text(&mut r.texts, a);
+    let (text, num) = shown_text(&mut r.texts, a);
     r.rows[row].push(Ann {
         start,
         end,
         ty: a.ann_type,
         lines: text,
+        num,
     });
 }
 
@@ -692,9 +749,9 @@ fn annotation(
 /// shows it, interned by the same key as `AnnotationResTable::MakeIndex`
 /// (all texts plus the number), so equal keys share the first text seen.
 fn shown_text(
-    table: &mut HashMap<String, Arc<Vec<String>>>,
+    table: &mut Texts,
     a: &dsview_decode::Annotation,
-) -> Arc<Vec<String>> {
+) -> (Arc<Vec<String>>, Option<Arc<NumText>>) {
     let lines: Vec<&str> = a
         .texts
         .iter()
@@ -721,8 +778,15 @@ fn shown_text(
         lines.iter().map(|t| (*t).to_owned()).collect()
     };
     let shown = Arc::new(shown);
-    table.insert(key, shown.clone());
-    shown
+    let num = numeric.then(|| {
+        Arc::new(NumText {
+            src: lines.iter().map(|t| (*t).to_owned()).collect(),
+            hex: a.hex.clone(),
+            made: Mutex::new(Default::default()),
+        })
+    });
+    table.insert(key, (shown.clone(), num.clone()));
+    (shown, num)
 }
 
 /// `sprintf(fmt, s)` for the conversions decoder texts use: the first `%s`
@@ -846,6 +910,7 @@ mod tests {
                 end: start + len,
                 ty: 0,
                 lines: Arc::new(Vec::new()),
+                num: None,
             });
         }
         for _ in 0..500 {

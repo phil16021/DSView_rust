@@ -350,6 +350,7 @@ unsafe extern "C" {
     );
     pub fn osdso_append(s: *mut OsDso, data: *const u8, num_samples: c_int, samplerate_tog: c_int);
     pub fn osdso_enable_envelope(s: *mut OsDso, enable: c_int);
+    pub fn osann_format_numberic(hex: *const c_char, fmt: c_int, out: *mut c_char, cap: c_int);
     pub fn osdsp_math(
         ty: c_int,
         codes1: *const u8,

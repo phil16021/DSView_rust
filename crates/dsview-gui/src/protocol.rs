@@ -232,6 +232,10 @@ pub struct ProtocolDock {
     pub jump: Option<(u64, u64)>,
     /// The view's cursors (sample positions), for the decode region.
     pub cursors: Vec<u64>,
+    /// Number formats by protocol id (`AppConfig::SetProtocolFormat`); a
+    /// new stack of that protocol starts in it.
+    pub formats: std::collections::BTreeMap<String, String>,
+    pub formats_changed: bool,
 }
 
 impl Default for ProtocolDock {
@@ -243,6 +247,8 @@ impl Default for ProtocolDock {
             table: 0,
             filter_col: 0,
             cursors: Vec::new(),
+            formats: Default::default(),
+            formats_changed: false,
             filter: String::new(),
             matches: Vec::new(),
             cur_match: 0,
@@ -320,6 +326,25 @@ impl ProtocolDock {
                         .desired_width(60.0)
                         .text(format!("{p}%")),
                 );
+                // the number format, kept per protocol id
+                let mut f = t.stack.format();
+                egui::ComboBox::from_id_salt(("fmt", i))
+                    .width(54.0)
+                    .selected_text(f.name())
+                    .show_ui(ui, |ui| {
+                        for x in dsview_session::numfmt::Format::ALL {
+                            ui.selectable_value(&mut f, x, x.name());
+                        }
+                    })
+                    .response
+                    .on_hover_text("Number format");
+                if f != t.stack.format() {
+                    t.stack.set_format(f);
+                    if let Some(id) = t.stack.decoders().last().map(|d| d.info.id.clone()) {
+                        self.formats.insert(id, f.name().to_owned());
+                        self.formats_changed = true;
+                    }
+                }
                 if ui
                     .small_button("Decode")
                     .on_hover_text("Decode again")
@@ -519,6 +544,10 @@ impl ProtocolDock {
                         if let Some(t) = s.state().decoders.get(index) {
                             t.stack
                                 .set_region(start, if dlg.region.1 == 0 { u64::MAX } else { end });
+                            let id = t.stack.decoders().last().map(|d| d.info.id.clone());
+                            if let Some(f) = id.and_then(|id| self.formats.get(&id)) {
+                                t.stack.set_format(dsview_session::numfmt::Format::parse(f));
+                            }
                         }
                         s.start_decode(index);
                         self.table = index;
@@ -536,6 +565,7 @@ impl ProtocolDock {
     /// The annotation table: one column per row shown in the list; table
     /// row n holds each column's n-th annotation (as Qt's model does).
     fn table_ui(&mut self, ui: &mut Ui, s: &Session, t: &Arc<DecodeTrace>) {
+        let fmt = t.stack.format();
         let sample_count = s
             .data()
             .logic
@@ -580,7 +610,7 @@ impl ProtocolDock {
                     cols[self.filter_col]
                         .iter()
                         .enumerate()
-                        .filter(|(_, a)| a.text().contains(&self.filter))
+                        .filter(|(_, a)| a.text_in(fmt).contains(&self.filter))
                         .map(|(i, _)| i)
                         .collect()
                 };
@@ -656,11 +686,11 @@ impl ProtocolDock {
                             if let Some(a) = col.get(i)
                                 && ui
                                     .add(
-                                        egui::Label::new(a.text())
+                                        egui::Label::new(a.text_in(fmt))
                                             .truncate()
                                             .sense(egui::Sense::click()),
                                     )
-                                    .on_hover_text(a.text())
+                                    .on_hover_text(a.text_in(fmt))
                                     .clicked()
                             {
                                 self.jump = Some((a.start, a.end));

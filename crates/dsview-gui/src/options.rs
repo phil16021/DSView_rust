@@ -30,6 +30,8 @@ pub struct AppOptions {
     pub dso_persistence_ms: u32,
     /// Export: every sample (else changes only).
     pub original_data: bool,
+    /// The protocol list's number format by protocol id.
+    pub protocol_formats: std::collections::BTreeMap<String, String>,
 }
 
 impl Default for AppOptions {
@@ -54,6 +56,7 @@ impl Default for AppOptions {
             dso_signal_line_width: 1.0,
             dso_persistence_ms: 0,
             original_data: false,
+            protocol_formats: Default::default(),
         }
     }
 }

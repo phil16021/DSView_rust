@@ -276,8 +276,37 @@ fn decode_region() {
     assert!(part > 0 && part < full, "{part} of {full}");
     for (row, _) in t.stack.rows().iter().enumerate() {
         for a in t.stack.row_sorted(row, 131_072) {
-            assert!(a.start >= 40_000 && a.end <= 60_001, "{}..{}", a.start, a.end);
+            assert!(
+                a.start >= 40_000 && a.end <= 60_001,
+                "{}..{}",
+                a.start,
+                a.end
+            );
         }
     }
+    s.exit();
+}
+
+/// The protocol list's number formats: I²C's "Data write: 04" in decimal,
+/// binary and ASCII.
+#[test]
+fn annotation_number_formats() {
+    use dsview_session::numfmt::Format;
+    let (_g, s) = session("Demo Logic");
+    assert!(s.start_capture(false));
+    wait(&s, "capture end", |st| st.ended_seq > 0 && !st.working);
+    wait(&s, "decoding", |st| !st.decoding);
+    let t = s.state().decoders[0].clone();
+    let st = &t.stack;
+    let a = (0..st.rows().len())
+        .flat_map(|r| st.row_sorted(r, 131_072))
+        .find(|a| a.text().starts_with("Data write: 04"))
+        .expect("an I2C data write");
+    assert_eq!(a.text_in(Format::Hex), "Data write: 04");
+    assert_eq!(a.text_in(Format::Dec), "Data write: 4");
+    assert_eq!(a.text_in(Format::Bin), "Data write: 00000100");
+    assert_eq!(a.text_in(Format::Ascii), "Data write: [04]");
+    st.set_format(Format::Dec);
+    assert_eq!(st.format(), Format::Dec);
     s.exit();
 }

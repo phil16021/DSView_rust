@@ -316,6 +316,9 @@ void osdsp_math_dial(int type, uint64_t v1, uint64_t f1, uint64_t min1, uint64_t
 uint64_t osdsp_math_envelope(const double *math, uint64_t n, int level, double *out_min,
                              double *out_max, uint64_t cap);
 
+/* AnnotationResTable::format_numberic(hex, fmt) into out. */
+void osann_format_numberic(const char *hex, int fmt, char *out, int cap);
+
 /* The virtual clock (Rust side) behind demo.c's timers. */
 int64_t oracle_clock_now_us(void);
 

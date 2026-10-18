@@ -519,10 +519,11 @@ impl TimeView {
                         let min_w = min_len as f64 / spp;
                         let mut last_x = -1.0;
                         for a in st.annotations(*ri, start, end) {
+                            let lines = a.lines_in(st.format());
                             let shape = vdec::annotation_shape(
                                 a.start,
                                 a.end,
-                                &a.lines,
+                                &lines,
                                 spp,
                                 off,
                                 left,

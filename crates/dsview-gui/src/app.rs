@@ -511,7 +511,12 @@ impl eframe::App for App {
                 .default_size(360.0)
                 .show(ui, |ui| {
                     self.protocol.cursors = self.view.cursors.samples.clone();
+                    self.protocol.formats = self.options.protocol_formats.clone();
                     self.protocol.show(ui, &self.session);
+                    if std::mem::take(&mut self.protocol.formats_changed) {
+                        self.options.protocol_formats = self.protocol.formats.clone();
+                        self.options.save();
+                    }
                 });
         }
         let dso = self.session.mode() == dsview_core::Mode::Dso as i32;
