@@ -201,7 +201,7 @@ pub fn calc(
         let dt = if samplerate > 0.0 { 1.0 / samplerate } else { 1.0 };
         let win = filter_width.max(1) as usize;
         let (mut integ, mut acc) = (0.0, 0.0);
-        for i in 0..n {
+        for (i, o) in out.iter_mut().enumerate() {
             let v = s1.v(i);
             let r = match t {
                 MathType::Integ => {
@@ -228,7 +228,7 @@ pub fn calc(
                 }
                 _ => v,
             };
-            out[i] = r / k;
+            *o = r / k;
         }
     } else {
         let s2 = s2?;
