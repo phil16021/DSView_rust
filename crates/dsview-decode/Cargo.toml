@@ -1,0 +1,11 @@
+[package]
+name = "dsview-decode"
+version = "0.1.0"
+description = "DSView protocol decoder engine: runs the sigrok Python decoders through an embedded CPython (PyO3)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+pyo3 = "0.29"

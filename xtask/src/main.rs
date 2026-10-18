@@ -122,6 +122,7 @@ fn golden_run(root: &Path, mode: Mode) -> Result<()> {
     corpus.verify(root)?;
     let dsl = oracle_bin(root, "oracle-dsl")?;
     let decode = oracle_bin(root, "oracle-decode")?;
+    let rust_decode = oracle_bin(root, "rust-decode")?;
 
     let mut failures = 0;
     for entry in &corpus.files {
@@ -132,12 +133,19 @@ fn golden_run(root: &Path, mode: Mode) -> Result<()> {
         let mut outputs = vec![(
             root.join(format!("testdata/golden/dsl/{name}.json")),
             run(&dsl, &[input])?,
+            "",
         )];
         if entry.decode {
-            outputs.push((
-                root.join(format!("testdata/golden/decode/{name}.jsonl.gz")),
-                run(&decode, &[input])?,
-            ));
+            let golden = root.join(format!("testdata/golden/decode/{name}.jsonl.gz"));
+            outputs.push((golden.clone(), run(&decode, &[input])?, ""));
+            // the Rust decoder engine must reproduce the same golden
+            if mode == Mode::Check {
+                outputs.push((
+                    golden,
+                    run(&rust_decode, &[input])?,
+                    " (Rust decoder engine)",
+                ));
+            }
         }
 
         // Rust writes, C reads: the C loader must see the same samples in a
@@ -164,7 +172,7 @@ fn golden_run(root: &Path, mode: Mode) -> Result<()> {
             }
         }
 
-        for (path, text) in outputs {
+        for (path, text, label) in outputs {
             let rel = path.strip_prefix(root)?.display().to_string();
             let gz = rel.ends_with(".gz");
             match mode {
@@ -187,11 +195,11 @@ fn golden_run(root: &Path, mode: Mode) -> Result<()> {
                         format!("missing golden {rel}; run `cargo xtask golden gen`")
                     })?;
                     match golden::first_divergence(&stored, &text) {
-                        None => println!("ok   {rel}"),
+                        None => println!("ok   {rel}{label}"),
                         Some(d) => {
                             failures += 1;
                             println!(
-                                "FAIL {rel}: {} differing lines\n{d}",
+                                "FAIL {rel}{label}: {} differing lines\n{d}",
                                 golden::count_differences(&stored, &text)
                             );
                         }

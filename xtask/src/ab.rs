@@ -44,6 +44,8 @@ fn launch(bin: &Path, iml: &str) -> Result<Instance> {
     let child = Command::new(bin)
         .arg("--mcp")
         .env("DSVIEW_IMPL", iml)
+        // same set iteration order in both runs' decoders
+        .env("PYTHONHASHSEED", "0")
         .env("DSVIEW_MCP_SOCKET", &socket)
         .env("QT_QPA_PLATFORM", "offscreen")
         .env_remove("QT_QPA_PLATFORMTHEME")
@@ -165,18 +167,37 @@ fn probe(socket: &Path, root: &Path, corpus: &Corpus, tag: &str) -> Value {
                     "get_edges".into(),
                     call(&mut c, "get_edges", json!({"channel": 0, "limit": 50})),
                 );
+                // decode to the end, then every annotation of every stack
                 r.insert(
-                    "list_active_decoders".into(),
-                    call(&mut c, "list_active_decoders", json!({})),
+                    "run_decoders".into(),
+                    call(&mut c, "run_decoders", json!({})),
                 );
-                r.insert(
-                    "annotations".into(),
-                    call(
-                        &mut c,
-                        "get_annotations",
-                        json!({"decoder": 0, "limit": 40}),
-                    ),
-                );
+                let decoders = call(&mut c, "list_active_decoders", json!({}));
+                let n = decoders["ok"]["decoders"].as_array().map_or(0, Vec::len);
+                r.insert("list_active_decoders".into(), decoders);
+                for d in 0..n {
+                    let mut all = Vec::new();
+                    loop {
+                        let page = call(
+                            &mut c,
+                            "get_annotations",
+                            json!({"decoder": d, "offset": all.len(), "limit": 2000}),
+                        );
+                        let got: Vec<Value> = page["ok"]["annotations"]
+                            .as_array()
+                            .cloned()
+                            .unwrap_or_default();
+                        let more = got.len() == 2000;
+                        all.extend(got);
+                        if !more {
+                            if page.get("ok").is_none() {
+                                all.push(page);
+                            }
+                            break;
+                        }
+                    }
+                    r.insert(format!("annotations_{d}"), Value::Array(all));
+                }
             }
             "dso" => {
                 for ch in [0, 1] {
@@ -228,9 +249,18 @@ pub fn run(root: &Path, args: &[&str]) -> Result<()> {
                 .iter()
                 .any(|k| a.get(*k).is_some_and(|x| x["lines"].as_u64().unwrap_or(0) <= 5));
         if a == b && !errors {
+            let anns: usize = (0..)
+                .map_while(|d| a.get(format!("annotations_{d}")))
+                .map(|v| v.as_array().map_or(0, Vec::len))
+                .sum();
             println!(
-                "ok   {} (reading and export identical with C and Rust; csv {} lines{})",
+                "ok   {} (reading, export{} identical with C and Rust; csv {} lines{})",
                 e.path,
+                if anns > 0 {
+                    format!(" and {anns} annotations")
+                } else {
+                    String::new()
+                },
                 a["export_csv"]["lines"],
                 a.get("export_vcd")
                     .map(|v| format!(", vcd {} lines", v["lines"]))

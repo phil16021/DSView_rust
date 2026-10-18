@@ -10,13 +10,13 @@
 use std::ffi::{CString, c_char, c_void};
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result, bail};
 use dsview_oracle::{capture, decoder_dir, ffi};
 use serde_json::{Value, json};
 
-struct Output(Mutex<BufWriter<std::io::Stdout>>);
+struct Output(Arc<Mutex<BufWriter<std::io::Stdout>>>);
 
 extern "C" fn emit(user: *mut c_void, line: *const c_char) {
     let out = unsafe { &*(user as *const Output) };
@@ -124,11 +124,21 @@ fn main() -> Result<()> {
     let mut max_chunk = 0u64;
     let mut stack: Option<Value> = None;
     let mut log_level = 0;
+    let mut list = false;
+    let mut first = 0usize;
+    let mut count = usize::MAX;
+    let mut stack_timeout = 0u64;
     while let Some(a) = args.next() {
         match a.as_str() {
             "--max-chunk" => max_chunk = args.next().context("--max-chunk N")?.parse()?,
             "--stack" => stack = Some(serde_json::from_str(&args.next().context("--stack JSON")?)?),
             "--log" => log_level = args.next().context("--log LEVEL")?.parse()?,
+            "--list" => list = true,
+            "--first" => first = args.next().context("--first N")?.parse()?,
+            "--count" => count = args.next().context("--count N")?.parse()?,
+            "--stack-timeout" => {
+                stack_timeout = args.next().context("--stack-timeout SECS")?.parse()?
+            }
             "-h" | "--help" => {
                 println!(
                     "usage: oracle-decode <capture> [--max-chunk N] [--stack JSON] [--log LEVEL]"
@@ -138,6 +148,17 @@ fn main() -> Result<()> {
             p if capture_path.is_none() => capture_path = Some(PathBuf::from(p)),
             other => bail!("unexpected argument {other}"),
         }
+    }
+    if list {
+        let dir = CString::new(decoder_dir().to_string_lossy().as_bytes())?;
+        if unsafe { ffi::oracle_decode_init(dir.as_ptr(), log_level) } != 0 {
+            bail!("libsigrokdecode init failed");
+        }
+        let out = Output(Arc::new(Mutex::new(BufWriter::new(std::io::stdout()))));
+        unsafe { ffi::oracle_decode_list(emit, &out as *const Output as *mut c_void) };
+        out.0.lock().unwrap().flush()?;
+        unsafe { ffi::oracle_decode_exit() };
+        return Ok(());
     }
     let capture_path = capture_path.context("missing capture path")?;
     let cap = capture::load(&capture_path)?;
@@ -151,21 +172,29 @@ fn main() -> Result<()> {
         bail!("libsigrokdecode init failed");
     }
 
-    let out = Output(Mutex::new(BufWriter::new(std::io::stdout())));
+    let out: &'static Output = Box::leak(Box::new(Output(Arc::new(Mutex::new(BufWriter::new(
+        std::io::stdout(),
+    ))))));
+    let dog = (stack_timeout > 0).then(|| {
+        dsview_oracle::watchdog::Watchdog::start(
+            std::time::Duration::from_secs(stack_timeout),
+            Arc::clone(&out.0) as Arc<Mutex<dyn Write + Send>>,
+        )
+    });
     let signal_ptrs: Vec<*const u8> = cap
         .signals
         .iter()
         .map(|s| s.as_ref().map_or(std::ptr::null(), |v| v.as_ptr()))
         .collect();
 
-    for (index, entry) in stacks.iter().enumerate() {
+    for (index, entry) in stacks.iter().enumerate().skip(first).take(count) {
         let specs = stack_specs(entry)?;
+        if let Some(d) = &dog {
+            d.begin(index);
+        }
         let raw: Vec<ffi::OracleDec> = specs.iter().map(DecSpec::raw).collect();
         let ids: Vec<&str> = specs.iter().map(|s| s.id.to_str().unwrap()).collect();
-        emit_value(
-            &out,
-            &json!({"t": "stack", "index": index, "decoders": ids}),
-        );
+        emit_value(out, &json!({"t": "stack", "index": index, "decoders": ids}));
         let rc = unsafe {
             ffi::oracle_decode_run(
                 raw.as_ptr(),
@@ -176,10 +205,15 @@ fn main() -> Result<()> {
                 signal_ptrs.len() as i32,
                 max_chunk,
                 emit,
-                &out as *const Output as *mut c_void,
+                out as *const Output as *mut c_void,
             )
         };
-        emit_value(&out, &json!({"t": "stack_end", "index": index, "rc": rc}));
+        if let Some(d) = &dog {
+            d.end();
+        }
+        emit_value(out, &json!({"t": "stack_end", "index": index, "rc": rc}));
+        // finished stacks survive a kill (decode-diff resumes after them)
+        out.0.lock().unwrap().flush()?;
     }
     out.0.lock().unwrap().flush()?;
     unsafe { ffi::oracle_decode_exit() };

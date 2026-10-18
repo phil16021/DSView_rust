@@ -4,7 +4,9 @@
 
 pub mod capture;
 pub mod ffi;
+pub mod rust_run;
 pub mod store;
+pub mod watchdog;
 
 use std::path::PathBuf;
 

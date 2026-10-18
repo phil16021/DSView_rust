@@ -20,6 +20,9 @@
  */
  
  #include "log.h"
+#ifdef DSVIEW_RUST_CORE
+#include "dsview_ffi.h"
+#endif
 
  #define LOG_DOMAIN  "srd"
 
@@ -77,7 +80,10 @@ SRD_API void srd_log_set_context(xlog_context *ctx)
  * Set the private log context level
  */
 SRD_API void srd_log_level(int level)
-{   
+{
+#ifdef DSVIEW_RUST_CORE
+    dsv_decode_set_log_level(level);
+#endif   
     log_level_value = level;
     if (log_ctx)
     {

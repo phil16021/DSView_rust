@@ -154,6 +154,73 @@ for example 4 channels of 32-bit samples (found by fuzzing), the read goes past 
 - Level 0: bytes past the ring read as 0. The Rust spare bytes are zero, and so are the oracle's
   after `osana_zero`.
 
+### F13. Decoders that keep the tuple wait() returned fail on their next wait()
+**Observed (Phase 2, `decode-diff`, `pjdl`):** `Decoder_wait` returns one tuple per instance and refills it
+with `PyTuple_SetItem` on every call. CPython refuses that while anyone else holds the tuple (refcount
+above 1) and sets a SystemError. `wait()` then returns the stale tuple with the exception set, and Python
+raises `SystemError: <method 'wait' of 'sigrokdecode.Decoder' objects> returned a result with an
+exception set`.
+- Decoders written as `pins = self.wait(...)` therefore stop at their second `wait()`: `pjdl` and `ieee488`.
+- Decoders that unpack immediately, `(a, b) = self.wait(...)`, are unaffected.
+
+**Rust behaviour:** identical (same tuple, same `PyTuple_SetItem`), so the outputs match. A fresh tuple per
+call would fix these decoders; that change is planned for after the Rust engine becomes the default.
+
+### F14. A negative or oversized `skip` count makes wait() fail later
+**Observed (Phase 2, `flexray`):** `create_term_list` reads the count with `PyLong_AsUnsignedLongLong`
+and does not check for an error. A negative count becomes 2^64−1 and leaves an OverflowError pending.
+`wait()` keeps scanning with the other conditions, and when one matches it returns with the exception
+set, so Python raises the same SystemError as in F13. `flexray` computes `pos - self.samplenum`, which can
+be negative.
+
+**Rust behaviour:** identical (the error is left pending the same way).
+
+### F15. Decoder strings are cut at the first NUL character
+**Observed (Phase 2, `amulet_ascii`):** annotation texts, metadata strings and condition values go through
+`g_strdup(PyBytes_AsString(...))`, which stops at a NUL. `amulet_ascii` formats a received 0 byte with
+`'%c'`, so its texts end there.
+
+**Rust behaviour:** identical.
+
+### F16. Some decoders never return on unusual input or options
+**Observed (Phase 2, stack timeouts in `decode-diff`, identical in both engines):**
+- `gpib` floods zero-length annotations at sample 0 forever.
+- `onewire_link` loops forever and grows memory with a small "min height level pulse time".
+- `ltc26x7` also never returns.
+- `midi` never returned once in 1000 runs.
+
+In DSView the decode never finishes, and in the case of `onewire_link` memory grows until the process
+is killed (seen at about 4 GB). These are bugs in the Python decoders, not in either engine.
+
+Other decoder failures seen identically in both engines:
+- `lfast`: NameError, `bMoreMatch` is not defined.
+- `ir_irmp`: needs `libirmp.so`, which is not built.
+- `pca9571` and `tca6408a`: need `OUTPUT_LOGIC`, which DSView's engine does not have.
+- `ir_irmp`'s `__del__` raises AttributeError at exit.
+
+### F17. Whether a pending wait() error survives depends on CPython's type cache
+**Observed (Phase 2, `decode-diff` seed 100354, `flexray`):** after a match, `Decoder_wait` stores
+`self.samplenum` and `self.matched` while the F14 OverflowError is still pending.
+- On a type-attribute-cache miss, CPython's `_PyType_Lookup` clears any live exception (3.12
+  `typeobject.c`: "We may end up clearing live exceptions below"). `wait()` then returns normally and
+  the decoder carries on.
+- Whether the lookup misses depends on cache slots indexed by object addresses and shared by all
+  threads, so the outcome can change from run to run.
+- In C the slot is almost always hot: C passes an interned name the decoder has just read, and C gave
+  the same output in 200 of 200 runs. A decoder that modifies its class between waits forces the miss
+  in C too.
+- C does lose it occasionally. In the exit batch, seed 100223 `flexray` carried on in C at a point
+  where it stopped with the SystemError in 29 later C replays (5 quiet, 24 under load) and in Rust.
+- The first Rust port passed a fresh string on every store. Under load it lost the error in about 9%
+  of runs.
+- `decode-diff` therefore runs a differing seed again, up to twice. A difference that does not come
+  back is reported as `FLAKY` and names the engine whose output changed; it fails only if Rust's
+  output changed.
+
+**Rust behaviour:** the pending error is held aside while the two attributes are stored and then
+restored, so `wait()` always fails as C does in practice. The names are interned as in C. Regression
+test: `crates/dsview-decode/tests/pending_error.rs`, which forces the cache miss.
+
 ## Planned behaviour deviations (Rust intentionally differs)
 
 | Area | C behaviour | Rust behaviour | Phase |
@@ -180,6 +247,12 @@ for example 4 channels of 32-bit samples (found by fuzzing), the read goes past 
 | Logic store, capture into an uncleared store (F10) | Stale offsets; heap overflow / use-after-free | Same logic, memory-safe (DSView always clears first) | 1b ✔ |
 | Logic store `_dest_ptr` into a freed leaf | Dangling pointer kept | Write position dropped (only reachable through F9/F10 input) | 1b ✔ |
 | Analog envelope over-read (F12) | One entry past the ring folded into min/max | Entry skipped | 1b ✔ |
+| Decoder engine teardown | `wait()` returns NULL without an exception (Python: SystemError, which `except Exception` in a decoder can swallow) | Raises `sigrokdecode.Terminate`, a BaseException | 2 ✔ |
+| Malformed `wait()` conditions | NULL without an exception ("returned NULL without setting an exception") | SystemError naming the problem | 2 ✔ |
+| `metadata()` raising | The exception stays pending on the calling thread | Discarded | 2 ✔ |
+| `srd_exit` | `Py_Finalize()` | Python is not finalized (PyO3 does not support it); the process exits anyway | 2 ✔ |
+| Decoder directory that cannot be listed | Tried as a zip archive (zipimport) | Logged and skipped | 2 ✔ |
+| Python bytecode | `__pycache__` written into the decoder directories | `sys.dont_write_bytecode` | 2 ✔ |
 | DSO envelope, `cal_vrms`, `cal_vmean` | Implemented, never called | Not ported; under `DSVIEW_IMPL_STORE=rust`, `enable_envelope` is a no-op and the two return 0 | 1b ✔ |
 | Analog data/DSO frames/envelopes before they are written | `malloc`: uninitialised | Zeroed | 1b ✔ |
 
@@ -197,4 +270,10 @@ for example 4 channels of 32-bit samples (found by fuzzing), the read goes past 
 | Lock-free store readers verified with `loom` (Phase 1b) | The FFI wraps each store in a mutex, like the C++ classes | The C++ GUI locks around every call anyway; lock-free readers matter for the Rust GUI and capture path (Phase 4/5) |
 | Annotation store in `dsview-store` (Phase 1b) | Moved to Phase 2 | Annotations are produced and owned by the decoder engine |
 | Decoder pin identity in the store tests | The differential tests track DecoderStack's pinned leaf by position, not address | DecoderStack compares leaf addresses; glibc may give a new leaf a freed leaf's address, so the C++ behaviour itself depends on the allocator |
+| Phase 2: fresh pin tuple per `wait()` | Kept C's refilled tuple (F13) | The exit gate is identical output on all decoders; the fix waits for the default flip |
+| Phase 2: `Quirks::FIXED` mode | Not implemented | Nothing needs it before the default flip |
+| Phase 2: `OUTPUT_LOGIC` for `pca9571`/`tca6408a` | Not added | It would change their output from C's (an error); added later with the fixes |
+| Phase 2: decoder options from files reset (`objdump`, `elffile`, `mapping`) | Moved to the GUI work (Phase 4/5) | The Qt GUI applies saved options (StoreSession); the engine cannot tell where an option came from |
+| Phase 2: decoder corpus from sigrok-dumps and `dsview-siggen` | I2C, SPI and UART generators inside `decode-diff`, plus noise signals and protocol.demo | Raised decoder coverage from about 80 to 120 of 153 without new test data; sigrok-dumps comes with the CLI (Phase 4) |
+| Phase 2: one interpreter per build, tested on 3.10 and 3.12 | Both engines use the same interpreter (`PYO3_PYTHON`, else `python3`); the oracle no longer uses pkg-config `python3-embed` | A single process needs a single libpython; CI uses the runner's Python |
 | USB traces in the repository | Recorded 2026-10-17 (11 scenarios plus startup). The pcapng files stay out of git; `testdata/usb/dslogic/manifest.json` pins their sha256 | 16 MB of binary traces; the plan's separate test-data repository is not set up yet |

@@ -251,6 +251,11 @@ SRD_API int srd_inst_channel_set_all(struct srd_decoder_inst *di,
 		return SRD_ERR_ARG;
 	}
 
+#ifdef DSVIEW_RUST_CORE
+	if (di->rs)
+		return srd_rs_inst_channel_set_all(di, new_channels);
+#endif
+
 	new_channelmap = g_try_malloc0(sizeof(int) * di->dec_num_channels);
 	if (new_channelmap == NULL){
 		srd_err("%s,ERROR:failed to alloc memory.", __func__);
@@ -349,6 +354,11 @@ SRD_API struct srd_decoder_inst *srd_inst_new(struct srd_session *sess,
 
 	if (!sess)
 		return NULL;
+
+#ifdef DSVIEW_RUST_CORE
+	if (sess->rs)
+		return srd_rs_inst_new(sess, decoder_id, options);
+#endif
 
 	if (!(dec = srd_decoder_get_by_id(decoder_id))) {
 		srd_err("Protocol decoder %s not found.", decoder_id);
@@ -573,6 +583,10 @@ SRD_API int srd_inst_stack(struct srd_session *sess,
 
 	/* Stack on top of source di. */
 	di_bottom->next_di = g_slist_append(di_bottom->next_di, di_top);
+#ifdef DSVIEW_RUST_CORE
+	if (sess->rs)
+		srd_rs_inst_stack(sess, di_bottom, di_top);
+#endif
 
 	srd_dbg("Stacking %s onto %s.", di_top->inst_id, di_bottom->inst_id);
 

@@ -550,6 +550,7 @@ set(libsigrokdecode4DSL_SOURCES
     libsigrokdecode4DSL/session.c
     libsigrokdecode4DSL/util.c
     libsigrokdecode4DSL/version.c
+    libsigrokdecode4DSL/rs_decode.c
 )
 
 set(libsigrokdecode4DSL_HEADERS
@@ -688,8 +689,13 @@ if(DSVIEW_RUST_CORE)
     find_program(CARGO_EXECUTABLE cargo REQUIRED)
     set(DSVIEW_CARGO_TARGET_DIR ${CMAKE_BINARY_DIR}/cargo)
     set(DSVIEW_FFI_LIB ${DSVIEW_CARGO_TARGET_DIR}/release/libdsview_ffi.a)
+    # PyO3 must build against the Python DSView links (the decoder engine
+    # embeds it): the interpreter of the version find_package(Python3) found.
+    find_program(DSVIEW_PYTHON NAMES python${Python3_VERSION_MAJOR}.${Python3_VERSION_MINOR} python3 REQUIRED)
+    message(STATUS "Rust core: PyO3 builds against ${DSVIEW_PYTHON}")
     add_custom_target(dsview_ffi ALL
-        COMMAND ${CARGO_EXECUTABLE} build --release --locked -p dsview-ffi --target-dir ${DSVIEW_CARGO_TARGET_DIR}
+        COMMAND ${CMAKE_COMMAND} -E env PYO3_PYTHON=${DSVIEW_PYTHON}
+                ${CARGO_EXECUTABLE} build --release --locked -p dsview-ffi --target-dir ${DSVIEW_CARGO_TARGET_DIR}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         BYPRODUCTS ${DSVIEW_FFI_LIB}
         COMMENT "Building the Rust core (dsview-ffi)"

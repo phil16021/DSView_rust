@@ -122,6 +122,27 @@ SRD_PRIV GVariant *py_obj_to_variant(PyObject *py_obj);
 */
 #define py_object_to_str_alloc py_str_as_str
 
+#ifdef DSVIEW_RUST_CORE
+#include <wchar.h>
+#include "dsview_ffi.h"
+/* rs_decode.c: the public API on the Rust decoder engine (DSVIEW_IMPL_DECODE). */
+SRD_PRIV int srd_rs_enabled(void);
+SRD_PRIV int srd_rs_init(const char *path);
+SRD_PRIV void srd_rs_set_python_home(const wchar_t *path);
+SRD_PRIV int srd_rs_decoder_load_all(GSList **pd_list);
+SRD_PRIV void srd_rs_session_new(struct srd_session *sess);
+SRD_PRIV void srd_rs_session_free(struct srd_session *sess);
+SRD_PRIV int srd_rs_session_start(struct srd_session *sess, char **error);
+SRD_PRIV int srd_rs_session_send(struct srd_session *sess, uint64_t start, uint64_t end,
+		const uint8_t **inbuf, const uint8_t *inbuf_const, uint64_t inbuflen, char **error);
+SRD_PRIV int srd_rs_session_end(struct srd_session *sess, char **error);
+SRD_PRIV struct srd_decoder_inst *srd_rs_inst_new(struct srd_session *sess,
+		const char *decoder_id, GHashTable *options);
+SRD_PRIV int srd_rs_inst_channel_set_all(struct srd_decoder_inst *di, GHashTable *new_channels);
+SRD_PRIV void srd_rs_inst_stack(struct srd_session *sess, struct srd_decoder_inst *bottom,
+		struct srd_decoder_inst *top);
+#endif
+
 SRD_PRIV int py_object_to_int(PyObject *py_obj,int64_t *out);
 
 SRD_PRIV int py_object_to_uint(PyObject *py_obj,uint64_t *out);

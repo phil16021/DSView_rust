@@ -353,3 +353,156 @@ done:
     g_string_free(ctx.line, TRUE);
     return ret;
 }
+
+/* ------------------------------------------------------------ metadata */
+
+static void json_strlist(GString *s, const GSList *l)
+{
+    g_string_append_c(s, '[');
+    for (const GSList *x = l; x; x = x->next) {
+        if (x != l)
+            g_string_append_c(s, ',');
+        json_str(s, x->data);
+    }
+    g_string_append_c(s, ']');
+}
+
+static void json_strv(GString *s, char **v)
+{
+    g_string_append_c(s, '[');
+    for (char **p = v; p && *p; p++) {
+        if (p != v)
+            g_string_append_c(s, ',');
+        json_str(s, *p);
+    }
+    g_string_append_c(s, ']');
+}
+
+static void json_variant(GString *s, GVariant *v)
+{
+    if (v == NULL)
+        g_string_append(s, "null");
+    else if (g_variant_is_of_type(v, G_VARIANT_TYPE_STRING)) {
+        g_string_append(s, "{\"s\":");
+        json_str(s, g_variant_get_string(v, NULL));
+        g_string_append_c(s, '}');
+    } else if (g_variant_is_of_type(v, G_VARIANT_TYPE_INT64))
+        g_string_append_printf(s, "{\"x\":%" G_GINT64_FORMAT "}", g_variant_get_int64(v));
+    else if (g_variant_is_of_type(v, G_VARIANT_TYPE_DOUBLE))
+        g_string_append_printf(s, "{\"d\":%.17g}", g_variant_get_double(v));
+    else
+        g_string_append(s, "\"?\"");
+}
+
+static void json_channels(GString *s, const GSList *l)
+{
+    g_string_append_c(s, '[');
+    for (const GSList *x = l; x; x = x->next) {
+        const struct srd_channel *c = x->data;
+        if (x != l)
+            g_string_append_c(s, ',');
+        g_string_append(s, "{\"id\":");
+        json_str(s, c->id);
+        g_string_append(s, ",\"name\":");
+        json_str(s, c->name);
+        g_string_append(s, ",\"desc\":");
+        json_str(s, c->desc);
+        g_string_append_printf(s, ",\"order\":%d,\"type\":%d,\"idn\":", c->order, c->type);
+        if (c->idn)
+            json_str(s, c->idn);
+        else
+            g_string_append(s, "null");
+        g_string_append_c(s, '}');
+    }
+    g_string_append_c(s, ']');
+}
+
+/* Every loaded decoder's metadata as one JSON line each, in list order
+ * (the GSList orders DSView's GUI sees, e.g. annotations reversed). */
+void oracle_decode_list(oracle_emit emit, void *user)
+{
+    GString *s = g_string_new(NULL);
+    for (const GSList *l = srd_decoder_list(); l; l = l->next) {
+        const struct srd_decoder *d = l->data;
+        g_string_append(s, "{\"id\":");
+        json_str(s, d->id);
+        g_string_append(s, ",\"name\":");
+        json_str(s, d->name);
+        g_string_append(s, ",\"longname\":");
+        json_str(s, d->longname);
+        g_string_append(s, ",\"desc\":");
+        json_str(s, d->desc);
+        g_string_append(s, ",\"license\":");
+        json_str(s, d->license);
+        g_string_append(s, ",\"inputs\":");
+        json_strlist(s, d->inputs);
+        g_string_append(s, ",\"outputs\":");
+        json_strlist(s, d->outputs);
+        g_string_append(s, ",\"tags\":");
+        json_strlist(s, d->tags);
+        g_string_append(s, ",\"channels\":");
+        json_channels(s, d->channels);
+        g_string_append(s, ",\"opt_channels\":");
+        json_channels(s, d->opt_channels);
+        g_string_append(s, ",\"options\":[");
+        for (const GSList *x = d->options; x; x = x->next) {
+            const struct srd_decoder_option *o = x->data;
+            if (x != d->options)
+                g_string_append_c(s, ',');
+            g_string_append(s, "{\"id\":");
+            json_str(s, o->id);
+            g_string_append(s, ",\"idn\":");
+            if (o->idn) json_str(s, o->idn); else g_string_append(s, "null");
+            g_string_append(s, ",\"desc\":");
+            if (o->desc) json_str(s, o->desc); else g_string_append(s, "null");
+            g_string_append(s, ",\"def\":");
+            json_variant(s, o->def);
+            g_string_append(s, ",\"values\":[");
+            for (const GSList *v = o->values; v; v = v->next) {
+                if (v != o->values)
+                    g_string_append_c(s, ',');
+                json_variant(s, v->data);
+            }
+            g_string_append(s, "]}");
+        }
+        g_string_append(s, "],\"annotations\":[");
+        for (const GSList *x = d->annotations; x; x = x->next) {
+            if (x != d->annotations)
+                g_string_append_c(s, ',');
+            json_strv(s, x->data);
+        }
+        g_string_append(s, "],\"ann_types\":[");
+        for (const GSList *x = d->ann_types; x; x = x->next) {
+            if (x != d->ann_types)
+                g_string_append_c(s, ',');
+            g_string_append_printf(s, "%d", GPOINTER_TO_INT(x->data));
+        }
+        g_string_append(s, "],\"annotation_rows\":[");
+        for (const GSList *x = d->annotation_rows; x; x = x->next) {
+            const struct srd_decoder_annotation_row *r = x->data;
+            if (x != d->annotation_rows)
+                g_string_append_c(s, ',');
+            g_string_append(s, "{\"id\":");
+            json_str(s, r->id);
+            g_string_append(s, ",\"desc\":");
+            json_str(s, r->desc);
+            g_string_append(s, ",\"classes\":[");
+            for (const GSList *c = r->ann_classes; c; c = c->next) {
+                if (c != r->ann_classes)
+                    g_string_append_c(s, ',');
+                g_string_append_printf(s, "%zu", (size_t)GPOINTER_TO_SIZE(c->data));
+            }
+            g_string_append(s, "]}");
+        }
+        g_string_append(s, "],\"binary\":[");
+        for (const GSList *x = d->binary; x; x = x->next) {
+            if (x != d->binary)
+                g_string_append_c(s, ',');
+            json_strv(s, x->data);
+        }
+        g_string_append(s, "]}");
+        emit(user, s->str);
+        g_string_truncate(s, 0);
+    }
+    g_string_free(s, TRUE);
+}

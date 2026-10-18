@@ -11,5 +11,6 @@ publish.workspace = true
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
+dsview-decode = { path = "../dsview-decode" }
 dsview-formats = { path = "../dsview-formats" }
 dsview-store = { path = "../dsview-store" }

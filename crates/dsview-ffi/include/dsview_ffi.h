@@ -38,6 +38,11 @@
 typedef struct dsv_analog_store dsv_analog_store;
 
 /**
+ * Opaque handle owned by C between `dsv_decode_session_new` and `_free`.
+ */
+typedef struct dsv_decode_session dsv_decode_session;
+
+/**
  * Opaque handle owned by C between `dsv_dsl_open` and `dsv_dsl_close`.
  */
 typedef struct dsv_dsl dsv_dsl;
@@ -55,6 +60,133 @@ typedef struct dsv_export dsv_export;
 typedef struct dsv_logic_store dsv_logic_store;
 
 typedef struct dsv_zip_writer dsv_zip_writer;
+
+/**
+ * A NULL-terminated list of strings with its length.
+ */
+typedef struct dsv_str_list {
+  const char *const *items;
+  uint32_t n;
+} dsv_str_list;
+
+typedef struct dsv_channel_meta {
+  const char *id;
+  const char *name;
+  const char *desc;
+  int32_t order;
+  int32_t ty;
+  /**
+   * NULL when absent.
+   */
+  const char *idn;
+} dsv_channel_meta;
+
+/**
+ * A decoder option value. `kind`: 0 none, 1 string (`s`), 2 int64 (`i`),
+ * 3 double (`d`).
+ */
+typedef struct dsv_value {
+  int32_t kind;
+  const char *s;
+  int64_t i;
+  double d;
+} dsv_value;
+
+typedef struct dsv_option_meta {
+  const char *id;
+  /**
+   * NULL when absent.
+   */
+  const char *idn;
+  /**
+   * NULL when absent.
+   */
+  const char *desc;
+  struct dsv_value def;
+  const struct dsv_value *values;
+  uint32_t n_values;
+} dsv_option_meta;
+
+typedef struct dsv_row_meta {
+  const char *id;
+  const char *desc;
+  const size_t *classes;
+  uint32_t n_classes;
+} dsv_row_meta;
+
+/**
+ * One loaded decoder (`struct srd_decoder` fields, decoder order).
+ */
+typedef struct dsv_decoder_meta {
+  const char *id;
+  const char *name;
+  const char *longname;
+  const char *desc;
+  const char *license;
+  struct dsv_str_list inputs;
+  struct dsv_str_list outputs;
+  struct dsv_str_list tags;
+  const struct dsv_channel_meta *channels;
+  uint32_t n_channels;
+  const struct dsv_channel_meta *opt_channels;
+  uint32_t n_opt_channels;
+  const struct dsv_option_meta *options;
+  uint32_t n_options;
+  /**
+   * Annotation classes as declared (C builds its GSList reversed).
+   */
+  const struct dsv_str_list *annotations;
+  /**
+   * One per annotation class.
+   */
+  const int32_t *ann_types;
+  uint32_t n_annotations;
+  const struct dsv_row_meta *rows;
+  uint32_t n_rows;
+  const struct dsv_str_list *binary;
+  uint32_t n_binary;
+} dsv_decoder_meta;
+
+/**
+ * One output, as libsigrokdecode's `srd_proto_data` needs it. Strings are
+ * valid during the callback only.
+ */
+typedef struct dsv_decode_event {
+  uint64_t start;
+  uint64_t end;
+  /**
+   * `dsv_decode_inst_set_user` value of the instance that put.
+   */
+  void *inst_user;
+  int32_t output_type;
+  int32_t pdo_id;
+  const char *proto_id;
+  /**
+   * OUTPUT_META registration: -1 none, 0 int, 1 float.
+   */
+  int32_t meta_float;
+  const char *meta_name;
+  const char *meta_descr;
+  int32_t ann_class;
+  int32_t ann_type;
+  const char *ann_hex;
+  int64_t ann_num;
+  /**
+   * NULL when the annotation has no text.
+   */
+  const char *const *ann_texts;
+  uint32_t n_texts;
+  int32_t bin_class;
+  const uint8_t *bin_data;
+  uint64_t bin_len;
+  int64_t meta_int;
+  double meta_double;
+} dsv_decode_event;
+
+/**
+ * An instance handle (lives as long as its session).
+ */
+typedef void dsv_decode_inst;
 
 typedef struct dsv_dsl_header_info {
   uint32_t version;
@@ -208,6 +340,145 @@ extern "C" {
  * Version of the Rust core as a NUL-terminated static string.
  */
 const char *dsv_version(void);
+
+/**
+ * Routes the engine's log messages to `cb` (level as in libsigrokdecode).
+ */
+void dsv_decode_set_log(void (*cb)(int32_t level, const char *msg));
+
+/**
+ * Most verbose engine log level forwarded (1 error .. 5 detail; default 3).
+ */
+void dsv_decode_set_log_level(int32_t level);
+
+/**
+ * `srd_init`: starts Python with the decoder directory `path` on sys.path.
+ *
+ * # Safety
+ * `path` NUL-terminated or NULL.
+ */
+int32_t dsv_decode_init(const char *path);
+
+/**
+ * `srd_decoder_load_all`.
+ */
+int32_t dsv_decode_load_all(void);
+
+/**
+ * The loaded decoders' metadata, valid until the next load/unload.
+ *
+ * # Safety
+ * `out` valid.
+ */
+uint32_t dsv_decode_list(const struct dsv_decoder_meta **out);
+
+/**
+ * `srd_decoder_unload_all`.
+ */
+void dsv_decode_unload_all(void);
+
+struct dsv_decode_session *dsv_decode_session_new(void);
+
+/**
+ * Stops the session's decoder threads and frees it.
+ *
+ * # Safety
+ * `p` from `dsv_decode_session_new` (or NULL), not used after.
+ */
+void dsv_decode_session_free(struct dsv_decode_session *p);
+
+/**
+ * Installs the output callback for annotation, binary and meta outputs.
+ */
+void dsv_decode_set_callback(struct dsv_decode_session *p,
+                             void (*cb)(void *user, const struct dsv_decode_event *ev),
+                             void *user);
+
+/**
+ * `srd_inst_new`. `opts`: `n_opts` (key, value) pairs; `inst_id` may be
+ * NULL. Sets `*out` to the instance handle.
+ *
+ * # Safety
+ * Strings NUL-terminated; `keys`/`vals`: `n_opts` entries; `out` valid.
+ */
+int32_t dsv_decode_inst_new(struct dsv_decode_session *p,
+                            const char *decoder_id,
+                            const char *const *keys,
+                            const struct dsv_value *vals,
+                            uint32_t n_opts,
+                            bool with_options,
+                            const char *inst_id,
+                            const dsv_decode_inst **out);
+
+/**
+ * Copies the instance id (NUL-terminated, truncated to `cap`); returns
+ * its full length.
+ *
+ * # Safety
+ * `buf`: room for `cap` bytes (may be NULL when `cap` is 0).
+ */
+size_t dsv_decode_inst_id(const dsv_decode_inst *h, char *buf, size_t cap);
+
+void dsv_decode_inst_set_user(const dsv_decode_inst *h, void *user);
+
+/**
+ * Copies the decoder channel -> signal map (up to `cap`); returns its length.
+ *
+ * # Safety
+ * `out`: room for `cap` entries.
+ */
+uint32_t dsv_decode_inst_channelmap(const dsv_decode_inst *h, int32_t *out, uint32_t cap);
+
+/**
+ * `srd_inst_channel_set_all`.
+ *
+ * # Safety
+ * `ids`/`idx`: `n` entries.
+ */
+int32_t dsv_decode_channel_set_all(struct dsv_decode_session *p,
+                                   const dsv_decode_inst *h,
+                                   const char *const *ids,
+                                   const int32_t *idx,
+                                   uint32_t n);
+
+/**
+ * `srd_inst_stack`.
+ */
+int32_t dsv_decode_stack(struct dsv_decode_session *p,
+                         const dsv_decode_inst *bottom,
+                         const dsv_decode_inst *top);
+
+void dsv_decode_set_samplerate(struct dsv_decode_session *p, uint64_t samplerate);
+
+/**
+ * `srd_session_start`; on failure the error text is `dsv_last_error()`.
+ */
+int32_t dsv_decode_start(struct dsv_decode_session *p);
+
+/**
+ * `srd_session_send`: `bufs[i]` holds decoder channel i's bits from
+ * `start & ~7` (NULL: constant at `consts[i]`), `n` channels. Returns
+ * DSV_ERR_ARG for bad sample numbers, DSV_ERR with the decoder's error text.
+ *
+ * # Safety
+ * `bufs`/`consts`: `n` entries; each buffer covers `start & ~7 .. end`.
+ */
+int32_t dsv_decode_send(struct dsv_decode_session *p,
+                        uint64_t start,
+                        uint64_t end,
+                        const uint8_t *const *bufs,
+                        const uint8_t *consts,
+                        uint32_t n);
+
+/**
+ * `srd_session_end`.
+ */
+int32_t dsv_decode_end(struct dsv_decode_session *p);
+
+/**
+ * `srd_session_terminate_reset`: C's decoder state (0 or -1).
+ */
+int32_t dsv_decode_terminate_reset(struct dsv_decode_session *p);
 
 /**
  * Opens and validates a capture. Returns DSV_OK and a handle, or an error code.

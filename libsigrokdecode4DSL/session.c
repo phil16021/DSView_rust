@@ -76,6 +76,10 @@ SRD_API int srd_session_new(struct srd_session **sess)
 	memset(se, 0, sizeof(struct srd_session));
 
 	se->session_id = ++max_session_id;
+#ifdef DSVIEW_RUST_CORE
+	if (srd_rs_enabled())
+		srd_rs_session_new(se);
+#endif
 
 	/* Keep a list of all sessions, so we can clean up as needed. */
 	sessions = g_slist_append(sessions, se);
@@ -109,6 +113,10 @@ SRD_API int srd_session_start(struct srd_session *sess, char **error)
 		return SRD_ERR_ARG;
 
 	srd_info("Calling start() of all instances in session %d.", sess->session_id);
+#ifdef DSVIEW_RUST_CORE
+	if (sess->rs)
+		return srd_rs_session_start(sess, error);
+#endif
 
 	/* Run the start() method of all decoders receiving frontend data. */
 	ret = SRD_OK;
@@ -201,6 +209,13 @@ SRD_API int srd_session_metadata_set(struct srd_session *sess, int key,
 
 	srd_dbg("Setting session %d samplerate to %"G_GUINT64_FORMAT".",
 			sess->session_id, g_variant_get_uint64(data));
+#ifdef DSVIEW_RUST_CORE
+	if (sess->rs) {
+		dsv_decode_set_samplerate(sess->rs, g_variant_get_uint64(data));
+		g_variant_unref(data);
+		return SRD_OK;
+	}
+#endif
 
 	ret = SRD_OK;
 	for (l = sess->di_list; l; l = l->next) {
@@ -281,6 +296,12 @@ SRD_API int srd_session_send(struct srd_session *sess,
 	if (!sess)
 		return SRD_ERR_ARG;
 
+#ifdef DSVIEW_RUST_CORE
+	if (sess->rs)
+		return srd_rs_session_send(sess, abs_start_samplenum, abs_end_samplenum,
+					   inbuf, inbuf_const, inbuflen, error);
+#endif
+
 	//foreach srd_decoder_inst* stack
 	for (d = sess->di_list; d; d = d->next) {
 		if ((ret = srd_inst_decode(d->data, abs_start_samplenum,
@@ -321,6 +342,11 @@ SRD_API int srd_session_terminate_reset(struct srd_session *sess)
 	if (!sess)
 		return SRD_ERR_ARG;
 
+#ifdef DSVIEW_RUST_CORE
+	if (sess->rs)
+		return dsv_decode_terminate_reset(sess->rs);
+#endif
+
 	for (d = sess->di_list; d; d = d->next) {
 		ret = srd_inst_terminate_reset(d->data);
 		if (ret != SRD_OK)
@@ -349,6 +375,11 @@ SRD_API int srd_session_destroy(struct srd_session *sess)
 		return SRD_ERR_ARG;
 
 	session_id = sess->session_id;
+#ifdef DSVIEW_RUST_CORE
+	/* stop the Rust decoder threads before the C structs go */
+	if (sess->rs)
+		srd_rs_session_free(sess);
+#endif
 	if (sess->di_list)
 		srd_inst_free_all(sess);
 	if (sess->callbacks)
@@ -436,6 +467,11 @@ SRD_API int srd_session_end(struct srd_session *sess, char **error)
 	if (!sess || !sess->di_list){
 		return SRD_ERR;
 	}
+
+#ifdef DSVIEW_RUST_CORE
+	if (sess->rs)
+		return srd_rs_session_end(sess, error);
+#endif
 
 	gstate = PyGILState_Ensure();
 

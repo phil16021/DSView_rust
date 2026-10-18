@@ -43,6 +43,8 @@ struct srd_session {
 
     /* List of frontend callbacks to receive decoder output. */
     GSList *callbacks;
+    /* DSVIEW_IMPL_DECODE=rust: the Rust engine's session, else NULL. */
+    void *rs;
 };
 
 /**
@@ -326,6 +328,8 @@ struct srd_decoder_inst {
 
 	/** the task normal ends flag */
 	int  is_task_stop_signal;
+    /* DSVIEW_IMPL_DECODE=rust: the Rust engine's instance, else NULL. */
+    void *rs;
 };
 
 struct srd_pd_output {

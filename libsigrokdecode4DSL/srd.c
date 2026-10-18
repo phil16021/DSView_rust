@@ -201,6 +201,11 @@ SRD_API int srd_init(const char *path)
 
 	srd_dbg("Initializing libsigrokdecode.");
 
+#ifdef DSVIEW_RUST_CORE
+	if (srd_rs_enabled())
+		return srd_rs_init(path);
+#endif
+
 	/* Add our own module to the list of built-in modules. */
 	PyImport_AppendInittab("sigrokdecode", PyInit_sigrokdecode);
 
@@ -300,6 +305,16 @@ SRD_API int srd_exit(void)
 	g_slist_free_full(searchpaths, g_free);
 	searchpaths = NULL;
 
+#ifdef DSVIEW_RUST_CORE
+	if (srd_rs_enabled()) {
+		/* The Rust engine owns Python; PyO3 does not support finalizing. */
+		dsv_decode_unload_all();
+		max_session_id = -1;
+		srd_log_uninit();
+		return SRD_OK;
+	}
+#endif
+
 	/*
 	 * Acquire the GIL, otherwise Py_Finalize() might have issues.
 	 * Ignore the return value, we don't need it here.
@@ -396,6 +411,12 @@ SRD_API GSList *srd_searchpaths_get(void)
 //set python home directory
 SRD_API void srd_set_python_home(const wchar_t *path)
 {
+#ifdef DSVIEW_RUST_CORE
+	if (srd_rs_enabled()) {
+		srd_rs_set_python_home(path);
+		return;
+	}
+#endif
 	Py_SetPythonHome((wchar_t*)path);
 }
 

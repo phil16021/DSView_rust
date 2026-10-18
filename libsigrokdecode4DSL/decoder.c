@@ -741,6 +741,14 @@ SRD_API int srd_decoder_load(const char *module_name)
 	if (!module_name)
 		return SRD_ERR_ARG;
 
+#ifdef DSVIEW_RUST_CORE
+	if (srd_rs_enabled()) {
+		srd_err("srd_decoder_load(%s): use srd_decoder_load_all() with the Rust engine.",
+			module_name);
+		return SRD_ERR;
+	}
+#endif
+
 	gstate = PyGILState_Ensure();
 
 	if (PyDict_GetItemString(PyImport_GetModuleDict(), module_name)) {
@@ -949,7 +957,7 @@ SRD_API char *srd_decoder_doc_get(const struct srd_decoder *dec)
 	if (!srd_check_init())
 		return NULL;
 
-	if (!dec)
+	if (!dec || !dec->py_mod)
 		return NULL;
 
 	gstate = PyGILState_Ensure();
@@ -1138,6 +1146,11 @@ SRD_API int srd_decoder_load_all(void)
 
 	if (!srd_check_init())
 		return SRD_ERR;
+
+#ifdef DSVIEW_RUST_CORE
+	if (srd_rs_enabled())
+		return srd_rs_decoder_load_all(&pd_list);
+#endif
 
     for (l = searchpaths; l; l = l->next){
 		srd_decoder_load_all_path(l->data);

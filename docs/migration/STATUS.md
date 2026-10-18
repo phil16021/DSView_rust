@@ -4,7 +4,7 @@
 |---|---|---|
 | 0 Infrastructure, oracle, baselines | **done, one item deferred** | Deferred: performance baselines (moved to Phase 1b/2, see DEVIATIONS.md). USB traces recorded 2026-10-17 |
 | 1 Formats + store | **done**: 1a formats behind `DSVIEW_IMPL_FORMATS`, 1b sample stores behind `DSVIEW_IMPL_STORE`; Rust becomes the default after one release of A/B | See "Phase 1a" and "Phase 1b" below |
-| 2 Decoder engine | not started | |
+| 2 Decoder engine | **done**: Rust/PyO3 engine behind `DSVIEW_IMPL_DECODE`; Rust becomes the default after one release of A/B | See "Phase 2" below |
 | 3 Drivers | not started | |
 | 4 Session + control API | not started | |
 | 5 Rust GUI | not started | Parity checklist: PARITY.md |
@@ -168,3 +168,82 @@ sources:
 - Lock-free readers (`loom`) and the mmap spill, with the Rust capture path in Phase 4.
 - The annotation store, with the decoder engine in Phase 2.
 
+## Phase 2 (decoder engine): status
+
+**Done and verified:**
+- **`crates/dsview-decode`:** the libsigrokdecode4DSL engine in Rust on PyO3. It has:
+  - the loader with `decoder.c`'s checks;
+  - the `sigrokdecode` module: `Decoder` with `put`/`register`/`wait`/`has_channel`/`printlog`, and the
+    output and config constants;
+  - instances, stacks and sessions with one thread per stack and the same handoff as C;
+  - `wait()` condition matching, transliterated from `instance.c`, including the constant-chunk
+    shortcut, `skip`, sample-0 seeding and the `matched` bitmask.
+  The DSView extensions (ann_type 3-tuples, `@hex`, integer payloads, `end()`) behave as in C. So do the
+  C quirks that change output: the refilled pin tuple (F13), the pending skip error (F14) and NUL
+  truncation (F15).
+- **FFI seam:**
+  - `dsv_decode_*` in `crates/dsview-ffi/src/decode.rs`.
+  - `libsigrokdecode4DSL/rs_decode.c` hooks the `srd_*` entry points when `DSVIEW_IMPL_DECODE=rust`
+    (or `DSVIEW_IMPL=rust`). It builds the `srd_decoder` lists from Rust metadata and turns Rust
+    output events into `srd_proto_data`, so the GUI is unchanged.
+  - CMake passes the interpreter it found to PyO3 (`PYO3_PYTHON`), so both engines use one libpython.
+- **Differential tests** (`dev/dsview-oracle`): `rust-decode` mirrors `oracle-decode` (C engine) and
+  emits the same JSONL. Each run of `decode-diff`:
+  - builds a random 16-channel capture: noise plus I²C, SPI and UART traffic in 80% of runs;
+  - stacks every one of the 157 decoders on it with random options and channel maps, and puts protocol
+    decoders on top of the matching bus decoders;
+  - runs both engines with the same random chunking and compares everything: annotations, binary, meta,
+    errors and exception texts.
+  Decoders that never return (F16) are cut off by a per-stack watchdog, and both engines must agree on
+  the common prefix.
+- **Exit run:**
+  - `protocol.demo`: byte-identical output from both engines (9337 lines); the golden check covers both.
+  - Metadata of all 157 decoders is identical.
+  - Exit batch: 1000 runs (`decode-diff --runs 1000 --seed 100000`), each with all 157 decoders.
+    - 417M output lines compared, 406M of them annotations, in 188 min with 6 jobs.
+    - 141 of 153 logic decoders produced annotations; the rest need inputs the generators do not make.
+    - **No Rust divergence.** Two seeds were flagged, and neither is a Rust difference:
+      - 100223: C itself changed its output in that run (F17); it matched Rust in 29 replays.
+      - 100983: 1-sample chunks; both engines need about 650 s, and only C finished inside the
+        harness's 600 s process limit. The harness now resumes after the last finished stack, and
+        the seed passes (run again with a 120 s limit, so it resumed several times).
+    - Decoder stacks that looped forever in both engines and were cut off by the watchdog: `gpib` 90,
+      `ltc26x7` 78, `midi` 1.
+  - Divergences found and fixed in the Rust port before the exit run:
+    - NUL truncation (`amulet_ascii`);
+    - the pending skip error (`flexray`);
+    - the pending error being lost on a type-cache miss (F17). This one was nondeterministic: it was
+      found at run 354 of a first 1000-run batch, which was then restarted with the fix.
+- **Live A/B:** `cargo xtask control ab` with formats, stores and decoders all in Rust: 8379
+  annotations from all protocol.demo decoders are identical to the C run.
+
+**Performance:** `decode-diff --bench 40`, i.e. the protocol.demo signals repeated 40 times (5.2M
+samples) and decoded by its 4 saved stacks. Idle machine, each engine timed with `/usr/bin/time` over
+3 runs:
+
+| Engine | Wall time | User CPU | Gate |
+|---|---|---|---|
+| C | 1.98 – 2.00 s | 1.84 – 1.88 s | |
+| Rust | 1.98 – 2.00 s | 1.84 – 1.86 s | ≥ 0.9× C: **met** (1.00×) |
+
+The time goes into the Python decoders. Under load (the batch running alongside) Rust was 0.99–1.05×
+C.
+
+**Findings in the original code and decoders** (DEVIATIONS.md, identical in both engines):
+- **F13:** decoders that keep the tuple `wait()` returned fail with SystemError on their next `wait()`
+  (`pjdl`, `ieee488`).
+- **F14:** a negative `skip` count leaves an OverflowError pending and fails later (`flexray`).
+- **F15:** decoder strings are cut at a NUL character (`amulet_ascii`).
+- **F17:** whether that pending error survives depends on CPython's type-attribute cache, so in
+  principle the result can differ between runs. Rust now keeps the error deterministically.
+- **F16:** `gpib`, `onewire_link` and `ltc26x7` can loop forever; `onewire_link` also grows memory
+  without bound. Plus `lfast` (NameError), `ir_irmp` (missing `libirmp.so`), and `pca9571`/`tca6408a`
+  (no `OUTPUT_LOGIC`).
+
+**Left for later:**
+- Making Rust the default (after one release of A/B), then deleting `libsigrokdecode4DSL/*.c`.
+- After the flip: fresh pin tuples (F13), the skip check (F14), `OUTPUT_LOGIC`.
+- Resetting path/exec decoder options from saved files: GUI work (Phase 4/5).
+- The annotation store: annotations are still kept by the C++ `pv::data::decode` classes. It moves to
+  Rust with the GUI data model.
+- sigrok-dumps captures as decoder corpus, with the CLI (Phase 4).

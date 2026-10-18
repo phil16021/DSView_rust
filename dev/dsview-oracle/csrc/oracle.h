@@ -31,6 +31,9 @@ void oracle_decode_exit(void);
 /* signals[i]: bit-packed LSB-first samples of signal i (NULL if absent),
  * laid out like LogicSnapshot leaves (2^24 samples per leaf from sample 0).
  * max_chunk 0 = DecoderStack::MaxChunkSize. */
+/* Every loaded decoder's metadata, one JSON line each (see oracle_decode.c). */
+void oracle_decode_list(oracle_emit emit, void *user);
+
 int oracle_decode_run(const struct oracle_dec *stack, int n_dec, uint64_t samplerate,
                       uint64_t total_samples, const uint8_t *const *signals, int n_signals,
                       uint64_t max_chunk, oracle_emit emit, void *user);

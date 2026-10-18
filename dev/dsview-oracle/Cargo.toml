@@ -8,6 +8,8 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+dsview-decode = { path = "../../crates/dsview-decode" }
+dsview-formats = { path = "../../crates/dsview-formats" }
 anyhow.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -15,7 +17,6 @@ zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 criterion = { version = "0.8", default-features = false }
-dsview-formats = { path = "../../crates/dsview-formats" }
 dsview-store = { path = "../../crates/dsview-store" }
 proptest = "1"
 

@@ -54,6 +54,7 @@ pub type OraclePacketCb = extern "C" fn(
 unsafe extern "C" {
     pub fn oracle_decode_init(decoder_dir: *const c_char, log_level: c_int) -> c_int;
     pub fn oracle_decode_exit();
+    pub fn oracle_decode_list(emit: OracleEmit, user: *mut c_void);
     pub fn oracle_decode_run(
         stack: *const OracleDec,
         n_dec: c_int,

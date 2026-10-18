@@ -60,7 +60,8 @@ fn main() {
     let sanitize = std::env::var("ORACLE_SANITIZE").is_ok_and(|v| v == "1");
 
     let mut includes = Vec::new();
-    for lib in ["glib-2.0", "python3-embed", "libusb-1.0", "zlib"] {
+    includes.extend(python_embed());
+    for lib in ["glib-2.0", "libusb-1.0", "zlib"] {
         let found = pkg_config::Config::new()
             .probe(lib)
             .unwrap_or_else(|e| panic!("pkg-config {lib}: {e}"));
@@ -167,4 +168,33 @@ fn build_store(root: &Path, manifest: &Path, includes: &[PathBuf], sanitize: boo
             .flag("-fno-omit-frame-pointer");
     }
     build.files(&sources).compile("dsview_oracle_store");
+}
+
+/// The Python the C engine embeds: the interpreter PyO3 uses as well
+/// (`PYO3_PYTHON`, else `python3` on PATH), so one process can host both
+/// engines with a single libpython. Returns its include directory.
+fn python_embed() -> Vec<PathBuf> {
+    println!("cargo:rerun-if-env-changed=PYO3_PYTHON");
+    let python = std::env::var("PYO3_PYTHON").unwrap_or_else(|_| "python3".into());
+    let out = std::process::Command::new(&python)
+        .args([
+            "-c",
+            "import sysconfig as s; print(s.get_config_var('INCLUDEPY')); \
+             print(s.get_config_var('LIBDIR')); print(s.get_config_var('LDVERSION'))",
+        ])
+        .output()
+        .unwrap_or_else(|e| panic!("running {python}: {e}"));
+    assert!(out.status.success(), "{python} sysconfig query failed");
+    let text = String::from_utf8(out.stdout).expect("utf-8");
+    let mut lines = text.lines();
+    let (include, libdir, ldversion) = (
+        lines.next().expect("INCLUDEPY"),
+        lines.next().expect("LIBDIR"),
+        lines.next().expect("LDVERSION"),
+    );
+    println!("cargo:rustc-link-search=native={libdir}");
+    println!("cargo:rustc-link-lib=python{ldversion}");
+    // pyenv and similar installs are not on the loader path
+    println!("cargo:rustc-link-arg=-Wl,-rpath,{libdir}");
+    vec![PathBuf::from(include)]
 }
