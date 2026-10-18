@@ -57,11 +57,106 @@ pub struct App {
     message: Option<String>,
     switch_prompt: Option<(u64, String)>,
     known_devices: usize,
+    /// "Save captured data?" is asked; what follows either way.
+    store_confirm: Option<AfterSave>,
+    /// What follows the save that answer started (`_is_auto_switch_device`,
+    /// `_next_switch_device`).
+    after_save: Option<AfterSave>,
     pub bench: Option<Bench>,
     pub soak: Option<crate::soak::Soak>,
 }
 
+/// What happens once the captured data was saved or not.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum AfterSave {
+    Nothing,
+    /// `set_default_device`
+    DefaultDevice,
+    Device(u64),
+}
+
 impl App {
+    /// `confirm_to_store_data()`: offers to save a hardware capture once per
+    /// capture (not with "don't ask to save" where `ask_option` says so).
+    /// True when the question is asked; `then` follows its answer.
+    fn confirm_store(&mut self, then: AfterSave, ask_option: bool) -> bool {
+        if ask_option && self.options.dont_ask_save_on_exit {
+            return false;
+        }
+        if self.session.have_hardware_data() && self.session.is_first_store_confirm() {
+            self.store_confirm = Some(then);
+            return true;
+        }
+        false
+    }
+
+    fn after_save_action(&mut self, a: AfterSave) {
+        match a {
+            AfterSave::Nothing => {}
+            AfterSave::DefaultDevice => {
+                if self.session.is_working() {
+                    self.session.stop_capture();
+                }
+                self.session.set_default_device();
+            }
+            AfterSave::Device(h) => {
+                self.session.set_device(h);
+            }
+        }
+    }
+
+    /// The save started from "Save captured data?" ended (saved, failed or
+    /// cancelled: `DSV_MSG_SAVE_COMPLETE`).
+    fn save_ended(&mut self) {
+        self.session.clear_store_confirm_flag();
+        if let Some(a) = self.after_save.take() {
+            self.after_save_action(a);
+        }
+    }
+
+    fn store_confirm_window(&mut self, ctx: &egui::Context) {
+        let Some(then) = self.store_confirm else {
+            return;
+        };
+        let mut answer = None;
+        egui::Window::new("Save captured data")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.label("Save captured data?");
+                ui.horizontal(|ui| {
+                    if ui.button("Yes").clicked() {
+                        answer = Some(true);
+                    }
+                    if ui.button("No").clicked() {
+                        answer = Some(false);
+                    }
+                });
+            });
+        match answer {
+            Some(true) => {
+                self.store_confirm = None;
+                if self.session.is_working() {
+                    self.session.stop_capture();
+                }
+                self.after_save = Some(then);
+                self.pick(
+                    ctx,
+                    "Save File",
+                    FileJob::Save,
+                    ("DSView data", &["dsl"]),
+                    true,
+                );
+            }
+            Some(false) => {
+                self.store_confirm = None;
+                self.after_save_action(then);
+            }
+            None => {}
+        }
+    }
+
     pub fn new(session: Session, shared: Shared, version: &str, ctx: &egui::Context) -> App {
         let _ = shared.ctx.set(ctx.clone());
         // repaint when the session changes (events arrive on other threads)
@@ -103,6 +198,8 @@ impl App {
             message: None,
             switch_prompt: None,
             known_devices: 0,
+            store_confirm: None,
+            after_save: None,
             bench: None,
             soak: None,
         }
@@ -141,7 +238,12 @@ impl App {
         self.files = None;
         self.shared.lock().dialog = None;
         let result = match job {
-            None => Ok(()),
+            None => {
+                if self.after_save.is_some() {
+                    self.save_ended();
+                }
+                Ok(())
+            }
             Some(FileJob::Open(p)) => self
                 .session
                 .set_file(&p.to_string_lossy())
@@ -243,14 +345,46 @@ impl App {
         if let Some(h) = active
             && !list.iter().any(|e| e.handle == h)
         {
-            self.message = Some("The current device was disconnected.".into());
-            if !self.session.is_working() {
+            // DSV_MSG_CURRENT_DEVICE_DETACHED: offer to save its data, then
+            // the default device
+            self.switch_prompt = None;
+            self.session.save_config();
+            if self.session.state().saving {
+                self.after_save = Some(AfterSave::DefaultDevice);
+            } else if !self.confirm_store(AfterSave::DefaultDevice, true)
+                && !self.session.is_working()
+            {
                 self.session.set_default_device();
             }
         } else if list.len() > self.known_devices && self.known_devices > 0 {
-            self.switch_prompt = list.last().map(|e| (e.handle, e.name.clone()));
+            // DSV_MSG_NEW_USB_DEVICE: not while a hardware capture runs; a
+            // demo is left without asking
+            let current = self.session.state().device.clone();
+            let hardware = current.as_ref().is_some_and(|d| d.is_hardware());
+            let demo = current.as_ref().is_some_and(|d| d.is_demo());
+            if let Some(newest) = list.last().map(|e| (e.handle, e.name.clone())) {
+                if demo {
+                    self.switch_to_new(newest.0);
+                } else if !(hardware && self.session.is_working()) {
+                    self.switch_prompt = Some(newest);
+                }
+            }
         }
         self.known_devices = list.len();
+    }
+
+    /// "To switch the new device?" answered yes: offer to save the logic or
+    /// analog data first.
+    fn switch_to_new(&mut self, handle: u64) {
+        let dso = self.session.mode() == dsview_core::Mode::Dso as i32;
+        if self.session.state().saving {
+            self.after_save = Some(AfterSave::Device(handle));
+        } else if dso || !self.confirm_store(AfterSave::Device(handle), true) {
+            if self.session.is_working() {
+                self.session.stop_capture();
+            }
+            self.session.set_device(handle);
+        }
     }
 
     fn control_ops(&mut self) {
@@ -269,6 +403,14 @@ impl App {
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.frame(ui);
+    }
+}
+
+impl App {
+    /// One frame of the window (eframe's `App::ui`, without the frame
+    /// handle it does not use).
+    pub fn frame(&mut self, ui: &mut egui::Ui) {
         let t0 = Instant::now();
         let ctx = ui.ctx().clone();
         let mut data = false;
@@ -469,6 +611,20 @@ impl eframe::App for App {
         egui::Panel::top("sampling").show(ui, |ui| {
             self.bar.show(ui, &self.session);
         });
+        // `SamplingBar::on_device_selected`: stop, offer to save, switch
+        if let Some(h) = self.bar.switch_to.take() {
+            self.session.stop_capture();
+            if !self.confirm_store(AfterSave::Device(h), false) {
+                self.session.set_device(h);
+            }
+        }
+        // `MainFrame::closeEvent` / `able_to_close`
+        if ctx.input(|i| i.viewport().close_requested())
+            && self.confirm_store(AfterSave::Nothing, true)
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+        }
+        self.store_confirm_window(&ctx);
         let dso_mode = self.session.mode() == dsview_core::Mode::Dso as i32;
         let logic_mode = self.session.mode() == dsview_core::Mode::Logic as i32;
         if logic_mode && self.search.open {
@@ -612,7 +768,10 @@ impl eframe::App for App {
                 self.options.save();
             }
             if matches!(out, crate::storedlg::Outcome::Done) {
-                self.store = None;
+                let saved = self.store.take().is_some_and(|d| !d.is_export());
+                if saved {
+                    self.save_ended();
+                }
             }
         }
         if let Some(mut o) = self.options_edit.take() {
@@ -648,10 +807,8 @@ impl eframe::App for App {
                     ui.label(format!("\"{name}\" was connected. Switch to it?"));
                     ui.horizontal(|ui| {
                         if ui.button("Switch").clicked() {
-                            if !self.session.is_working() {
-                                self.session.set_device(handle);
-                            }
                             self.switch_prompt = None;
+                            self.switch_to_new(handle);
                         }
                         if ui.button("Keep").clicked() {
                             self.switch_prompt = None;

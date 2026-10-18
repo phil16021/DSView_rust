@@ -20,6 +20,8 @@ pub struct SamplingBar {
     /// The auto calibration while it runs.
     pub zero: Option<crate::zerocal::ZeroCal>,
     pub message: Option<String>,
+    /// Another device was chosen; the app switches (after offering to save).
+    pub switch_to: Option<u64>,
 }
 
 impl Default for SamplingBar {
@@ -33,6 +35,7 @@ impl Default for SamplingBar {
             confirm_zero: false,
             zero: None,
             message: None,
+            switch_to: None,
         }
     }
 }
@@ -89,10 +92,12 @@ impl SamplingBar {
                             if ui.selectable_label(i as i32 == active, &e.name).clicked()
                                 && i as i32 != active
                             {
-                                s.set_device(e.handle);
+                                self.switch_to = Some(e.handle);
                             }
                         }
-                    });
+                    })
+                    .response
+                    .widget_info(|| named("Device"));
                 // work mode (devices with more than one)
                 let modes = s.modes();
                 if modes.len() > 1 {
@@ -113,7 +118,9 @@ impl SamplingBar {
                                     s.switch_work_mode(*m as i32);
                                 }
                             }
-                        });
+                        })
+                        .response
+                        .widget_info(|| named("Mode"));
                 }
                 if ui
                     .button("Options")
@@ -147,7 +154,9 @@ impl SamplingBar {
                                 s.select_duration(i);
                             }
                         }
-                    });
+                    })
+                    .response
+                    .widget_info(|| named(if dso { "Time per division" } else { "Duration" }));
                 ui.label("@");
                 let (rates, r) = s.rate_selector();
                 egui::ComboBox::from_id_salt("rate")
@@ -163,7 +172,9 @@ impl SamplingBar {
                                 s.select_rate(i);
                             }
                         }
-                    });
+                    })
+                    .response
+                    .widget_info(|| named("Sample rate"));
                 // collect mode (logic only)
                 if s.mode() == Mode::Logic as i32 {
                     egui::ComboBox::from_id_salt("collect")
@@ -176,7 +187,9 @@ impl SamplingBar {
                             ui.selectable_value(&mut self.collect, CollectMode::Single, "Single");
                             ui.selectable_value(&mut self.collect, CollectMode::Repeat, "Repeat");
                             ui.selectable_value(&mut self.collect, CollectMode::Loop, "Loop");
-                        });
+                        })
+                        .response
+                        .widget_info(|| named("Collect mode"));
                     if self.collect == CollectMode::Repeat {
                         ui.add(
                             egui::DragValue::new(&mut self.repeat_interval)
@@ -314,4 +327,9 @@ impl SamplingBar {
             });
         }
     }
+}
+
+/// AccessKit's name for a combo box without a visible label.
+fn named(name: &str) -> egui::WidgetInfo {
+    egui::WidgetInfo::labeled(egui::Role::ComboBox, true, name)
 }

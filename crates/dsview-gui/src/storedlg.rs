@@ -48,6 +48,10 @@ impl StoreDialog {
         self.original
     }
 
+    pub fn is_export(&self) -> bool {
+        self.export
+    }
+
     /// The work runs: the views wait (it holds the stores).
     pub fn busy(&self) -> bool {
         self.running.is_some()

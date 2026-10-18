@@ -229,6 +229,9 @@ pub struct State {
     /// Increments when a capture starts / ends (`START_COLLECT_WORK`,
     /// `END_COLLECT_WORK`).
     pub started_seq: u64,
+    /// The capture whose data was last offered for saving
+    /// (`_confirm_store_time_id`).
+    confirm_store_seq: u64,
     pub ended_seq: u64,
     pub cur_snap_samplerate: u64,
     pub cur_samplelimits: u64,
@@ -1371,6 +1374,32 @@ impl Session {
 
     pub fn is_decoding(&self) -> bool {
         self.state().decoding
+    }
+
+    /// `have_hardware_data()`: a hardware device's capture is shown.
+    pub fn have_hardware_data(&self) -> bool {
+        self.state()
+            .device
+            .as_ref()
+            .is_some_and(DeviceDesc::is_hardware)
+            && self.have_view_data()
+    }
+
+    /// `is_first_store_confirm()`: true once per capture, for the first
+    /// "Save captured data?".
+    pub fn is_first_store_confirm(&self) -> bool {
+        let mut st = self.state();
+        if st.started_seq != st.confirm_store_seq {
+            st.confirm_store_seq = st.started_seq;
+            return true;
+        }
+        false
+    }
+
+    /// `clear_store_confirm_flag()`: the capture was saved.
+    pub fn clear_store_confirm_flag(&self) {
+        let mut st = self.state();
+        st.confirm_store_seq = st.started_seq;
     }
 
     /// `have_view_data()`: the current mode's store has samples.
