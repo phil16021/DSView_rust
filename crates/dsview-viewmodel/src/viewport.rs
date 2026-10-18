@@ -58,10 +58,12 @@ pub struct Viewport {
 
 impl Default for Viewport {
     fn default() -> Self {
+        // View's `_scale(10)`: clamped to the whole capture by the first
+        // `update_limits`
         Viewport {
-            scale: 1e-8,
+            scale: 10.0,
             x_offset: 0,
-            pre_scale: 1e-8,
+            pre_scale: 10.0,
             pre_offset: 0,
             min_scale: 1e-15,
             max_scale: 1e9,
@@ -241,8 +243,8 @@ mod tests {
         let v = view(1000, &tb);
         assert_eq!(v.max_scale, 131_072.0 / 25e6 / 1000.0);
         assert_eq!(v.min_scale, 1.0 / 25e6 / 100.0);
-        // the default 10 ns/px lies inside [400 ps, 5.24 us]
-        assert_eq!(v.scale, 1e-8);
+        // the default 10 s/px (Qt's `_scale(10)`) shows the whole capture
+        assert_eq!(v.scale, v.max_scale);
     }
 
     #[test]
