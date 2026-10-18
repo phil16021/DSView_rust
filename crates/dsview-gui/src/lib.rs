@@ -16,6 +16,7 @@ pub mod refview;
 pub mod soak;
 pub mod timeview;
 pub mod toolbar;
+pub mod triggerdock;
 
 /// DSView's version (CMakeLists.txt `DS_VERSION_STRING`).
 pub const DSVIEW_VERSION: &str = "1.6.1";

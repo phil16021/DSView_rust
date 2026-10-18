@@ -34,6 +34,7 @@ pub struct App {
     pub bar: SamplingBar,
     pub protocol: ProtocolDock,
     pub dso_trigger: crate::dsotrigger::DsoTriggerDock,
+    pub trigger: crate::triggerdock::TriggerDock,
     pub fft: crate::fftview::FftState,
     pub shared: Shared,
     pub version: String,
@@ -70,6 +71,7 @@ impl App {
             bar: SamplingBar::default(),
             protocol: ProtocolDock::default(),
             dso_trigger: crate::dsotrigger::DsoTriggerDock::default(),
+            trigger: crate::triggerdock::TriggerDock::default(),
             fft: crate::fftview::FftState::default(),
             shared,
             version: version.into(),
@@ -332,6 +334,20 @@ impl eframe::App for App {
                 });
         }
         let dso = self.session.mode() == dsview_core::Mode::Dso as i32;
+        let logic = self.session.mode() == dsview_core::Mode::Logic as i32;
+        if logic && self.dso_trigger.open {
+            egui::Panel::right("trigger")
+                .resizable(true)
+                .default_size(330.0)
+                .show(ui, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        self.trigger.show(ui, &self.session);
+                    });
+                });
+        }
+        if let Some(m) = self.trigger.message.take() {
+            self.message = Some(m);
+        }
         if dso && self.dso_trigger.open {
             egui::Panel::right("dso-trigger")
                 .resizable(true)

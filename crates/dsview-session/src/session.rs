@@ -2044,6 +2044,12 @@ impl Session {
 
     /// The simple-trigger state per logic signal and the dock's position,
     /// for saving.
+    /// The trigger position slider's range (`MinTrigPosition`, the maximum
+    /// `device_updated` sets).
+    pub fn trigger_range(&self) -> (i32, i32) {
+        (MIN_TRIG_POS, self.state().trig_pos_max)
+    }
+
     pub fn trigger_position(&self) -> i32 {
         self.state().trig_pos
     }

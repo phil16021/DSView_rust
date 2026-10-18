@@ -420,6 +420,29 @@ fn dso_persistence() {
 }
 
 #[test]
+fn trigger_dock() {
+    let s = demo_session();
+    {
+        let mut st = s.state();
+        st.adv_trigger.advanced = true;
+        st.adv_trigger.stages = 2;
+        st.adv_trigger.stage[0].value0 =
+            dsview_session::trigger::normalise("XXXXXXXXXXXXXXR1", "X01RFC");
+    }
+    let mut dock = dsview_gui::triggerdock::TriggerDock::default();
+    let s2 = s.clone();
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(360.0, 640.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            dock.show(ui, &s2);
+        });
+    harness.run();
+    harness.snapshot("trigger_dock");
+    s.exit();
+}
+
+#[test]
 fn protocol_dock() {
     let s = demo_session();
     let mut dock = dsview_gui::protocol::ProtocolDock::default();
