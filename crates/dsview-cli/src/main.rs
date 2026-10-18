@@ -19,7 +19,8 @@ const DSVIEW_VERSION: &str = "1.6.1";
 
 const USAGE: &str = "\
 usage: dsview-cli serve --mcp [options]
-       dsview-cli soak [--mode loop|repeat] [--minutes N] [--device demo|dslogic] [options]
+       dsview-cli soak [--mode loop|repeat] [--minutes N] [--device demo|dslogic]
+                       [--samples FILE] [options]
 
 Runs DSView's capture session without a GUI behind the control socket
 (DSVIEW_MCP_SOCKET, else $XDG_RUNTIME_DIR/dsview/mcp.sock).
@@ -36,7 +37,9 @@ options:
 soak: captures for N minutes (default 60) in loop mode (one endless capture
 into the ring buffer; the demo's random pattern) or repeat mode (one capture
 after another, each decoded; the demo's protocol pattern) and reports the
-resident memory every minute and its growth after a 5-minute warm-up.
+resident memory every minute. After a 5-minute warm-up it samples the resident
+memory every 5 s (--samples FILE writes them) and passes when their trend over
+the run is under 1 %.
 ";
 
 static STOP: AtomicBool = AtomicBool::new(false);
@@ -76,6 +79,7 @@ fn main() {
     let mut mcp = false;
     let (mut socket, mut data_dir, mut decoders) = (None, None, None);
     let (mut soak_mode, mut minutes, mut device) = ("loop".to_owned(), 60.0f64, "demo".to_owned());
+    let mut samples_file = None;
     let mut level = 3;
     let mut it = args[1..].iter();
     while let Some(a) = it.next() {
@@ -93,6 +97,7 @@ fn main() {
             "--mode" => soak_mode = val(),
             "--minutes" => minutes = val().parse().unwrap_or_else(|_| fail("bad --minutes")),
             "--device" => device = val(),
+            "--samples" => samples_file = Some(val()),
             "-h" | "--help" => {
                 print!("{USAGE}");
                 return;
@@ -143,7 +148,7 @@ fn main() {
     );
     session.set_default_device();
     if cmd == "soak" {
-        let ok = soak::run(&session, &soak_mode, minutes, &device);
+        let ok = soak::run(&session, &soak_mode, minutes, &device, samples_file.as_deref());
         session.exit();
         std::process::exit(if ok { 0 } else { 1 });
     }

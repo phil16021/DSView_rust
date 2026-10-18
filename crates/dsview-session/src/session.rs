@@ -482,6 +482,24 @@ impl Session {
         }
     }
 
+    /// Changes channel `index` of type `ty` in place (the GUI writes
+    /// `sdi->channels` directly); false if there is none.
+    pub fn update_channel(&self, index: u16, ty: i32, f: impl FnOnce(&mut Channel)) -> bool {
+        let Some(e) = self.active() else { return false };
+        let mut d = e.lock();
+        match d
+            .channels_mut()
+            .iter_mut()
+            .find(|c| c.index == index && c.ty == ty)
+        {
+            Some(c) => {
+                f(c);
+                true
+            }
+            None => false,
+        }
+    }
+
     /// `ds_set_device_channel_name`
     pub fn set_channel_name(&self, index: u16, name: &str) -> bool {
         let Some(e) = self.active() else { return false };
@@ -540,6 +558,7 @@ impl Session {
         self.device_updated();
 
         let desc = desc.expect("activated");
+        self.load_device_config();
         if desc.is_file() {
             crate::store::load_file_session(self);
         } else if desc.is_demo() && self.mode() == Mode::Logic as i32 {
@@ -548,6 +567,28 @@ impl Session {
         let err = self.0.lib.last_error();
         // SR_ERR_DEVICE_FIRMWARE_VERSION_LOW .. SR_ERR_DEVICE_NO_DRIVER
         !(1000..1100).contains(&err)
+    }
+
+    /// `MainWindow::load_device_config()`: a demo loads the profile shipped
+    /// for its mode (`res/virtual-demo<mode>.dsc`, only DSO has one). The
+    /// user's hardware profiles are not read yet (they come with the GUI).
+    fn load_device_config(&self) {
+        let Some(d) = self.state().device.clone() else {
+            return;
+        };
+        if !d.is_demo() {
+            return;
+        }
+        let file = dsview_drivers::sys::res_dir().join(format!("{}{}.dsc", d.driver, self.mode()));
+        let Ok(text) = std::fs::read_to_string(&file) else {
+            return;
+        };
+        match serde_json::from_str(&text) {
+            Ok(doc) => {
+                crate::store::load_config_from_json(self, &doc);
+            }
+            Err(e) => sr_err!("Profile {}: {e}", file.display()),
+        }
     }
 
     /// `load_demo_decoder_config(pattern)` for a demo's current pattern.
@@ -600,6 +641,7 @@ impl Session {
         self.init_signals();
         self.sync_snap_settings();
         self.device_updated();
+        self.load_device_config();
         let demo = self
             .state()
             .device

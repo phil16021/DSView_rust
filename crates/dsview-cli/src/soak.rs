@@ -1,6 +1,6 @@
-//! `dsview-cli soak`: long captures with the resident memory watched. The
-//! growth is measured from the first sample after the warm-up (5 minutes,
-//! or half the run) to the last.
+//! `dsview-cli soak`: long captures with the resident memory watched. After
+//! a warm-up (5 minutes, or half the run) the resident set is sampled every
+//! 5 s; the growth is the least-squares trend of those samples over the run.
 
 use std::time::{Duration, Instant};
 
@@ -38,8 +38,9 @@ fn select(s: &Session, device: &str) -> bool {
     }
 }
 
-/// Runs the soak; true when it passed (captures ran, memory growth < 1 %).
-pub fn run(s: &Session, mode: &str, minutes: f64, device: &str) -> bool {
+/// Runs the soak; true when it passed (the capture ran throughout, the
+/// memory trend stays under 1 %). `samples_file` receives "seconds rss_kib" lines.
+pub fn run(s: &Session, mode: &str, minutes: f64, device: &str, samples_file: Option<&str>) -> bool {
     if !select(s, device) {
         eprintln!("soak: no {device} device");
         return false;
@@ -76,9 +77,9 @@ pub fn run(s: &Session, mode: &str, minutes: f64, device: &str) -> bool {
     let total = Duration::from_secs_f64(minutes * 60.0);
     // the ring buffer and the decoders' Python state fill up first
     let warmup = Duration::from_secs(300).min(total / 2);
-    let mut baseline = None;
-    let mut last = 0;
-    let mut next = Duration::from_secs(60).min(total);
+    let mut samples = Vec::new();
+    let mut next_sample = Duration::from_secs(5);
+    let mut next_print = Duration::from_secs(60).min(total);
     println!("minute rss_kib captures decoders_done");
     while t0.elapsed() < total {
         std::thread::sleep(Duration::from_millis(200));
@@ -86,7 +87,13 @@ pub fn run(s: &Session, mode: &str, minutes: f64, device: &str) -> bool {
             eprintln!("soak: the capture stopped after {:?}", t0.elapsed());
             return false;
         }
-        if t0.elapsed() >= next {
+        if t0.elapsed() >= next_sample {
+            if t0.elapsed() >= warmup {
+                samples.push(rss_kib());
+            }
+            next_sample += Duration::from_secs(5);
+        }
+        if t0.elapsed() >= next_print {
             let rss = rss_kib();
             let st = s.state();
             let done = st
@@ -100,22 +107,46 @@ pub fn run(s: &Session, mode: &str, minutes: f64, device: &str) -> bool {
                 st.captures
             );
             drop(st);
-            if t0.elapsed() >= warmup {
-                baseline.get_or_insert(rss);
-            }
-            last = rss;
-            next += Duration::from_secs(60);
+            next_print += Duration::from_secs(60);
         }
     }
     s.stop_capture();
     let captures = s.state().captures;
-    let Some(base) = baseline else {
+    if samples.len() < 8 {
         eprintln!("soak: too short to measure");
         return false;
-    };
-    let growth = (last as f64 - base as f64) / base as f64 * 100.0;
-    println!(
-        "soak {mode} on {device}: {captures} capture(s), rss {base} -> {last} KiB ({growth:+.2} %)"
+    }
+    // Single samples swing: repeat captures allocate and free per round, and
+    // a loop capture's ring holds one row of leaves more or less depending on
+    // where it stands. The trend is the least-squares slope over all samples,
+    // as growth over the measured span relative to the mean.
+    let n = samples.len() as f64;
+    let xs: Vec<f64> = (0..samples.len()).map(|i| i as f64 * 5.0).collect();
+    let ys: Vec<f64> = samples.iter().map(|&v| v as f64).collect();
+    let (mx, my) = (xs.iter().sum::<f64>() / n, ys.iter().sum::<f64>() / n);
+    let cov: f64 = xs.iter().zip(&ys).map(|(x, y)| (x - mx) * (y - my)).sum();
+    let var: f64 = xs.iter().map(|x| (x - mx) * (x - mx)).sum();
+    let slope = cov / var;
+    let span = xs[xs.len() - 1] - xs[0];
+    let growth = slope * span / my * 100.0;
+    let (lo, hi) = (
+        samples.iter().min().copied().unwrap_or(0),
+        samples.iter().max().copied().unwrap_or(0),
     );
+    println!(
+        "soak {mode} on {device}: {captures} capture(s), rss mean {:.0} KiB, range {lo}..{hi} KiB, \
+         trend {growth:+.2} % over {:.0} min ({} samples)",
+        my,
+        span / 60.0,
+        samples.len()
+    );
+    if let Some(path) = samples_file {
+        let text: String = xs
+            .iter()
+            .zip(&samples)
+            .map(|(x, v)| format!("{} {v}\n", x + warmup.as_secs_f64()))
+            .collect();
+        let _ = std::fs::write(path, text);
+    }
     growth < 1.0
 }

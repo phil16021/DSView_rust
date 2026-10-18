@@ -297,6 +297,33 @@ pub fn load_file_session(s: &Session) {
     s.start_capture(true);
 }
 
+/// `load_probe_analog_settings`: only what the session stores (a logic
+/// session must not zero a DSO channel's settings).
+fn load_probe_analog_settings(ch: &mut dsview_core::Channel, o: &Map<String, Value>) {
+    let num = |k: &str| o.get(k).and_then(Value::as_f64);
+    if let Some(v) = num("vdiv").filter(|v| *v > 0.0) {
+        ch.vdiv = v as u64;
+    }
+    if let Some(v) = num("coupling") {
+        ch.coupling = v as u8;
+    }
+    if let Some(v) = num("vfactor").filter(|v| *v > 0.0) {
+        ch.vfactor = v as u64;
+    }
+    if let Some(v) = num("trigValue") {
+        ch.trig_value = v as u8;
+    }
+    if let Some(v) = o.get("mapUnit") {
+        ch.map_unit = Some(v.as_str().unwrap_or("").to_owned());
+    }
+    if let Some(v) = num("mapMin") {
+        ch.map_min = v;
+    }
+    if let Some(v) = num("mapMax") {
+        ch.map_max = v;
+    }
+}
+
 /// `MainWindow::load_config_from_json`; true when it loaded decoders.
 pub fn load_config_from_json(s: &Session, doc: &Value) -> bool {
     let Some(obj) = doc.as_object() else {
@@ -383,6 +410,7 @@ pub fn load_config_from_json(s: &Session, doc: &Value) -> bool {
         match found {
             Some(o) => {
                 let en = o.get("enabled").and_then(Value::as_bool).unwrap_or(false);
+                s.update_channel(c.index, c.ty, |ch| load_probe_analog_settings(ch, o));
                 s.enable_channel(c.index, en);
                 if mode != Mode::Dso as i32 {
                     let mut name = o
