@@ -169,7 +169,9 @@ pub fn logic_ticks(
     let mut tick_period = 0.0;
     loop {
         tick_period += min_period;
-        if !(typical_width > tick_period / scale) || min_period <= 0.0 {
+        // C's do-while: until the period leaves room for a label (NaN ends it)
+        let room = typical_width.partial_cmp(&(tick_period / scale));
+        if room != Some(std::cmp::Ordering::Greater) || min_period <= 0.0 {
             break;
         }
     }
