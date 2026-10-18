@@ -7,7 +7,7 @@
 | 2 Decoder engine | **done**: Rust/PyO3 engine behind `DSVIEW_IMPL_DECODE`; Rust becomes the default after one release of A/B | See "Phase 2" below |
 | 3 Drivers | **done except hardware steps**: 3a demo, 3b file, 3c USB layer, 3d DSLogic (replug tests passed 2026-10-18), 3e DSCope/MSO-E8 (`DSVIEW_IMPL_DRV_DEMO` / `_FILE` / `_DSLOGIC` / `_DSCOPE`). Open: a firmware upload from the host, the nightly runs, one DSCope/E8 hardware confirmation | See "Phase 3" below |
 | 4 Session + control API | **done**: 4a acquisition library in Rust behind `DSVIEW_IMPL_ACQ`; 4b capture session, control server, `dsview-cli serve --mcp` (transcript identical to the Qt GUI, 1 h soaks passed) | See "Phase 4" below |
-| 5 Rust GUI | **in progress**: M6.0, M6a-M6e done; the Rust GUI is the default on Linux (`DSVIEW_RUST_GUI`, Qt kept as `DSView-qt` for one release); next M6f polish | Plan revised 2026-10-18 (PLAN.md §5); PARITY.md 41 of 52, the rest M6f |
+| 5 Rust GUI | **in progress**: M6.0, M6a-M6f done; the Rust GUI is the default on Linux (`DSVIEW_RUST_GUI`, Qt kept as `DSView-qt` for one release); next M6g hardening | PARITY.md 52 of 52 (2026-10-19); open: eframe `accesskit` feature (needs `accesskit_winit`), font licence for `cargo deny` |
 | 6 Removal + packaging | planned after release R1: M7a removal and packaging, M7b post-parity fixes | PLAN.md (revised 2026-10-18): M6f → M6g → R1 → M7a/M7b |
 
 ## Phase 0 deliverables
@@ -921,7 +921,7 @@ the demo transcript is unchanged.
   `-s`, AccessKit in the binary (needs `accesskit_winit`, not in the offline registry), dock
   layout per mode, log options.
 
-### M6f polish: in progress
+### M6f polish: done 2026-10-19
 **Step 1, settings and the `DSView.conf` import (done 2026-10-18):**
 - **Model:** `AppOptions` (in `crates/dsview-gui/src/options.rs`) now holds all of Qt's `AppConfig`:
   - every `[Application]` key;
@@ -1085,3 +1085,17 @@ the demo transcript is unchanged.
   (`epaint_default_fonts`: OFL-1.1 AND Ubuntu-font-1.0), present since M6.0. Either allow
   `Ubuntu-font-1.0` in `deny.toml`, or build egui without `default_fonts` and ship another UI font.
 
+**Step 8, accessibility (done 2026-10-19):**
+- **Audit:** `app_flow::accessibility_of_the_dialogs` opens every dialog through the window, and
+  kittest's accessibility check fails on any widget without a name. The dialogs covered:
+  - logic: Application Options, Channels, Device Options, Search Options (from the search dock) and
+    the decoder options (from the picker);
+  - DSO: FFT, Math, Lissajous, Reference, Histogram, Channel-to-channel measure and Device Options.
+- **Fixed by it:**
+  - the FFT and Math option rows, now labelled by their row text;
+  - the search fields that showed only a hint, now named text inputs.
+- **The window tests load the decoders**, so the decoder picker has entries there.
+- **Not done, needs network:** exposing the tree to screen readers needs eframe's `accesskit`
+  feature, and its `accesskit_winit` crate is not in the offline registry.
+- **PARITY.md is at 52 of 52.** The command-line row is ticked: `-l`, `-v`, `-s`, `--mcp` and the
+  file argument have been in place since step 2.

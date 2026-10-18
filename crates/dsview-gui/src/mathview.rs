@@ -91,7 +91,7 @@ impl MathState {
             .show(ctx, |ui| {
                 ui.checkbox(&mut d.enabled, tr("Enable"));
                 ui.separator();
-                let src = |ui: &mut Ui, id: &str, v: &mut u16| {
+                let src = |ui: &mut Ui, id: &str, v: &mut u16, label: egui::Id| {
                     let cur = names
                         .iter()
                         .find(|n| n.0 == *v)
@@ -102,16 +102,20 @@ impl MathState {
                             for (i, n) in names {
                                 ui.selectable_value(v, *i, n);
                             }
-                        });
+                        })
+                        .response
+                        .labelled_by(label);
                 };
                 egui::Grid::new("math-options")
                     .num_columns(2)
                     .show(ui, |ui| {
-                        ui.label(tr("Source 1"));
-                        src(ui, "math-src1", &mut d.src1);
+                        let l = ui.label(tr("Source 1"));
+                        src(ui, "math-src1", &mut d.src1, l.id);
                         ui.end_row();
-                        ui.label(tr("Source 2"));
-                        ui.add_enabled_ui(!d.ty.is_unary(), |ui| src(ui, "math-src2", &mut d.src2));
+                        let l = ui.label(tr("Source 2"));
+                        ui.add_enabled_ui(!d.ty.is_unary(), |ui| {
+                            src(ui, "math-src2", &mut d.src2, l.id)
+                        });
                         ui.end_row();
                     });
                 ui.separator();

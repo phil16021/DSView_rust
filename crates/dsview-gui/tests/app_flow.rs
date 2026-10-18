@@ -20,6 +20,11 @@ fn root() -> PathBuf {
 
 /// A session on a simulated DSLogic Plus (and the demo devices).
 fn dslogic_session() -> Session {
+    static INIT: std::sync::Once = std::sync::Once::new();
+    INIT.call_once(|| {
+        let _ = dsview_decode::init(&[root().join("libsigrokdecode4DSL/decoders").as_path()]);
+        dsview_decode::load_all();
+    });
     let hub = Arc::new(Mutex::new(Hub::new(SimConfig::new(
         0x2A0E,
         0x0034,
@@ -60,6 +65,8 @@ fn harness(s: &Session) -> (Harness<'static>, Arc<Mutex<Option<App>>>) {
     let (s2, a2) = (s.clone(), app.clone());
     let h = Harness::builder()
         .with_size(egui::vec2(1200.0, 800.0))
+        // windows that settle in a few frames (sizing, a first texture)
+        .with_max_steps(16)
         .build_ui(move |ui| {
             let mut a = a2.lock().unwrap();
             let app =
@@ -290,5 +297,78 @@ fn startup_dialogs() {
         assert!(a.options.history.show_driver_hint);
         assert!(a.startup.is_none());
     }
+    s.exit();
+}
+
+/// AccessKit audit: every dialog the window opens is drawn once; the
+/// harness's accessibility check fails on a widget without a name.
+#[test]
+fn accessibility_of_the_dialogs() {
+    let s = dslogic_session();
+    let (mut h, _app) = harness(&s);
+    h.run();
+    let open = |h: &mut Harness<'_>, path: &[&str], window: &str| {
+        for item in path {
+            h.get_by_label(item).click();
+            h.run();
+        }
+        assert!(
+            h.query_all_by_label(window).next().is_some(),
+            "{window} did not open"
+        );
+        h.key_press(egui::Key::Escape);
+        h.run();
+        h.run();
+    };
+    // logic
+    open(&mut h, &["Display", "Options…"], "Application Options");
+    open(&mut h, &["Channels"], "Channels");
+    open(&mut h, &["Options"], "Device Options");
+    // the search dock's pattern dialog
+    std::thread::sleep(Duration::from_millis(220));
+    h.key_press(egui::Key::R);
+    h.run();
+    h.get_by_label_contains("Search: ").click();
+    h.run();
+    assert!(h.query_all_by_label("Search Options").next().is_some());
+    h.key_press(egui::Key::Escape);
+    h.run();
+    // the decoder options, from the picker
+    std::thread::sleep(Duration::from_millis(220));
+    h.key_press(egui::Key::D);
+    h.run();
+    h.get_by_label("Search decoders").click();
+    h.run();
+    h.get_by_label("Search decoders").type_text("uart");
+    h.run();
+    h.get_all_by_label_contains("(1:uart)")
+        .next()
+        .unwrap()
+        .click();
+    h.run();
+    assert!(h.query_all_by_label_contains("options").next().is_some());
+    h.key_press(egui::Key::Escape);
+    h.run();
+    // the oscilloscope's functions
+    let dso = s
+        .devices()
+        .0
+        .iter()
+        .find(|e| e.name == "Demo Oscilloscope")
+        .unwrap()
+        .handle;
+    assert!(s.set_device(dso));
+    h.run();
+    open(&mut h, &["Function", "FFT…"], "FFT Options");
+    open(&mut h, &["Function", "Math…"], "Math Options");
+    open(&mut h, &["Function", "Lissajous…"], "Lissajous Options");
+    open(&mut h, &["Function", "Reference…"], "Reference Waveforms");
+    open(&mut h, &["Function", "Histogram…"], "Histogram");
+    open(
+        &mut h,
+        &["Function", "Channel measure…"],
+        "Channel-to-channel measure",
+    );
+    open(&mut h, &["Options"], "Device Options");
     s.exit();
 }

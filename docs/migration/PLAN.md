@@ -475,7 +475,7 @@ and snapshot exits.
 The parity checklist is PARITY.md (extended 2026-10-18 with features the first inventory missed).
 No new features are added before M7.
 
-#### 5.5 M6f in detail (offline items first)
+#### 5.5 M6f in detail (offline items first) — done 2026-10-19
 The analysis behind these steps was done 2026-10-18: Qt sources, the strings, and the crates in the
 offline registry.
 
@@ -856,12 +856,16 @@ alongside M6f.
 | Missing crates offline (nusb, pyo3, egui_dock, cbindgen, criterion not cached) | First fetch needs network; optionally `cargo vendor` |
 
 ## 6. Immediate next step
-*Updated 2026-10-18: Phases 0-4 and M6.0-M6e are done (STATUS.md); the plan was revised after M6e.*
+*Updated 2026-10-19: Phases 0-4 and M6.0-M6f are done (STATUS.md); PARITY.md stands at 52 of 52.*
 
-**M6f step 1: settings and the `DSView.conf` import**, then steps 2-8 of §5.5 in order. The hardware
-work of M6g (§5.6 item 4) can run alongside it.
+**M6g hardening (§5.6)**, starting with its offline items: libpython RUNPATH and `PYTHONHOME`,
+missing-firmware errors, the srzip port, the `dsview-cli` subcommands. Its hardware steps follow on
+the DSLogic Plus.
 
-After M6f come M6g, release R1, then Phase 6 (M7a, with M7b alongside).
+Two things left over from M6f wait for the user: eframe's `accesskit` feature (a one-time fetch of
+`accesskit_winit`), and the font licence for `cargo deny` (STATUS.md, M6f step 7).
+
+After M6g come release R1, then Phase 6 (M7a, with M7b alongside).
 
 Each milestone ends with a commit, STATUS/DEVIATIONS updates, and a report before the next one
 starts. Steps that need the network (`accesskit_winit`, cargo-deb, loom) are asked for when they

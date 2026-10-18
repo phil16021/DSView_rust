@@ -54,8 +54,8 @@ Milestones: **a** viewer, **b** logic capture, **c** decoders, **d** DSO/analog,
 - [x] (f) Themes: dark, light, frappé, latte; about 250 SVG icons (the 27 icons on bars and menus, both sets; Qt's widget-decoration SVGs have no use in egui)
 - [x] (f) Help: user guide PDFs, bug-report and release URLs, open log file
 - [x] (a) Control API (`--mcp`) hosted natively: the 31 methods and `testdata/control/demo-scenario.json` pass
-- [ ] (f) Command line: `-l`, `-v`, `-s`, `--mcp`, file to open
-- [ ] (f) Accessibility: AccessKit audit
+- [x] (f) Command line: `-l`, `-v`, `-s`, `--mcp`, file to open
+- [x] (f) Accessibility: AccessKit audit (every dialog named; exposing the tree to screen readers needs eframe's `accesskit` feature, which waits for a one-time fetch of `accesskit_winit`)
 
 ## Added 2026-10-18 (missed by the first inventory)
 These are existing Qt features found in the Phase 5 analysis, not new features.

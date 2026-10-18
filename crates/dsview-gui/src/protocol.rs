@@ -395,7 +395,10 @@ impl ProtocolDock {
                 egui::TextEdit::singleline(&mut self.search)
                     .hint_text(tr("Search decoders"))
                     .desired_width(150.0),
-            );
+            )
+            .widget_info(|| {
+                egui::WidgetInfo::labeled(egui::Role::TextInput, true, tr("Search decoders"))
+            });
         });
         if !self.search.is_empty() {
             let needle = self.search.to_lowercase();
@@ -841,7 +844,8 @@ impl ProtocolDock {
                 egui::TextEdit::singleline(&mut self.filter)
                     .hint_text(tr("Search"))
                     .desired_width(120.0),
-            );
+            )
+            .widget_info(|| egui::WidgetInfo::labeled(egui::Role::TextInput, true, tr("Search")));
             let key = (
                 self.table,
                 self.filter_col,

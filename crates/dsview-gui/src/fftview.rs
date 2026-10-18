@@ -256,10 +256,10 @@ impl FftState {
                 egui::Grid::new("fft-options")
                     .num_columns(2)
                     .show(ui, |ui| {
-                        ui.label(tr("FFT Enable: "));
-                        ui.checkbox(&mut d.spec.enabled, "");
+                        let l = ui.label(tr("FFT Enable: "));
+                        ui.checkbox(&mut d.spec.enabled, "").labelled_by(l.id);
                         ui.end_row();
-                        ui.label(tr("FFT Source: "));
+                        let l = ui.label(tr("FFT Source: "));
                         let names: Vec<(u16, String)> = s
                             .state()
                             .signals
@@ -283,18 +283,22 @@ impl FftState {
                                         };
                                     }
                                 }
-                            });
+                            })
+                            .response
+                            .labelled_by(l.id);
                         ui.end_row();
                         let (lengths, _) =
                             spectrum::lengths_and_intervals(max_limits, d.spec.sample_num);
-                        ui.label(tr("FFT Length: "));
+                        let l = ui.label(tr("FFT Length: "));
                         egui::ComboBox::from_id_salt("fft-len")
                             .selected_text(d.spec.sample_num.to_string())
                             .show_ui(ui, |ui| {
                                 for l in &lengths {
                                     ui.selectable_value(&mut d.spec.sample_num, *l, l.to_string());
                                 }
-                            });
+                            })
+                            .response
+                            .labelled_by(l.id);
                         ui.end_row();
                         // the intervals follow the length
                         let (_, intervals2) =
@@ -302,37 +306,43 @@ impl FftState {
                         if !intervals2.contains(&d.spec.interval) {
                             d.spec.interval = intervals2.last().copied().unwrap_or(1);
                         }
-                        ui.label(tr("Sample Interval: "));
+                        let l = ui.label(tr("Sample Interval: "));
                         egui::ComboBox::from_id_salt("fft-int")
                             .selected_text(d.spec.interval.to_string())
                             .show_ui(ui, |ui| {
                                 for v in &intervals2 {
                                     ui.selectable_value(&mut d.spec.interval, *v, v.to_string());
                                 }
-                            });
+                            })
+                            .response
+                            .labelled_by(l.id);
                         ui.end_row();
-                        ui.label(tr("FFT Window: "));
+                        let l = ui.label(tr("FFT Window: "));
                         egui::ComboBox::from_id_salt("fft-win")
                             .selected_text(WINDOWS[d.spec.window.clamp(0, 4) as usize])
                             .show_ui(ui, |ui| {
                                 for (k, w) in WINDOWS.iter().enumerate() {
                                     ui.selectable_value(&mut d.spec.window, k as i32, *w);
                                 }
-                            });
+                            })
+                            .response
+                            .labelled_by(l.id);
                         ui.end_row();
-                        ui.label(tr("DC Ignored: "));
-                        ui.checkbox(&mut d.spec.dc_ignore, "");
+                        let l = ui.label(tr("DC Ignored: "));
+                        ui.checkbox(&mut d.spec.dc_ignore, "").labelled_by(l.id);
                         ui.end_row();
-                        ui.label(tr("Y-axis Mode: "));
+                        let l = ui.label(tr("Y-axis Mode: "));
                         egui::ComboBox::from_id_salt("fft-mode")
                             .selected_text(VIEW_MODES[d.spec.view_mode.min(1)])
                             .show_ui(ui, |ui| {
                                 for (k, m) in VIEW_MODES.iter().enumerate() {
                                     ui.selectable_value(&mut d.spec.view_mode, k, *m);
                                 }
-                            });
+                            })
+                            .response
+                            .labelled_by(l.id);
                         ui.end_row();
-                        ui.label(tr("DBV Range: "));
+                        let l = ui.label(tr("DBV Range: "));
                         ui.add_enabled_ui(d.spec.view_mode == 1, |ui| {
                             egui::ComboBox::from_id_salt("fft-dbv")
                                 .selected_text(d.spec.dbv_range.to_string())
@@ -344,7 +354,9 @@ impl FftState {
                                             r.to_string(),
                                         );
                                     }
-                                });
+                                })
+                                .response
+                                .labelled_by(l.id);
                         });
                         ui.end_row();
                     });
