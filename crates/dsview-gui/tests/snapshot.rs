@@ -874,3 +874,116 @@ fn yscale_badge() {
     assert_eq!(view.lock().unwrap().height_factor, 1.0);
     s.exit();
 }
+
+/// Dragging a header label moves the trace on the 10 px grid and renumbers
+/// the view order; Ctrl+click selects a second trace and both move.
+#[test]
+fn header_drag_and_multi_select() {
+    use dsview_session::session::TraceRef;
+    let s = demo_session();
+    let view = Arc::new(std::sync::Mutex::new(TimeView::default()));
+    let (s2, v2) = (s.clone(), view.clone());
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1100.0, 640.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            v2.lock().unwrap().show(ui, &s2);
+        });
+    harness.run();
+    let rows = view.lock().unwrap().shown_rows().to_vec();
+    let order = |v: &TimeView| {
+        v.shown_rows()
+            .iter()
+            .map(|r| r.0)
+            .collect::<Vec<TraceRef>>()
+    };
+    let first = order(&view.lock().unwrap());
+    let x = 60.0;
+    let drag = |h: &mut Harness<'_>, y0: f32, y1: f32, mods: egui::Modifiers| {
+        let ev = |h: &mut Harness<'_>, e: egui::Event| h.input_mut().events.push(e);
+        ev(h, egui::Event::PointerMoved(egui::pos2(x, y0)));
+        h.event_modifiers(
+            egui::Event::PointerButton {
+                pos: egui::pos2(x, y0),
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: mods,
+            },
+            mods,
+        );
+        h.run();
+        for k in 1..=4 {
+            let y = y0 + (y1 - y0) * k as f32 / 4.0;
+            ev(h, egui::Event::PointerMoved(egui::pos2(x, y)));
+            h.run();
+        }
+        ev(
+            h,
+            egui::Event::PointerButton {
+                pos: egui::pos2(x, y1),
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            },
+        );
+        h.run();
+        h.run();
+    };
+    // the first trace below the third one
+    drag(
+        &mut harness,
+        rows[0].1,
+        rows[2].1 + 8.0,
+        egui::Modifiers::NONE,
+    );
+    let second = order(&view.lock().unwrap());
+    assert_eq!(second[2], first[0], "{second:?}");
+    assert_eq!(second[0], first[1]);
+    // Ctrl+click the (new) first trace, then press the second with Ctrl
+    // and drag it without: both go to the end
+    let rows = view.lock().unwrap().shown_rows().to_vec();
+    let ctrl = egui::Modifiers {
+        ctrl: true,
+        command: true,
+        ..Default::default()
+    };
+    let ev = |h: &mut Harness<'_>, e: egui::Event| h.input_mut().events.push(e);
+    let button = |y: f32, pressed: bool, modifiers: egui::Modifiers| egui::Event::PointerButton {
+        pos: egui::pos2(x, y),
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers,
+    };
+    for (k, y) in [rows[0].1, rows[1].1].into_iter().enumerate() {
+        ev(&mut harness, egui::Event::PointerMoved(egui::pos2(x, y)));
+        ev(&mut harness, egui::Event::ModifiersChanged(ctrl));
+        ev(&mut harness, button(y, true, ctrl));
+        harness.run();
+        if k == 0 {
+            ev(&mut harness, button(y, false, ctrl));
+            harness.run();
+        }
+    }
+    ev(
+        &mut harness,
+        egui::Event::ModifiersChanged(egui::Modifiers::NONE),
+    );
+    // the pair keeps its spacing: far enough for the upper one to pass the
+    // last trace too
+    let last = rows.last().unwrap().1 + (rows[1].1 - rows[0].1);
+    for k in 1..=4 {
+        let y = rows[1].1 + (last + 30.0 - rows[1].1) * k as f32 / 4.0;
+        ev(&mut harness, egui::Event::PointerMoved(egui::pos2(x, y)));
+        harness.run();
+    }
+    ev(
+        &mut harness,
+        button(last + 30.0, false, egui::Modifiers::NONE),
+    );
+    harness.run();
+    harness.run();
+    let third = order(&view.lock().unwrap());
+    let n = third.len();
+    assert_eq!(&third[n - 2..], &[second[0], second[1]], "{third:?}");
+    s.exit();
+}

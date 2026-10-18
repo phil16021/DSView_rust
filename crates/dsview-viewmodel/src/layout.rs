@@ -67,6 +67,29 @@ pub struct LayoutParams {
 }
 
 /// `View::signals_changed` for the time view.
+/// `View::SignalSnapGridSize`: dragged traces snap to a 10 px grid.
+pub const SIGNAL_SNAP_GRID: i64 = 10;
+
+/// `Header::mouseMoveEvent`: the traces dragged from offsets `starts` by
+/// `delta` pixels land on the grid; with Ctrl held they stay (Qt moves
+/// logic traces only without it). None when nothing moves.
+pub fn header_drag<T: Copy>(starts: &[(T, f64)], delta: f64, ctrl: bool) -> Option<Vec<(T, f64)>> {
+    if ctrl {
+        return None;
+    }
+    let snap = |y: f64| {
+        let y = y as i64;
+        // C integer division
+        ((y + SIGNAL_SNAP_GRID / 2) / SIGNAL_SNAP_GRID * SIGNAL_SNAP_GRID) as f64
+    };
+    let moved: Vec<(T, f64)> = starts.iter().map(|&(t, y)| (t, snap(y + delta))).collect();
+    moved
+        .iter()
+        .zip(starts)
+        .any(|(a, b)| a.1 != b.1)
+        .then_some(moved)
+}
+
 pub fn layout(slots: &[Slot], p: &LayoutParams) -> Layout {
     let margin = if p.dividers {
         SIGNAL_MARGIN
@@ -228,5 +251,20 @@ mod tests {
         let order: Vec<usize> = l.placed.iter().map(|p| p.slot).collect();
         assert_eq!(order, [3, 1, 2, 4, 0]);
         assert_eq!(l.placed[0].total_height, (l.signal_height * 3.0) as i32);
+    }
+
+    #[test]
+    fn header_drag_snaps() {
+        let starts = [(1, 33.0), (2, 70.0)];
+        assert_eq!(
+            header_drag(&starts, 0.0, false).unwrap(),
+            vec![(1, 30.0), (2, 70.0)]
+        );
+        assert_eq!(
+            header_drag(&starts, 14.0, false).unwrap(),
+            vec![(1, 50.0), (2, 80.0)]
+        );
+        assert!(header_drag(&[(1, 30.0)], 2.0, false).is_none());
+        assert!(header_drag(&starts, 40.0, true).is_none());
     }
 }

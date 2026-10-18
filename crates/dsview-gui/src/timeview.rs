@@ -12,7 +12,7 @@ use dsview_session::session::{DecodeTrace, Signal, TraceRef, trig};
 use dsview_viewmodel::cursors::{Cursors, cursor_hsva};
 use dsview_viewmodel::decode::{self as vdec, AnnShape};
 use dsview_viewmodel::input::{self, DRAG_TIMER_INTERVAL_MS, Kinetic, Mods, WheelAction};
-use dsview_viewmodel::layout::{self, LayoutParams, Slot, TraceKind};
+use dsview_viewmodel::layout::{self as vlayout, LayoutParams, Slot, TraceKind};
 use dsview_viewmodel::logic::{EdgeBuffers, logic_shape};
 use dsview_viewmodel::measure::{self, MouseMeasure};
 use dsview_viewmodel::progress as vprog;
@@ -115,7 +115,11 @@ pub struct TimeView {
     pub jump: Option<(i64, u64)>,
     rename: Option<(u16, i32, String)>,
     colour_edit: Option<(u16, i32)>,
-    header_drag: Option<(TraceRef, f32)>,
+    header_drag: Option<HeaderDrag>,
+    /// Traces selected in the header (`Trace::select`, Ctrl+click adds).
+    selected: Vec<TraceRef>,
+    /// The logic view's traces and their centres on screen, as last drawn.
+    shown_rows: Vec<(TraceRef, f32)>,
     /// The capture the view was fitted to.
     fitted_capture: u64,
     pub vertical_scroll_is_zoom: bool,
@@ -148,6 +152,27 @@ pub struct TimeView {
     yscale_flash: Option<Instant>,
 }
 
+/// A header drag (`_drag_traces`): the pointer's y at the press, the
+/// traces with their offsets then (in the traces' coordinates) and where
+/// they are now, once moved.
+#[derive(Clone, Debug)]
+struct HeaderDrag {
+    down_y: f32,
+    starts: Vec<(TraceRef, f64)>,
+    moved: Option<Vec<(TraceRef, f64)>>,
+}
+
+impl HeaderDrag {
+    /// Where trace `r` is drawn (screen y), if it is being dragged.
+    fn y_of(&self, r: TraceRef, top: f32) -> Option<f32> {
+        self.moved
+            .as_ref()?
+            .iter()
+            .find(|x| x.0 == r)
+            .map(|x| top + x.1 as f32)
+    }
+}
+
 impl Default for TimeView {
     fn default() -> Self {
         TimeView {
@@ -171,6 +196,8 @@ impl Default for TimeView {
             rename: None,
             colour_edit: None,
             header_drag: None,
+            selected: Vec::new(),
+            shown_rows: Vec::new(),
             fitted_capture: u64::MAX,
             vertical_scroll_is_zoom: true,
             quick_scroll: true,
@@ -345,7 +372,7 @@ impl TimeView {
         let max_height_value = s
             .config(dsview_core::key::MAX_HEIGHT_VALUE, None)
             .map(|v| v.get_byte());
-        let l = layout::layout(
+        let l = vlayout::layout(
             &slots,
             &LayoutParams {
                 viewport_height: area.height() as f64,
@@ -394,6 +421,10 @@ impl TimeView {
             .v_scroll
             .clamp(0.0, (content_h - area.height()).max(0.0));
 
+        self.shown_rows = rows
+            .iter()
+            .map(|r| (r.r, area.top() + r.y - self.v_scroll))
+            .collect();
         let mut changed = self.input(ui, s, &tb, area, &rows);
         changed |= self.ruler_input(ui, s, ruler_rect, area, &tb);
         let badge = self.yscale_badge(ui, area);
@@ -1266,27 +1297,59 @@ impl TimeView {
     /// the five trigger squares of a logic trace, drag to reorder.
     fn header(&mut self, ui: &mut Ui, s: &Session, header: Rect, area: Rect, rows: &[Row]) -> bool {
         let mut changed = false;
+        let (pressed, ctrl, pointer) = ui.input(|i| {
+            (
+                i.pointer.primary_pressed(),
+                i.modifiers.ctrl || i.modifiers.command,
+                i.pointer.interact_pos(),
+            )
+        });
+        // the traces' offsets (`get_v_offset`) in content coordinates
+        let offset = |r: &Row| (r.y) as f64;
         for row in rows {
-            let Some(sig) = &row.sig else { continue };
             let cy = area.top() + row.y - self.v_scroll;
             if cy < area.top() - 20.0 || cy > area.bottom() + 20.0 {
                 continue;
             }
-            let swatch = Rect::from_center_size(pos2(header.left() + 12.0, cy), vec2(12.0, 12.0));
             let name = Rect::from_min_max(
                 pos2(header.left() + 22.0, cy - 9.0),
                 pos2(header.right() - 64.0, cy + 9.0),
             );
             let resp = ui.interact(
                 name,
-                ui.make_persistent_id(("name", sig.index)),
+                ui.make_persistent_id(("name", row.r)),
                 egui::Sense::click_and_drag(),
             );
+            // `mousePressEvent` on the label: select it and drag it, with
+            // Ctrl also the traces selected before
+            if pressed
+                && resp.hovered()
+                && let Some(p) = pointer
+            {
+                let mut starts: Vec<(TraceRef, f64)> = Vec::new();
+                if ctrl {
+                    for r in rows.iter().filter(|r| self.selected.contains(&r.r)) {
+                        starts.push((r.r, offset(r)));
+                    }
+                    if !self.selected.contains(&row.r) {
+                        self.selected.push(row.r);
+                    }
+                } else {
+                    self.selected = vec![row.r];
+                }
+                if !starts.iter().any(|x| x.0 == row.r) {
+                    starts.push((row.r, offset(row)));
+                }
+                self.header_drag = Some(HeaderDrag {
+                    down_y: p.y,
+                    starts,
+                    moved: None,
+                });
+            }
+            let Some(sig) = &row.sig else { continue };
+            let swatch = Rect::from_center_size(pos2(header.left() + 12.0, cy), vec2(12.0, 12.0));
             if resp.double_clicked() {
                 self.rename = Some((sig.index, sig.ty, sig.name.clone()));
-            }
-            if resp.drag_started() {
-                self.header_drag = Some((row.r, cy));
             }
             let sw = ui.interact(
                 swatch,
@@ -1322,25 +1385,34 @@ impl TimeView {
                 }
             }
         }
-        // header drag: drop between rows renumbers the view order
-        if let Some((r, _)) = self.header_drag {
-            let pointer = ui.input(|i| i.pointer.interact_pos());
+        // `mouseMoveEvent`: the dragged traces follow on the 10 px grid;
+        // `mouseReleaseEvent`: a move renumbers the view order by y and
+        // unselects all
+        if let Some(d) = &mut self.header_drag {
             let released = ui.input(|i| i.pointer.any_released());
-            if let Some(p) = pointer {
-                self.header_drag = Some((r, p.y));
-            }
-            if released && let Some((dragged, y)) = self.header_drag.take() {
-                let mut order: Vec<(f32, TraceRef)> = rows
-                    .iter()
-                    .map(|x| {
-                        let cy = area.top() + x.y - self.v_scroll;
-                        (if x.r == dragged { y } else { cy }, x.r)
-                    })
-                    .collect();
-                order.sort_by(|a, b| a.0.total_cmp(&b.0));
-                let refs: Vec<TraceRef> = order.into_iter().map(|x| x.1).collect();
-                s.set_view_order(&refs);
+            if let Some(p) = pointer
+                && let Some(m) = vlayout::header_drag(&d.starts, (p.y - d.down_y) as f64, ctrl)
+            {
+                d.moved = Some(m);
                 changed = true;
+            }
+            if released {
+                if let Some(moved) = self.header_drag.take().and_then(|d| d.moved) {
+                    let mut order: Vec<(f64, TraceRef)> = rows
+                        .iter()
+                        .map(|x| {
+                            let y = moved.iter().find(|m| m.0 == x.r).map_or(offset(x), |m| m.1);
+                            (y, x.r)
+                        })
+                        .collect();
+                    order.sort_by(|a, b| a.0.total_cmp(&b.0));
+                    let refs: Vec<TraceRef> = order.into_iter().map(|x| x.1).collect();
+                    s.set_view_order(&refs);
+                    self.selected.clear();
+                    changed = true;
+                } else {
+                    self.header_drag = None;
+                }
             }
         }
         // rename and colour popups
@@ -1407,9 +1479,21 @@ impl TimeView {
         rows: &[Row],
         font: &egui::FontId,
     ) {
+        let top = area.top() - self.v_scroll;
+        let drag_y = |r: TraceRef| self.header_drag.as_ref().and_then(|d| d.y_of(r, top));
         for row in rows {
+            let cy = drag_y(row.r).unwrap_or(area.top() + row.y - self.v_scroll);
+            if self.selected.contains(&row.r) {
+                painter.rect_filled(
+                    Rect::from_min_max(
+                        pos2(header.left() + 2.0, cy - 10.0),
+                        pos2(header.right() - 2.0, cy + 10.0),
+                    ),
+                    3.0,
+                    Color32::from_rgba_unmultiplied(17, 133, 209, 60),
+                );
+            }
             if let Some((t, _)) = &row.dec {
-                let cy = area.top() + row.y - self.v_scroll;
                 painter.text(
                     pos2(header.left() + 22.0, cy),
                     egui::Align2::LEFT_CENTER,
@@ -1420,12 +1504,6 @@ impl TimeView {
                 continue;
             }
             let Some(sig) = &row.sig else { continue };
-            let mut cy = area.top() + row.y - self.v_scroll;
-            if let Some((r, y)) = self.header_drag
-                && r == row.r
-            {
-                cy = y;
-            }
             if cy < area.top() - 20.0 || cy > area.bottom() + 20.0 {
                 continue;
             }
@@ -1831,6 +1909,11 @@ impl TimeView {
     pub fn show_region(&mut self, s: &Session, start: u64, end: u64) {
         let tb = timebase(s);
         self.vp.show_region(start, end, self.map_zoom_fixed, &tb);
+    }
+
+    /// The logic traces in view order with their centres' screen y.
+    pub fn shown_rows(&self) -> &[(TraceRef, f32)] {
+        &self.shown_rows
     }
 
     /// `set_cursor_middle`: sample `index` in the middle, the scale kept.

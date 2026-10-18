@@ -113,7 +113,7 @@ pub struct Signal {
 }
 
 /// A trace of the view: a signal, or decoder trace `i`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TraceRef {
     Signal { index: u16, ty: i32 },
     Decoder(usize),
