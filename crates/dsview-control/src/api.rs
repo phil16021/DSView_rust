@@ -1654,10 +1654,13 @@ pub fn mv_per_code(s: &Session, pos: usize, c: &dsview_core::Channel) -> f64 {
     c.vdiv as f64 * factor * dsview_session::session::DSO_VDIVS as f64 / range
 }
 
-/// The twenty measurements of enabled DSO channel `channel` as DSView
-/// shows them (`DsoSignal::get_measure`), keyed by name; None if the
-/// channel is not an enabled DSO channel.
-pub fn dso_measurements(s: &Session, channel: i32) -> Option<Value> {
+/// Runs `f` on the samples, hw offset, mV per code, rate and status block
+/// of enabled DSO channel `channel` (None if it is not one).
+fn with_dso_channel<T>(
+    s: &Session,
+    channel: i32,
+    f: impl FnOnce(Option<&[u8]>, f64, f64, f64, Option<&dsview_dsp::measure::HwStatus>) -> T,
+) -> Option<T> {
     let chans = s.channels();
     let pos = chans
         .iter()
@@ -1686,11 +1689,22 @@ pub fn dso_measurements(s: &Session, channel: i32) -> Option<Value> {
                 .count() as u64,
             is_file: store.is_file(),
         });
-    Some(dsview_dsp::measure::measure(
-        data,
-        c.hw_offset as f64,
-        mv_per_code,
-        rate,
-        hw.as_ref(),
-    ))
+    Some(f(data, c.hw_offset as f64, mv_per_code, rate, hw.as_ref()))
+}
+
+/// The twenty measurements of enabled DSO channel `channel` as DSView
+/// shows them (`DsoSignal::get_measure`), keyed by name; None if the
+/// channel is not an enabled DSO channel.
+pub fn dso_measurements(s: &Session, channel: i32) -> Option<Value> {
+    with_dso_channel(s, channel, |data, hw_offset, mv, rate, hw| {
+        dsview_dsp::measure::measure(data, hw_offset, mv, rate, hw)
+    })
+}
+
+/// The raw measurement of enabled DSO channel `channel` (codes, ns), as
+/// `DsoSignal` keeps it for auto-set.
+pub fn dso_measured(s: &Session, channel: i32) -> Option<dsview_dsp::measure::M> {
+    with_dso_channel(s, channel, |data, hw_offset, _, rate, hw| {
+        dsview_dsp::measure::measure_raw(data, hw_offset, rate, hw)
+    })
 }

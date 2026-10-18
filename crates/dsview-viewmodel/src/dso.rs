@@ -542,7 +542,8 @@ pub fn ref_wave_shape(
     width: i32,
 ) -> Option<(Vec<(f32, f32)>, bool)> {
     let n = rw.samples.len() as i64;
-    if n < 2 || rw.samplerate <= 0.0 || rw.mv_per_code <= 0.0 || g.rect.h <= 0 || mv_per_div <= 0.0 {
+    if n < 2 || rw.samplerate <= 0.0 || rw.mv_per_code <= 0.0 || g.rect.h <= 0 || mv_per_div <= 0.0
+    {
         return None;
     }
     let px_per_code = rw.mv_per_code * g.rect.h as f64 / (VDIVS as f64 * mv_per_div);
@@ -562,9 +563,17 @@ pub fn ref_wave_shape(
     }
     let count = s1 - s0 + 1;
     let dense = pps < REF_DASH_MIN_PIXELS_PER_SAMPLE;
-    let capacity = if dense { (2 * count).min(2 * width as i64 + 16) } else { count } as usize;
+    let capacity = if dense {
+        (2 * count).min(2 * width as i64 + 16)
+    } else {
+        count
+    } as usize;
     let mut x = ((s0 as f64 / spp - x_offset as f64) + trig_hoff * pps) as f32;
-    let to_y = |c: u8| (zero_y as f32 + ((c as i32 - rw.hw_offset) as f64 * px_per_code) as f32).max(top).min(bottom);
+    let to_y = |c: u8| {
+        (zero_y as f32 + ((c as i32 - rw.hw_offset) as f64 * px_per_code) as f32)
+            .max(top)
+            .min(bottom)
+    };
     let mut pts: Vec<(f32, f32)> = Vec::with_capacity(capacity);
     if !dense {
         for s in s0..=s1 {
@@ -577,7 +586,12 @@ pub fn ref_wave_shape(
         let (mut last_y, mut have_last) = (0.0f32, false);
         // the column's extremes, nearest one first, so the line joins its
         // neighbours without crossing diagonals
-        let flush = |pts: &mut Vec<(f32, f32)>, col: i32, ymin: f32, ymax: f32, last_y: &mut f32, have_last: &mut bool| {
+        let flush = |pts: &mut Vec<(f32, f32)>,
+                     col: i32,
+                     ymin: f32,
+                     ymax: f32,
+                     last_y: &mut f32,
+                     have_last: &mut bool| {
             if pts.len() + 2 > capacity {
                 return;
             }
@@ -630,7 +644,11 @@ pub struct XMeasure {
 
 impl XMeasure {
     pub fn start(index: u64, y: f32) -> XMeasure {
-        XMeasure { stage: 1, index: [index, 0, 0], y }
+        XMeasure {
+            stage: 1,
+            index: [index, 0, 0],
+            y,
+        }
     }
 
     pub fn is_complete(&self) -> bool {
@@ -667,7 +685,10 @@ impl XMeasure {
         let w = (self.stage >= 2).then(|| {
             format!(
                 "W={}",
-                crate::ruler::format_real_time(self.index[1] as i64 - self.index[0] as i64, samplerate)
+                crate::ruler::format_real_time(
+                    self.index[1] as i64 - self.index[0] as i64,
+                    samplerate
+                )
             )
         });
         let rest = self.is_complete().then(|| {
@@ -700,8 +721,16 @@ pub const LISSAJOUS_WELL_LEN: u64 = 16 * 1024;
 pub fn lissajous_grid(width: i32, height: i32) -> (IRect, Vec<Seg>) {
     let square = width.min(height);
     let border = IRect {
-        x: if width > square { (width - square) / 2 } else { 0 },
-        y: if height > square { (height - square) / 2 } else { 0 },
+        x: if width > square {
+            (width - square) / 2
+        } else {
+            0
+        },
+        y: if height > square {
+            (height - square) / 2
+        } else {
+            0
+        },
         w: square,
         h: square,
     };
@@ -721,13 +750,24 @@ pub fn lissajous_grid(width: i32, height: i32) -> (IRect, Vec<Seg>) {
 
 /// `LissajousTrace::paint_mid`: the first `percent` % of the samples, x
 /// from one channel and y from the other, 0..255 across the square.
-pub fn lissajous_points(border: IRect, xs: &[u8], ys: &[u8], sample_count: u64, percent: i32) -> Vec<(f32, f32)> {
+pub fn lissajous_points(
+    border: IRect,
+    xs: &[u8],
+    ys: &[u8],
+    sample_count: u64,
+    percent: i32,
+) -> Vec<(f32, f32)> {
     let n = (sample_count as f64 * (percent as f64 / 100.0).min(1.0)) as usize;
     let n = n.min(xs.len()).min(ys.len());
     let scale = border.w as f64 / 255.0;
     let (left, bottom) = (border.x as f64, border.bottom() as f64);
     (0..n)
-        .map(|i| ((left + xs[i] as f64 * scale) as f32, (bottom - ys[i] as f64 * scale) as f32))
+        .map(|i| {
+            (
+                (left + xs[i] as f64 * scale) as f32,
+                (bottom - ys[i] as f64 * scale) as f32,
+            )
+        })
         .collect()
 }
 
@@ -1366,7 +1406,15 @@ mod tests {
     #[test]
     fn lissajous() {
         let (b, lines) = lissajous_grid(1000, 500);
-        assert_eq!(b, IRect { x: 250, y: 0, w: 500, h: 500 });
+        assert_eq!(
+            b,
+            IRect {
+                x: 250,
+                y: 0,
+                w: 500,
+                h: 500
+            }
+        );
         assert_eq!(lines.len(), 18);
         assert_eq!(lines[0], (250.0, 50.0, 749.0, 50.0));
         let p = lissajous_points(b, &[0, 255], &[0, 255], 2, 100);

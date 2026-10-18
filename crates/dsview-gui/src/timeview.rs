@@ -125,6 +125,8 @@ pub struct TimeView {
     pub analog: crate::analogview::AnalogState,
     /// The pointer over the DSO traces.
     pub(crate) dso_mouse: Option<Pos2>,
+    /// The DSO device is hardware (AUTO shows).
+    pub(crate) dso_is_hardware: bool,
 }
 
 impl Default for TimeView {
@@ -152,6 +154,7 @@ impl Default for TimeView {
             dso: crate::dsoview::DsoState::new(),
             analog: crate::analogview::AnalogState::new(),
             dso_mouse: None,
+            dso_is_hardware: false,
         }
     }
 }

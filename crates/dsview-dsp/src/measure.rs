@@ -16,22 +16,37 @@ pub struct HwStatus {
     pub is_file: bool,
 }
 
-#[derive(Default)]
-struct M {
-    valid: bool,
-    level_valid: bool,
-    min: f64,
-    max: f64,
-    low: f64,
-    high: f64,
-    period: f64,
-    high_time: f64,
-    rise_time: f64,
-    fall_time: f64,
-    burst_time: f64,
-    pcount: u64,
-    rms: f64,
-    mean: f64,
+/// `DsoSignal`'s measurement state (`_mValid`, `_level_valid`, `_min`,
+/// …): codes, and times in ns.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct M {
+    pub valid: bool,
+    pub level_valid: bool,
+    pub min: f64,
+    pub max: f64,
+    pub low: f64,
+    pub high: f64,
+    pub period: f64,
+    pub high_time: f64,
+    pub rise_time: f64,
+    pub fall_time: f64,
+    pub burst_time: f64,
+    pub pcount: u64,
+    pub rms: f64,
+    pub mean: f64,
+}
+
+/// The raw measurement `paint_mid` keeps: the hardware's when valid, else
+/// the software fallback over `buf`.
+pub fn measure_raw(buf: Option<&[u8]>, hw_offset: f64, rate: f64, hw: Option<&HwStatus>) -> M {
+    let mut m = M::default();
+    if let Some(buf) = buf.filter(|b| !b.is_empty()) {
+        let hw_ok = hw.is_some_and(|h| hardware(&mut m, h, buf.len() as u64, hw_offset, rate));
+        if !hw_ok || !m.level_valid || m.period == 0.0 {
+            soft(&mut m, buf, hw_offset, rate);
+        }
+    }
+    m
 }
 
 /// `dso_detect_edges`: crossings of the middle level with 5 % hysteresis.
@@ -231,15 +246,8 @@ pub fn measure(
     rate: f64,
     hw: Option<&HwStatus>,
 ) -> Value {
-    let mut m = M::default();
     let empty = buf.is_none_or(|b| b.is_empty());
-    if !empty {
-        let samples = buf.map_or(0, |b| b.len() as u64);
-        let hw_ok = hw.is_some_and(|h| hardware(&mut m, h, samples, hw_offset, rate));
-        if !hw_ok || !m.level_valid || m.period == 0.0 {
-            soft(&mut m, buf.unwrap_or(&[]), hw_offset, rate);
-        }
-    }
+    let m = measure_raw(buf, hw_offset, rate, hw);
     let none = || "--".to_string();
     let lv = m.level_valid;
     let pct = |x: f64| format!("{x:.2}%");

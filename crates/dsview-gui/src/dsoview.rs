@@ -83,6 +83,11 @@ pub struct DsoState {
     pub persist: Persist,
     /// The histogram and channel measure dialogs.
     pub analysis: crate::analysisdlg::AnalysisDialogs,
+    /// Auto-set per channel, and the frames still to skip after a step
+    /// (`data_auto_lock`) with the frame last counted.
+    pub auto: [dsview_viewmodel::autoset::AutoSet; 4],
+    auto_lock: u32,
+    lock_seq: u64,
     /// The math trace's header row (`get_y()`), when shown.
     math_y: Option<i32>,
 }
@@ -333,6 +338,9 @@ impl TimeView {
 
         // the trigger's sub-sample offset (`paint_prepare`)
         self.update_trig_hoff(s, &chans);
+        self.dso_is_hardware = s.state().device.as_ref().is_some_and(|d| d.is_hardware());
+        let now = ui.input(|i| (i.time * 1000.0) as i64);
+        self.run_autoset(s, &chans, now);
 
         let mut changed = self.dso_input(ui, s, &tb, area, rect, &chans);
         changed |= self.dso_header(ui, s, header, area, &chans);
@@ -357,6 +365,22 @@ impl TimeView {
             }
             self.paint_dso_traces(&tpainter, s, area, rect, &tb, &chans);
             self.paint_math(&tpainter, s, area, rect, &tb, &chans);
+        }
+        // hardware data past the ADC range (`dso_data_is_out_off_range`)
+        if self.dso_is_hardware
+            && s.data()
+                .dso
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .data_out_off_range()
+        {
+            tpainter.text(
+                pos2(area.left() + rect.w as f32, area.top() + rect.y as f32),
+                egui::Align2::RIGHT_TOP,
+                "Out off range! ",
+                egui::FontId::proportional(13.0),
+                Color32::from_rgba_unmultiplied(255, 0, 0, 200),
+            );
         }
         // frozen references over the live traces
         self.paint_refs(&tpainter, area, &chans, rect.w);
@@ -955,6 +979,18 @@ impl TimeView {
                     changed |= step_vdiv(s, &mut self.dso, c, true);
                 }
             }
+            // AUTO (hardware only): starts auto-set while running
+            if s.state().device.as_ref().is_some_and(|d| d.is_hardware())
+                && click(ui, hr.auto, "auto")
+            {
+                let now = ui.input(|i| (i.time * 1000.0) as i64);
+                let running = s.is_working();
+                if let Some(a) = self.dso.auto.get_mut(c.sig.index as usize) {
+                    let acts = a.start(running, now);
+                    self.auto_actions(s, c, &acts, now);
+                }
+                changed = true;
+            }
             if click(ui, hr.coupling, "acdc") && !is_file {
                 s.set_config(
                     key::PROBE_COUPLING,
@@ -1122,6 +1158,14 @@ impl TimeView {
             button(hr.x1, c.enabled && c.factor == 1, "x1");
             button(hr.x10, c.enabled && c.factor == 10, "x10");
             button(hr.x100, c.enabled && c.factor == 100, "x100");
+            if self.dso_is_hardware {
+                let on = self
+                    .dso
+                    .auto
+                    .get(c.sig.index as usize)
+                    .is_some_and(|a| a.active());
+                button(hr.auto, c.enabled && !on, "AUTO");
+            }
             // the zero label
             if c.enabled {
                 let l = ho(hr.label);
@@ -1419,5 +1463,115 @@ fn remap(sh: &egui::Shape, map: &impl Fn(Pos2) -> Pos2, a: f32) -> egui::Shape {
         }
         egui::Shape::Circle(c) => egui::Shape::circle_filled(map(c.center), c.radius, fade(c.fill)),
         other => other.clone(),
+    }
+}
+
+impl TimeView {
+    /// `auto_set` for every channel with auto-set on, once per frame;
+    /// `check_update` counts the lock down per new frame.
+    fn run_autoset(&mut self, s: &Session, chans: &[ChanView], now: i64) {
+        use dsview_viewmodel::autoset::Input;
+        let seq = s.state().dso_seq;
+        if seq != self.dso.lock_seq {
+            self.dso.lock_seq = seq;
+            self.dso.auto_lock = self.dso.auto_lock.saturating_sub(1);
+        }
+        if !self.dso.auto.iter().any(|a| a.active()) {
+            return;
+        }
+        let tbase = s.config_u64(key::TIMEBASE).unwrap_or(0) as f64;
+        let roll = s.config(key::ROLL, None).is_some_and(|v| v.get_bool());
+        let atten = s
+            .state()
+            .device
+            .as_ref()
+            .is_some_and(|d| d.is_hardware() && d.name == "MSO-E8");
+        for c in chans.iter().filter(|c| c.enabled) {
+            let k = c.sig.index as usize;
+            if !self.dso.auto.get(k).is_some_and(|a| a.active()) {
+                continue;
+            }
+            let m = dsview_control::api::dso_measured(s, c.sig.index as i32).unwrap_or_default();
+            let (sel, count) = c.dial_pos();
+            let input = Input {
+                running: s.is_working(),
+                locked: self.dso.auto_lock > 0,
+                zero_ratio: c.geom.zero_ratio(c.zero_offset),
+                valid: m.valid,
+                level_valid: m.level_valid,
+                pcount: m.pcount,
+                period: m.period,
+                min: m.min as u8,
+                max: m.max as u8,
+                roll,
+                hori_res: tbase,
+                atten,
+                hw_offset: c.hw_offset,
+                factor: c.factor,
+                vdiv_at_min: sel == 0,
+                vdiv_at_max: sel + 1 >= count,
+            };
+            let acts = self.dso.auto[k].step(&input, now);
+            self.auto_actions(s, c, &acts, now);
+        }
+    }
+
+    /// Carries out auto-set's actions for channel `c`.
+    fn auto_actions(
+        &mut self,
+        s: &Session,
+        c: &ChanView,
+        acts: &[dsview_viewmodel::autoset::Action],
+        now: i64,
+    ) {
+        use dsview_viewmodel::autoset::{AUTO_LOCK, Action};
+        let hw_logic = is_hardware_logic(s);
+        let width = self.vp.width / 2;
+        for a in acts {
+            match *a {
+                Action::ZeroToMiddle => {
+                    let z = c.geom.zero_offset_for(0.5);
+                    s.set_config(key::PROBE_OFFSET, ConfValue::U16(z), Some(c.pos));
+                }
+                Action::ZoomOut => {
+                    self.dso_zoom(s, -1.0, width, now);
+                }
+                Action::ZoomIn => {
+                    self.dso_zoom(s, 1.0, width, now);
+                }
+                Action::VdivUp | Action::VdivDown => {
+                    // re-read: an earlier action may have moved the dial
+                    let cur = s
+                        .config(key::PROBE_VDIV, Some(c.pos))
+                        .map_or(c.vdiv, |v| v.get_u64());
+                    let mut c2 = c.clone();
+                    c2.vdiv = cur;
+                    step_vdiv(s, &mut self.dso, &c2, *a == Action::VdivUp);
+                }
+                Action::Factor(f) => {
+                    s.set_config(key::PROBE_FACTOR, ConfValue::U64(f), Some(c.pos));
+                }
+                Action::TrigValue(v) => {
+                    // set_trig_vpos(ratio2pos(get_trig_vrate())): clamped
+                    let zero = s
+                        .config(key::PROBE_OFFSET, Some(c.pos))
+                        .map_or(c.zero_offset, |x| x.get_u16());
+                    let ratio = c
+                        .geom
+                        .pos2ratio(c.geom.ratio2pos(c.geom.trig_vrate(v, zero, hw_logic)));
+                    let t = c.geom.trig_value_for(ratio, zero, hw_logic);
+                    s.set_config(key::TRIGGER_VALUE, ConfValue::Byte(t), Some(c.pos));
+                }
+                Action::AutoTrig => {
+                    s.set_config(key::TRIGGER_SOURCE, ConfValue::Byte(0), None);
+                    s.set_config(
+                        key::TRIGGER_CHANNEL,
+                        ConfValue::Byte(c.sig.index as u8),
+                        None,
+                    );
+                }
+                Action::Lock => self.dso.auto_lock = AUTO_LOCK,
+            }
+        }
     }
 }

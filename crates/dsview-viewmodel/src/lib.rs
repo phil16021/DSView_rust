@@ -10,6 +10,7 @@
 //! * [`measure`]: the pulse under the mouse, edge counts, edge snapping
 //! * [`cursors`]: time cursors
 //! * [`analog`]: analog (DAQ) traces (`AnalogSignal`)
+//! * [`autoset`]: the DSO auto-set state machine
 //! * [`dso`]: oscilloscope traces, grid, trigger level (`DsoSignal`)
 //! * [`spectrum`]: the FFT pane (`SpectrumTrace`)
 //! * [`decode`]: decoder rows, annotation shapes, colours, text fitting
@@ -17,6 +18,7 @@
 //! * [`input`]: wheel actions, kinetic scroll, rubber-band zoom
 
 pub mod analog;
+pub mod autoset;
 pub mod cursors;
 pub mod decode;
 pub mod dso;
