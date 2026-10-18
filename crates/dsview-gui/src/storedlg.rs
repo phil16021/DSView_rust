@@ -12,6 +12,8 @@ use dsview_session::Session;
 use dsview_session::store::Progress;
 use eframe::egui;
 
+type StoreResult = Result<(), String>;
+
 pub struct StoreDialog {
     path: PathBuf,
     export: bool,
@@ -19,7 +21,7 @@ pub struct StoreDialog {
     start: usize,
     end: usize,
     original: bool,
-    running: Option<(Receiver<Result<(), String>>, Arc<Progress>)>,
+    running: Option<(Receiver<StoreResult>, Arc<Progress>)>,
     pub message: Option<String>,
 }
 
