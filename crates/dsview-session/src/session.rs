@@ -681,6 +681,41 @@ impl Session {
         Some(dir.join(format!("{}{}.dsc", d.driver, self.mode())))
     }
 
+    /// `MainWindow::load_config_from_file`: a `.dsc` profile chosen by the
+    /// user (File > Load); the decoders are replaced by its own.
+    pub fn load_profile(&self, path: &std::path::Path) -> Result<(), String> {
+        let text = std::fs::read_to_string(path)
+            .map_err(|_| "Warning: Couldn't open device profile to load!".to_string())?;
+        let doc: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        while !self.state().decoders.is_empty() {
+            self.remove_decoder(0);
+        }
+        if crate::store::load_config_from_json(self, &doc) {
+            Ok(())
+        } else {
+            Err("The profile does not suit this device or mode.".into())
+        }
+    }
+
+    /// `MainWindow::save_config_to_file` (File > Store).
+    pub fn store_profile(&self, path: &std::path::Path) -> Result<(), String> {
+        let text = crate::store::qt_json(&crate::store::session_json(self, &self.0.version));
+        std::fs::write(path, text)
+            .map_err(|_| "Warning: Couldn't open profile to write!".to_string())
+    }
+
+    /// `FileBar::genDefaultSessionFile`: the shipped default profile of the
+    /// device and mode (File > Default).
+    pub fn default_profile_path(&self) -> Option<PathBuf> {
+        let d = self.state().device.clone()?;
+        Some(
+            self.0
+                .data_dir
+                .join("res")
+                .join(format!("{}{}.def.dsc", d.driver, self.mode())),
+        )
+    }
+
     /// `MainWindow::save_config()`: a hardware device's settings go to its
     /// profile.
     pub fn save_config(&self) {

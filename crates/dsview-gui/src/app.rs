@@ -18,6 +18,9 @@ enum FileJob {
     Open(PathBuf),
     Save(PathBuf),
     Export(PathBuf),
+    LoadProfile(PathBuf),
+    StoreProfile(PathBuf),
+    Screenshot(PathBuf),
 }
 
 pub struct Bench {
@@ -39,6 +42,10 @@ pub struct App {
     pub search: crate::searchdock::SearchDock,
     pub calibration: Option<crate::calibration::Calibration>,
     pub store: Option<crate::storedlg::StoreDialog>,
+    /// A screenshot to save here once the frame is grabbed.
+    screenshot: Option<PathBuf>,
+    ctx_for_shot: bool,
+    shot_result: Option<Receiver<Result<(), String>>>,
     /// The application options and their dialog's working copy.
     pub options: crate::options::AppOptions,
     options_edit: Option<crate::options::AppOptions>,
@@ -83,6 +90,9 @@ impl App {
             search: crate::searchdock::SearchDock::default(),
             calibration: None,
             store: None,
+            screenshot: None,
+            ctx_for_shot: false,
+            shot_result: None,
             options: crate::options::AppOptions::default(),
             options_edit: None,
             fft: crate::fftview::FftState::default(),
@@ -103,7 +113,8 @@ impl App {
         ctx: &egui::Context,
         title: &'static str,
         make: fn(PathBuf) -> FileJob,
-        save: Option<(&'static str, &'static [&'static str])>,
+        filter: (&'static str, &'static [&'static str]),
+        save: bool,
     ) {
         if self.files.is_some() {
             return;
@@ -113,9 +124,10 @@ impl App {
         let c = ctx.clone();
         std::thread::spawn(move || {
             let d = rfd::FileDialog::new().set_title(title);
+            let d = d.add_filter(filter.0, filter.1);
             let path = match save {
-                Some((name, ext)) => d.add_filter(name, ext).save_file(),
-                None => d.add_filter("DSView data", &["dsl", "demo"]).pick_file(),
+                true => d.save_file(),
+                false => d.pick_file(),
             };
             let _ = tx.send(path.map(make));
             c.request_repaint();
@@ -149,6 +161,22 @@ impl App {
                     Err("No data to save.".into())
                 }
             }
+            Some(FileJob::LoadProfile(p)) => self.session.load_profile(&p),
+            Some(FileJob::StoreProfile(mut p)) => {
+                if p.extension().is_none_or(|e| e != "dsc") {
+                    p.set_extension("dsc");
+                }
+                self.session.store_profile(&p)
+            }
+            Some(FileJob::Screenshot(mut p)) => {
+                if p.extension().is_none_or(|e| e != "png" && e != "jpeg") {
+                    p.set_extension("png");
+                }
+                // the next frame's picture comes back as an event
+                self.screenshot = Some(p);
+                self.ctx_for_shot = true;
+                Ok(())
+            }
             Some(FileJob::Export(p)) => {
                 if self.session.have_view_data() {
                     self.store = Some(crate::storedlg::StoreDialog::new(
@@ -164,6 +192,46 @@ impl App {
         };
         if let Err(e) = result {
             self.message = Some(e);
+        }
+    }
+
+    /// `on_screenShot`: asks for the frame; the callback saves it and
+    /// reports back.
+    fn screenshots(&mut self, ctx: &egui::Context) {
+        if std::mem::take(&mut self.ctx_for_shot)
+            && let Some(path) = self.screenshot.take()
+        {
+            let (tx, rx) = channel();
+            self.shot_result = Some(rx);
+            let c = ctx.clone();
+            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(
+                egui::ScreenshotCallback::new(move |img: std::sync::Arc<egui::ColorImage>| {
+                    let [w, h] = img.size;
+                    let rgba: Vec<u8> = img.pixels.iter().flat_map(|p| p.to_array()).collect();
+                    let r = image::RgbaImage::from_raw(w as u32, h as u32, rgba)
+                        .ok_or_else(|| "bad screenshot".to_string())
+                        .and_then(|i| {
+                            if path.extension().is_some_and(|e| e == "jpeg") {
+                                image::DynamicImage::ImageRgba8(i)
+                                    .to_rgb8()
+                                    .save(&path)
+                                    .map_err(|e| e.to_string())
+                            } else {
+                                i.save(&path).map_err(|e| e.to_string())
+                            }
+                        });
+                    let _ = tx.send(r);
+                    c.request_repaint();
+                }),
+            ));
+        }
+        if let Some(rx) = &self.shot_result
+            && let Ok(r) = rx.try_recv()
+        {
+            self.shot_result = None;
+            if let Err(e) = r {
+                self.message = Some(e);
+            }
         }
     }
 
@@ -261,13 +329,20 @@ impl eframe::App for App {
             }
         }
         self.file_jobs();
+        self.screenshots(&ctx);
         self.control_ops();
 
         egui::Panel::top("menu").show(ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
                     if ui.button("Open…").clicked() {
-                        self.pick(&ctx, "Open File", FileJob::Open, None);
+                        self.pick(
+                            &ctx,
+                            "Open File",
+                            FileJob::Open,
+                            ("DSView data", &["dsl", "demo"]),
+                            false,
+                        );
                         ui.close();
                     }
                     if ui.button("Save…").clicked() {
@@ -275,7 +350,8 @@ impl eframe::App for App {
                             &ctx,
                             "Save File",
                             FileJob::Save,
-                            Some(("DSView data", &["dsl"])),
+                            ("DSView data", &["dsl"]),
+                            true,
                         );
                         ui.close();
                     }
@@ -284,7 +360,52 @@ impl eframe::App for App {
                             &ctx,
                             "Export Data",
                             FileJob::Export,
-                            Some(("CSV or VCD", &["csv", "vcd"])),
+                            ("CSV or VCD", &["csv", "vcd"]),
+                            true,
+                        );
+                        ui.close();
+                    }
+                    ui.separator();
+                    // the profile menu (FileBar's session menu)
+                    if ui.button("Load profile…").clicked() {
+                        self.pick(
+                            &ctx,
+                            "Open Session",
+                            FileJob::LoadProfile,
+                            ("DSView Session", &["dsc"]),
+                            false,
+                        );
+                        ui.close();
+                    }
+                    if ui.button("Store profile…").clicked() {
+                        self.pick(
+                            &ctx,
+                            "Save Session",
+                            FileJob::StoreProfile,
+                            ("DSView Session", &["dsc"]),
+                            true,
+                        );
+                        ui.close();
+                    }
+                    if ui.button("Default profile").clicked() {
+                        match self.session.default_profile_path() {
+                            Some(p) => {
+                                if let Err(e) = self.session.load_profile(&p) {
+                                    self.message = Some(e);
+                                }
+                            }
+                            None => self.message = Some("No device.".into()),
+                        }
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui.button("Screenshot…").clicked() {
+                        self.pick(
+                            &ctx,
+                            "Save As",
+                            FileJob::Screenshot,
+                            ("png file", &["png", "jpeg"]),
+                            true,
                         );
                         ui.close();
                     }

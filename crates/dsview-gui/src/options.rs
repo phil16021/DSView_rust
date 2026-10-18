@@ -231,9 +231,11 @@ mod tests {
 
     #[test]
     fn json_round_trip_and_missing_keys() {
-        let mut o = AppOptions::default();
-        o.dso_persistence_ms = 300;
-        o.ruler_samples = true;
+        let o = AppOptions {
+            dso_persistence_ms: 300,
+            ruler_samples: true,
+            ..AppOptions::default()
+        };
         let t = serde_json::to_string(&o).unwrap();
         assert_eq!(serde_json::from_str::<AppOptions>(&t).unwrap(), o);
         // an older file without new keys gets the defaults for them

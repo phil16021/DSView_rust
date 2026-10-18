@@ -230,3 +230,26 @@ fn ranges_for_export_and_save() {
     let _ = std::fs::remove_dir_all(&dir);
     s.exit();
 }
+
+/// File > Store then Load: the profile brings the settings back; Default
+/// loads the shipped one.
+#[test]
+fn profiles_store_load_default() {
+    let (_g, s) = session("Demo Logic");
+    let dir = std::env::temp_dir().join(format!("dsv-prof-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let p = dir.join("p.dsc");
+    let logic = dsview_core::channel_type::LOGIC;
+    s.set_signal_name(3, logic, "MOSI");
+    s.store_profile(&p).unwrap();
+    s.set_signal_name(3, logic, "x");
+    s.load_profile(&p).unwrap();
+    let name = s.state().signals.iter().find(|x| x.index == 3).map(|x| x.name.clone());
+    assert_eq!(name.as_deref(), Some("MOSI"));
+    // the demo's decoders come back with it
+    assert_eq!(s.state().decoders.len(), 4);
+    let d = s.default_profile_path().unwrap();
+    assert!(d.ends_with("res/virtual-demo0.def.dsc"), "{}", d.display());
+    let _ = std::fs::remove_dir_all(&dir);
+    s.exit();
+}
