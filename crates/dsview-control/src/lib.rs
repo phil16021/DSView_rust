@@ -7,8 +7,6 @@
 #[cfg(feature = "api")]
 pub mod api;
 pub mod json;
-#[cfg(feature = "api")]
-pub mod measure;
 pub mod server;
 
 use serde_json::{Map, Value};

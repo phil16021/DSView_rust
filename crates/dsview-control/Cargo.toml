@@ -11,12 +11,13 @@ publish.workspace = true
 default = ["api"]
 # The control methods on the Rust session; without it only the socket server
 # and its conventions (what dsview-mcp needs).
-api = ["dep:dsview-core", "dep:dsview-decode", "dep:dsview-formats", "dep:dsview-session", "dep:dsview-store"]
+api = ["dep:dsview-dsp", "dep:dsview-core", "dep:dsview-decode", "dep:dsview-formats", "dep:dsview-session", "dep:dsview-store"]
 
 [dependencies]
 serde_json.workspace = true
 dsview-core = { path = "../dsview-core", optional = true }
 dsview-decode = { path = "../dsview-decode", optional = true }
+dsview-dsp = { path = "../dsview-dsp", optional = true }
 dsview-formats = { path = "../dsview-formats", optional = true }
 dsview-session = { path = "../dsview-session", optional = true }
 dsview-store = { path = "../dsview-store", optional = true }

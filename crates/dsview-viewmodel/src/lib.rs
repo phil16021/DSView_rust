@@ -5,5 +5,7 @@
 //! quirks found on the way are listed in DEVIATIONS.md and fixed later.
 //!
 //! * [`viewport`]: scale and offset, zoom, limits, index ↔ pixel (`View`)
+//! * [`logic`]: a logic trace's lines and sample dots (`LogicSignal`)
 
+pub mod logic;
 pub mod viewport;

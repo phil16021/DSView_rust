@@ -1,0 +1,21 @@
+[package]
+name = "dsview-gui"
+version = "0.1.0"
+description = "DSView's GUI in Rust (egui/eframe)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "dsview"
+path = "src/main.rs"
+
+[dependencies]
+dsview-core = { path = "../dsview-core" }
+dsview-decode = { path = "../dsview-decode" }
+dsview-session = { path = "../dsview-session" }
+dsview-store = { path = "../dsview-store" }
+dsview-usb = { path = "../dsview-usb" }
+dsview-viewmodel = { path = "../dsview-viewmodel" }
+eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "wgpu", "x11", "wayland"] }

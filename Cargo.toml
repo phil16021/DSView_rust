@@ -7,8 +7,10 @@ members = [
     "crates/dsview-core",
     "crates/dsview-decode",
     "crates/dsview-drivers",
+    "crates/dsview-dsp",
     "crates/dsview-ffi",
     "crates/dsview-formats",
+    "crates/dsview-gui",
     "crates/dsview-session",
     "crates/dsview-store",
     "crates/dsview-viewmodel",
@@ -19,7 +21,7 @@ members = [
     "xtask",
 ]
 # The oracle compiles the original C sources; it is a dev tool, never shipped.
-default-members = ["crates/dsview-cli", "crates/dsview-control", "crates/dsview-core", "crates/dsview-decode", "crates/dsview-drivers", "crates/dsview-ffi", "crates/dsview-formats", "crates/dsview-session", "crates/dsview-store", "crates/dsview-viewmodel", "crates/dsview-usb", "dev/dsview-testkit", "dsview-mcp", "xtask"]
+default-members = ["crates/dsview-cli", "crates/dsview-control", "crates/dsview-core", "crates/dsview-decode", "crates/dsview-drivers", "crates/dsview-dsp", "crates/dsview-ffi", "crates/dsview-formats", "crates/dsview-session", "crates/dsview-store", "crates/dsview-viewmodel", "crates/dsview-usb", "dev/dsview-testkit", "dsview-mcp", "xtask"]
 
 [workspace.package]
 edition = "2024"

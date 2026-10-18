@@ -289,16 +289,29 @@ Rules:
   port-exact unit test when the C++ cannot run in isolation (the ruler, layout and measure come
   from Qt widgets).
 
-**Rendering.**
-- eframe with **glow** by default and wgpu by switch (`DSVIEW_RENDERER=glow|wgpu`): llvmpipe GL is
-  the common case on VMs and remote desktops.
-- Traces are one `egui::Mesh` per trace, built from the viewmodel's segments.
-- DSO persistence is an egui texture with alpha decay.
-- **Gate (M6a):**
-  - The CPU per frame stays ≤ 4 ms at 4K × 32 channels (measured in tests).
-  - On this VM over xrdp at 1920×1080 the app redraws at ≥ 20 frames/s while streaming.
-- **Fallback:** if glow on llvmpipe misses that, rasterise traces on the CPU (tiny-skia into a
-  texture, as Qt does) and keep egui for widgets.
+**Rendering**, decided in M6.0 by `dsview --bench` in the real app on this VM. The window is
+1920×1080 on the xrdp desktop; the protocol.demo capture is panned continuously.
+
+| Configuration | Median frame | Frames/s |
+|---|---|---|
+| empty window (clear + present only), glow | 57-78 ms | 13-17 |
+| 16 traces as anti-aliased line segments (egui default), glow | 162 ms | 6.2 |
+| the same, wgpu (lavapipe) | 171 ms | 5.9 |
+| **16 traces as one mesh of 1 px rectangles, feathering off, glow** | **77 ms** | **13** |
+| the same, wgpu | 117 ms | 8.6 |
+
+The egui CPU work stays under 1 ms per frame (p95 6-13 ms with the first frames).
+
+**Decisions:**
+- eframe with **glow** by default; `DSVIEW_RENDERER=wgpu` selects wgpu.
+- Logic traces are drawn as axis-aligned rectangle meshes without feathering. They are horizontal
+  and vertical lines only, so they need no anti-aliasing.
+- Anti-aliasing stays for DSO, analog and decoder shapes, which are few.
+- The floor is set by presenting the whole window over xrdp in software (about 60 ms at 1080p,
+  25 ms at 960×540), not by drawing. Redrawing only on new data or input matters more than the
+  painter.
+- **Gate (M6a):** the trace drawing adds ≤ 25 ms to the empty-window frame at 1080p on this VM.
+  The CPU per frame stays ≤ 4 ms at 4K × 32 channels. A CPU raster fallback is not needed.
 
 #### 5.2 Milestones (revised)
 

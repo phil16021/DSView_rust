@@ -667,3 +667,46 @@ It uses the Rust drivers for every kind of device.
     - RSS mean 101 MB, single samples 66-195 MB, trend **−6.4 %**.
   - **15 min loop mode on the DSLogic Plus** (stream mode, 1 MHz, 16 channels): RSS 61.5 MB at
     the start, +0.12 % at the end.
+
+## Phase 5 (Rust GUI): status
+
+### M6.0 prerequisites: done
+
+**DSO envelope in `dsview-store`** (F26):
+- Ported: 256× per level, ten levels, `enable_envelope`, `get_envelope_section`, and the
+  `samplerate_tog` rebuild, with C's quirks.
+- The C++ `DsoSnapshot` hands over to it through `dsv_dso_enable_envelope` /
+  `dsv_dso_envelope_section`.
+- `store_ad_diff` compares envelope sections against the C++ class: 3000 cases, all identical.
+  A deliberately wrong max was caught at once.
+
+**Annotation index in `DecoderStack`:** range queries look only at starts in
+`(start − longest, end]`, in arrival order as before. Checked against the scan on 3000 annotations;
+the demo transcript is unchanged.
+
+**`SessionEvent`:**
+- `Session::subscribe()` reports device and mode changes, capture start/end, new data, decode
+  progress/done, and errors.
+- Data and decode events are limited to 30 Hz.
+
+**`ViewHooks`** for `dsview-control::api`:
+- a GUI's open dialog refuses the mutating methods, with Qt's message;
+- `show_region` and `set_cursors` reach the view.
+
+**`dsview-viewmodel`** (new):
+- `viewport`, ported from `View`: scale, integer pixel offset, limits, zoom around a point,
+  `show_region`, auto-scroll, index↔pixel;
+- `logic`, ported from `LogicSignal::paint_mid_align`: toggles or per-pixel pulses → lines, and
+  sample dots.
+
+**`dsview-dsp`** (new):
+- the DSO measurements (moved from `dsview-control`);
+- `spectrum`, from `SpectrumStack`: the five windows with Qt's `PI = 3.1415`, and the power
+  spectrum on realfft.
+
+**`dsview-gui`** (new, binary `dsview`):
+- a preview window showing the demo capture through the viewmodel, with wheel zoom and drag pan;
+- `--bench SECONDS` logs frame times.
+- Results on this VM over xrdp are in PLAN.md §5.1. The decision is glow, logic traces as
+  rectangle meshes without feathering, 13 frames/s at 1080p. Presenting an empty window alone
+  allows 17.5.

@@ -1541,7 +1541,7 @@ impl Api {
             .s
             .state()
             .dso_status
-            .map(|status| crate::measure::HwStatus {
+            .map(|status| dsview_dsp::measure::HwStatus {
                 status,
                 index: chans
                     .iter()
@@ -1555,7 +1555,8 @@ impl Api {
                     .count() as u64,
                 is_file: store.is_file(),
             });
-        let m = crate::measure::measure(data, c.hw_offset as f64, mv_per_code, rate, hw.as_ref());
+        let m =
+            dsview_dsp::measure::measure(data, c.hw_offset as f64, mv_per_code, rate, hw.as_ref());
         drop(store);
         Ok(json!({
             "channel": channel,
