@@ -395,3 +395,62 @@ fn hardware_profile_names() {
     s.exit();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Save and export count their progress to 100%; a cancelled save leaves
+/// no file, a cancelled export keeps what it wrote.
+#[test]
+fn store_progress_and_cancel() {
+    use dsview_session::store::{Progress, export_range_with, save_dsl_range_with};
+    use std::sync::atomic::Ordering;
+    let (_g, s) = session("Demo Logic");
+    assert!(s.start_capture(false));
+    wait(&s, "captured", |st| {
+        st.ended_seq > 0 && !st.working && !st.decoding
+    });
+    let dir = std::env::temp_dir().join(format!("dsv-storeprog-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (dsl, csv) = (dir.join("a.dsl"), dir.join("a.csv"));
+    for range in [None, Some((1000, 70_000))] {
+        let p = Progress::default();
+        save_dsl_range_with(&s, &dsl, "test", range, &p).unwrap();
+        assert!(dsl.is_file());
+        assert_eq!(p.percent(), 100);
+        assert_eq!(
+            p.done.load(Ordering::Relaxed),
+            p.total.load(Ordering::Relaxed)
+        );
+        assert!(p.total.load(Ordering::Relaxed) > 0);
+        let p = Progress::default();
+        export_range_with(
+            &s,
+            &csv,
+            dsview_formats::export::Format::Csv,
+            range,
+            true,
+            &p,
+        )
+        .unwrap();
+        assert_eq!(
+            p.done.load(Ordering::Relaxed),
+            p.total.load(Ordering::Relaxed),
+            "{range:?}"
+        );
+    }
+    let p = Progress::default();
+    p.cancel.store(true, Ordering::Relaxed);
+    std::fs::remove_file(&dsl).unwrap();
+    save_dsl_range_with(&s, &dsl, "test", None, &p).unwrap();
+    assert!(!dsl.exists());
+    export_range_with(
+        &s,
+        &csv,
+        dsview_formats::export::Format::Csv,
+        None,
+        true,
+        &p,
+    )
+    .unwrap();
+    assert!(csv.is_file());
+    let _ = std::fs::remove_dir_all(&dir);
+    s.exit();
+}

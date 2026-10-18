@@ -572,6 +572,40 @@ pub fn session_json(s: &Session, version: &str) -> Value {
 
 // ------------------------------------------------------------ saving
 
+/// A save's or export's progress (`StoreSession::get_progress`) and its
+/// Cancel, shared with the progress window.
+#[derive(Debug, Default)]
+pub struct Progress {
+    pub done: std::sync::atomic::AtomicU64,
+    pub total: std::sync::atomic::AtomicU64,
+    pub cancel: std::sync::atomic::AtomicBool,
+}
+
+impl Progress {
+    /// `on_progress_updated`: the percent written, 100 once done.
+    pub fn percent(&self) -> i32 {
+        use std::sync::atomic::Ordering::Relaxed;
+        let (d, t) = (self.done.load(Relaxed), self.total.load(Relaxed));
+        if d < t {
+            (d as f64 / t as f64 * 100.0) as i32
+        } else {
+            100
+        }
+    }
+
+    fn set_total(&self, n: u64) {
+        self.total.store(n, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn add(&self, n: u64) {
+        self.done.fetch_add(n, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub fn canceled(&self) -> bool {
+        self.cancel.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
 /// `StoreSession::save_start` + `save_logic`/`save_dso` for the whole
 /// capture. Errors carry DSView's messages.
 pub fn save_dsl(s: &Session, path: &Path, version: &str) -> Result<(), String> {
@@ -610,6 +644,33 @@ pub fn save_dsl_range(
     path: &Path,
     version: &str,
     range: Option<(u64, u64)>,
+) -> Result<(), String> {
+    save_dsl_range_with(s, path, version, range, &Progress::default())
+}
+
+/// [`save_dsl_range`] counting the bytes written into `prog`; a Cancel
+/// discards the file (`m_zipDoc.Discard`).
+pub fn save_dsl_range_with(
+    s: &Session,
+    path: &Path,
+    version: &str,
+    range: Option<(u64, u64)>,
+    prog: &Progress,
+) -> Result<(), String> {
+    let r = save_dsl_inner(s, path, version, range, prog);
+    if prog.canceled() {
+        let _ = std::fs::remove_file(path);
+        return Ok(());
+    }
+    r
+}
+
+fn save_dsl_inner(
+    s: &Session,
+    path: &Path,
+    version: &str,
+    range: Option<(u64, u64)>,
+    prog: &Progress,
 ) -> Result<(), String> {
     let mode = s.mode();
     if !s.have_view_data() {
@@ -672,11 +733,15 @@ pub fn save_dsl_range(
     if ranged {
         // the range's bytes per channel, cut into whole blocks again
         const BLOCK_BYTES: usize = (dsview_store::logic::LEAF_BLOCK_SAMPLES / 8) as usize;
+        prog.set_total((end - start) / 8 * saved.len() as u64);
         for c in &saved {
+            if prog.canceled() {
+                break;
+            }
             let mut pending: Vec<u8> = Vec::with_capacity(BLOCK_BYTES);
             let mut n = 0;
             let mut cursor = start;
-            while cursor < end {
+            while cursor < end && !prog.canceled() {
                 let (b, off) = store.get_block_index_with_sample(cursor);
                 let size = store.get_block_size(b) * 8;
                 if size <= off {
@@ -685,6 +750,7 @@ pub fn save_dsl_range(
                 let take = (size - off).min(end - cursor);
                 let (buf, level) = store.get_block_buf(b, c.index as i32);
                 let (from, to) = ((off / 8) as usize, ((off + take) / 8) as usize);
+                prog.add((to - from) as u64);
                 if buf.is_null() {
                     pending.extend(std::iter::repeat_n(if level { 0xff } else { 0 }, to - from));
                 } else {
@@ -712,8 +778,12 @@ pub fn save_dsl_range(
     }
     let blocks = store.get_block_num();
     let mut fill = Vec::new();
+    prog.set_total(store.ring_sample_count() / 8 * saved.len() as u64);
     for c in &saved {
         for b in 0..blocks {
+            if prog.canceled() {
+                return Ok(());
+            }
             let (buf, level) = store.get_block_buf(b, c.index as i32);
             let size = store.get_block_size(b) as usize;
             let data: &[u8] = if buf.is_null() {
@@ -725,6 +795,7 @@ pub fn save_dsl_range(
                 unsafe { std::slice::from_raw_parts(buf, size) }
             };
             z.add(&format!("L-{}/{b}", c.index), data).map_err(map)?;
+            prog.add(size as u64);
         }
     }
     drop(store);
@@ -821,6 +892,19 @@ pub fn export_range(
     range: Option<(u64, u64)>,
     original: bool,
 ) -> Result<(), String> {
+    export_range_with(s, path, format, range, original, &Progress::default())
+}
+
+/// [`export_range`] counting the samples written into `prog`; a Cancel
+/// stops it and keeps what was written, as Qt does.
+pub fn export_range_with(
+    s: &Session,
+    path: &Path,
+    format: Format,
+    range: Option<(u64, u64)>,
+    original: bool,
+    prog: &Progress,
+) -> Result<(), String> {
     let mode = s.mode();
     let kind = match mode {
         1 => ChannelKind::Dso,
@@ -911,7 +995,15 @@ pub fn export_range(
         } else {
             (0, 0)
         };
+        let ring = store.ring_sample_count();
+        prog.set_total(match (start_index, end_index) {
+            (a, b) if b > 0 => b.saturating_sub(a),
+            (a, _) => ring.saturating_sub(a),
+        });
         for blk in 0..store.get_block_num() {
+            if prog.canceled() {
+                break;
+            }
             if blk < start_block {
                 continue;
             }
@@ -946,7 +1038,7 @@ pub fn export_range(
             let samples = block_size * 8;
             let mut xbuf = vec![0u8; USIZE as usize * unitsize];
             let mut i = 0;
-            while i < samples {
+            while i < samples && !prog.canceled() {
                 let size = USIZE.min(samples - i) as usize;
                 xbuf[..size * unitsize].fill(0);
                 for j in 0..size {
@@ -971,6 +1063,7 @@ pub fn export_range(
                     })
                     .map_err(|e| e.to_string())?,
                 )?;
+                prog.add(size as u64);
                 i += USIZE;
             }
         }
@@ -996,12 +1089,13 @@ pub fn export_range(
         let ch = store.channel_num() as usize;
         let data = store.data();
         const USIZE: u64 = 8192;
+        prog.set_total(n);
         for (from, count) in [(ring_start, n - ring_start), (0, ring_start)] {
             if count == 0 {
                 break;
             }
             let mut i = 0;
-            while i < count {
+            while i < count && !prog.canceled() {
                 let size = USIZE.min(count - i) as usize;
                 let at = ((from + i) as usize).saturating_mul(ch);
                 let chunk = data.get(at..).unwrap_or(&[]);
@@ -1013,6 +1107,7 @@ pub fn export_range(
                     })
                     .map_err(|e| e.to_string())?,
                 )?;
+                prog.add(size as u64);
                 i += USIZE;
             }
         }
@@ -1037,7 +1132,8 @@ pub fn export_range(
         const USIZE: u64 = 8192;
         let mut i = 0;
         let mut buf = vec![0u8; USIZE as usize * ch_num.max(1)];
-        while i < n {
+        prog.set_total(n);
+        while i < n && !prog.canceled() {
             let size = USIZE.min(n - i) as usize;
             for (c, data) in chans.iter().enumerate() {
                 for j in 0..size {
@@ -1051,6 +1147,7 @@ pub fn export_range(
                 })
                 .map_err(|e| e.to_string())?,
             )?;
+            prog.add(size as u64);
             i += USIZE;
         }
     }
