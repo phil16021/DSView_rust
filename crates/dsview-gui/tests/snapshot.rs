@@ -1097,3 +1097,56 @@ fn protocol_table_marks_annotation() {
     assert_eq!(t.stack.mark(), ((a + b) / 2) as i64);
     s.exit();
 }
+
+/// The search cursor can be dragged; it then marks no hit.
+#[test]
+fn search_cursor_drag() {
+    let s = demo_session();
+    let view = Arc::new(std::sync::Mutex::new(TimeView::default()));
+    let (s2, v2) = (s.clone(), view.clone());
+    let mut first = true;
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1100.0, 640.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            let mut v = v2.lock().unwrap();
+            v.show(ui, &s2);
+            if std::mem::take(&mut first) {
+                v.show_region(&s2, 40_000, 60_000);
+                v.search = Some((50_000, true));
+            }
+        });
+    harness.run();
+    let tb = dsview_gui::timeview::timebase(&s);
+    let x0 = {
+        let v = view.lock().unwrap();
+        dsview_gui::timeview::HEADER_WIDTH + v.vp.index_to_pixel(50_000, false, &tb) as f32
+    };
+    let y = 600.0;
+    let ev = |h: &mut Harness<'_>, e: egui::Event| h.input_mut().events.push(e);
+    let button = |x: f32, pressed: bool| egui::Event::PointerButton {
+        pos: egui::pos2(x, y),
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    ev(
+        &mut harness,
+        egui::Event::PointerMoved(egui::pos2(x0 + 2.0, y)),
+    );
+    ev(&mut harness, button(x0 + 2.0, true));
+    harness.run();
+    for k in 1..=5 {
+        ev(
+            &mut harness,
+            egui::Event::PointerMoved(egui::pos2(x0 + 2.0 + 30.0 * k as f32, y)),
+        );
+        harness.run();
+    }
+    ev(&mut harness, button(x0 + 152.0, false));
+    harness.run();
+    let (pos, hit) = view.lock().unwrap().search.unwrap();
+    assert!(!hit);
+    assert!(pos > 50_000 + 1000, "moved to {pos}");
+    s.exit();
+}

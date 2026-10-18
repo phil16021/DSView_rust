@@ -48,6 +48,8 @@ enum Action {
     Zoom { x0: f32 },
     /// Dragging cursor `n`.
     Cursor(usize),
+    /// Dragging the search cursor (it then marks no hit).
+    Search,
     /// LOGIC_EDGE: counting edges from `start` on trace `ch`.
     Edges { ch: u16, start: u64, y: f32 },
     /// LOGIC_JUMP: from the edge at `start` on trace `ch`.
@@ -1081,13 +1083,23 @@ impl TimeView {
         let store = s.data().logic.lock().unwrap_or_else(|e| e.into_inner());
         // press: cursor grab, else pan or zoom
         if resp.drag_started() {
-            let p = resp.interact_pointer_pos().unwrap_or_default();
+            // where the button went down (`mousePressEvent`), not where the
+            // drag threshold was passed
+            let p = ui
+                .input(|i| i.pointer.press_origin())
+                .or(resp.interact_pointer_pos())
+                .unwrap_or_default();
             let x = (p.x - area.left()) as f64;
             let primary = ui.input(|i| i.pointer.primary_down());
             let grabbed = self
                 .cursors
                 .grab(x, |smp| self.vp.index_to_pixel(smp, false, tb));
+            // the search cursor first (`HitCursorMargin`)
+            let search = self
+                .search
+                .is_some_and(|(smp, _)| (self.vp.index_to_pixel(smp, false, tb) - x).abs() <= 10.0);
             self.action = match (primary, grabbed) {
+                (true, _) if search => Action::Search,
                 (true, Some(n)) => Action::Cursor(n),
                 (true, None) => {
                     self.kinetic = Kinetic::default();
@@ -1129,6 +1141,28 @@ impl TimeView {
                         Some(((i0, px(i0)), (i1, px(i1))))
                     });
                     self.cursors.drag(n, pos, pulse);
+                    changed = true;
+                }
+                Action::Search => {
+                    let x = (p.x - area.left()) as f64;
+                    let pos = self.vp.pixel_to_index(x, tb) as f64;
+                    let pulse = self.row_at(rows, area, p.y).and_then(|r| {
+                        let (i0, i1, _, _) = measure::pulse_at(
+                            &store,
+                            r.sig.as_ref()?.index,
+                            spp,
+                            self.vp.x_offset,
+                            x,
+                        )?;
+                        let px = |i| (self.vp.index_to_pixel(i, false, tb) - x).abs();
+                        Some(((i0, px(i0)), (i1, px(i1))))
+                    });
+                    // the same snapping as a cursor (`set_search_pos(.., false)`)
+                    let mut c = Cursors {
+                        samples: vec![pos as u64],
+                    };
+                    c.drag(1, pos, pulse);
+                    self.search = Some((c.samples[0], false));
                     changed = true;
                 }
                 _ => {}
