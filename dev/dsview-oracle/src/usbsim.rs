@@ -57,10 +57,7 @@ pub fn install(cfg: SimConfig) -> SharedHub {
     let h: SharedHub = Arc::new(Mutex::new(hub));
     *HUB.lock().unwrap_or_else(|e| e.into_inner()) = Some(h.clone());
     let idle = Arc::new(|d: Duration| sys::clock().sleep_us(d.as_micros() as u64));
-    dsview_ffi::drv::set_usb_backend(Arc::new(SimBackend {
-        hub: h.clone(),
-        idle,
-    }));
+    dsview_ffi::drv::set_usb_backend(Arc::new(SimBackend::new(h.clone(), idle)));
     h
 }
 

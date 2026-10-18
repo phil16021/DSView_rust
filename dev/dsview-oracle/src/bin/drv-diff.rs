@@ -144,7 +144,7 @@ fn one(seed: u64, dir: &Path, files: &[PathBuf]) -> Result<(usize, usize)> {
         std::env::var("DRV_DIFF_TIMEOUT")
             .ok()
             .and_then(|v| v.parse().ok())
-            .unwrap_or(180),
+            .unwrap_or(600),
     );
     let spawn = |imp: &str| -> std::io::Result<std::process::Output> {
         let out_path = dir.join(format!("out-{seed}-{imp}"));
@@ -887,6 +887,8 @@ fn run_side(args: &[String]) -> Result<()> {
     let usb = !scenario["sim"].is_null();
     if usb {
         dsview_oracle::usbsim::install(sim_config(&scenario["sim"]));
+        // a calibration capture takes longer than the demo's 10 s safety net
+        unsafe { std::env::set_var("ORACLE_CAPTURE_DEADLINE_S", "60") };
     }
     let flush_usb = || {
         if usb {

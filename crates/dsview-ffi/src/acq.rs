@@ -30,8 +30,8 @@ pub struct DsvLibHost {
     pub event: Option<extern "C" fn(user: *mut c_void, ev: i32)>,
     /// The `emit` context (the shim's `sr_dev_inst`) of a device.
     pub packet_ctx: Option<extern "C" fn(user: *mut c_void, handle: u64) -> *mut c_void>,
-    /// Forwards one packet (`rs_emit`).
-    pub emit: Option<extern "C" fn(ctx: *mut c_void, p: *const crate::drv::DsvPacket)>,
+    /// Forwards one packet (`rs_emit`; not `emit`, a Qt keyword).
+    pub forward: Option<extern "C" fn(ctx: *mut c_void, p: *const crate::drv::DsvPacket)>,
     /// Copy the shim's channel list into the device.
     pub sync_in: Option<extern "C" fn(user: *mut c_void, handle: u64)>,
     /// Copy the device out (`full`: also mode, status, the channel list).
@@ -58,7 +58,7 @@ impl Host for CHost {
         if packets.is_empty() {
             return;
         }
-        if let (Some(ctx), Some(emit)) = (self.0.packet_ctx, self.0.emit) {
+        if let (Some(ctx), Some(emit)) = (self.0.packet_ctx, self.0.forward) {
             let c = ctx(self.0.user, handle);
             emit_all(packets, emit, c);
         }

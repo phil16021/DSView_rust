@@ -122,9 +122,9 @@ typedef struct dsv_lib_host {
    */
   void *(*packet_ctx)(void *user, uint64_t handle);
   /**
-   * Forwards one packet (`rs_emit`).
+   * Forwards one packet (`rs_emit`; not `emit`, a Qt keyword).
    */
-  void (*emit)(void *ctx, const struct dsv_packet *p);
+  void (*forward)(void *ctx, const struct dsv_packet *p);
   /**
    * Copy the shim's channel list into the device.
    */

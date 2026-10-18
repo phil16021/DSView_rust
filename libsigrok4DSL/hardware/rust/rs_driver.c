@@ -886,7 +886,6 @@ SR_PRIV struct sr_dev_driver rs_file_driver_info = {
     .priv = NULL,
 };
 
-#endif /* DSVIEW_RUST_CORE */
 
 /* --------------------------------------------- copies for ds_api_rs.c */
 
@@ -978,3 +977,4 @@ SR_PRIV void rs_mirror_log(int32_t level, const char *msg)
 {
     rs_log(level, msg);
 }
+#endif /* DSVIEW_RUST_CORE */

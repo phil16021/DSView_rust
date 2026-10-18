@@ -180,7 +180,7 @@ SR_PRIV int rs_ds_lib_init(void)
         .user = NULL,
         .event = host_event,
         .packet_ctx = host_packet_ctx,
-        .emit = host_emit,
+        .forward = host_emit,
         .sync_in = host_sync_in,
         .sync_out = host_sync_out,
         .before_start = host_before_start,

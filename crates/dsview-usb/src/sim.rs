@@ -124,6 +124,8 @@ pub struct DslSim {
     dso_offset: [u8; 2],
     /// Sample divider of the last DSO samplerate command.
     divider: u32,
+    /// No data for now (a capture waiting for its trigger).
+    pub hold: bool,
 }
 
 /// One USB request seen by the device, as text (the transcript).
@@ -152,6 +154,7 @@ impl DslSim {
             frames: 0,
             dso_offset: [0x80; 2],
             divider: 1,
+            hold: false,
         }
     }
 
@@ -298,7 +301,7 @@ impl DslSim {
 
     /// Whether a transfer of `len` bytes would complete now.
     fn can_fill(&self, _len: usize) -> bool {
-        self.running
+        self.running && !self.hold
     }
 
     /// The data for the next IN transfer of `len` bytes.
@@ -390,6 +393,8 @@ pub struct Hub {
     ready: VecDeque<Done>,
     pub log: Log,
     open: bool,
+    /// Plugged in (an unplugged device fails every request).
+    present: bool,
     /// Called after each tick with the number of transfers it completed.
     pub on_tick: Option<Box<dyn FnMut(usize) + Send>>,
 }
@@ -402,7 +407,25 @@ impl Hub {
             ready: VecDeque::new(),
             log: Vec::new(),
             open: false,
+            present: true,
             on_tick: None,
+        }
+    }
+
+    pub fn present(&self) -> bool {
+        self.present
+    }
+
+    /// Unplugs (`false`) or plugs the device in again, then at `address`;
+    /// a plug-in powers it up anew (its capture state is gone).
+    pub fn set_present(&mut self, present: bool, address: Option<u8>) {
+        self.present = present;
+        if let Some(a) = address {
+            self.dev.cfg.address = a;
+        }
+        if present {
+            self.dev.running = false;
+            self.dev.hold = false;
         }
     }
 
@@ -432,18 +455,27 @@ impl Hub {
     }
 
     pub fn control_out(&mut self, s: Setup, data: &[u8]) -> Result<(), UsbError> {
+        if !self.present {
+            return Err(UsbError::Disconnected);
+        }
         let line = self.dev.control_out(s, data)?;
         self.log.push(line);
         Ok(())
     }
 
     pub fn control_in(&mut self, s: Setup, len: u16) -> Result<Vec<u8>, UsbError> {
+        if !self.present {
+            return Err(UsbError::Disconnected);
+        }
         let (v, line) = self.dev.control_in(s, len)?;
         self.log.push(line);
         Ok(v)
     }
 
     pub fn bulk_out(&mut self, ep: u8, data: &[u8]) -> usize {
+        if !self.present {
+            return 0;
+        }
         let line = self.dev.bulk_out(ep, data);
         self.log.push(line);
         data.len()
@@ -457,12 +489,23 @@ impl Hub {
     pub fn can_complete(&self) -> bool {
         self.queue
             .front()
-            .is_some_and(|&(_, len)| self.dev.can_fill(len))
+            .is_some_and(|&(_, len)| !self.present || self.dev.can_fill(len))
     }
 
     /// A tick: completes the queued transfers the device has data for.
     pub fn tick(&mut self) {
         let mut n = 0;
+        if !self.present {
+            // gone: every queued transfer fails
+            for (id, _) in self.queue.drain(..) {
+                self.ready.push_back(Done {
+                    id,
+                    data: Vec::new(),
+                    status: Err(UsbError::Disconnected),
+                });
+                n += 1;
+            }
+        }
         while let Some(&(id, len)) = self.queue.front() {
             if !self.dev.can_fill(len) {
                 break;
@@ -520,16 +563,60 @@ pub type Idle = Arc<dyn Fn(Duration) + Send + Sync>;
 pub struct SimBackend {
     pub hub: SharedHub,
     pub idle: Idle,
+    /// Hotplug watchers (`watch`).
+    pub watchers: Mutex<Vec<std::sync::mpsc::Sender<crate::Hotplug>>>,
+}
+
+impl SimBackend {
+    pub fn new(hub: SharedHub, idle: Idle) -> SimBackend {
+        SimBackend {
+            hub,
+            idle,
+            watchers: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Unplugs the device, or plugs it in (at `address`), and tells the
+    /// watchers.
+    pub fn plug(&self, present: bool, address: Option<u8>) {
+        let ev = {
+            let mut h = self.hub.lock().unwrap();
+            let before = h.info();
+            h.set_present(present, address);
+            if present {
+                crate::Hotplug::Arrived(h.info())
+            } else {
+                crate::Hotplug::Left {
+                    bus: before.bus,
+                    address: before.address,
+                }
+            }
+        };
+        self.watchers
+            .lock()
+            .unwrap()
+            .retain(|w| w.send(ev.clone()).is_ok());
+    }
 }
 
 impl UsbBackend for SimBackend {
     fn list(&self) -> Result<Vec<Info>, UsbError> {
-        Ok(vec![self.hub.lock().unwrap().info()])
+        let h = self.hub.lock().unwrap();
+        Ok(if h.present() {
+            vec![h.info()]
+        } else {
+            Vec::new()
+        })
+    }
+    fn watch(&self) -> Option<std::sync::mpsc::Receiver<crate::Hotplug>> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.watchers.lock().unwrap().push(tx);
+        Some(rx)
     }
     fn open(&self, bus: u8, address: u8, _how: Open) -> Result<Box<dyn UsbDevice>, UsbError> {
         let mut h = self.hub.lock().unwrap();
         let i = h.info();
-        if (i.bus, i.address) != (bus, address) {
+        if !h.present() || (i.bus, i.address) != (bus, address) {
             return Err(UsbError::NotFound);
         }
         h.open();

@@ -40,3 +40,11 @@ opt-level = 3
 
 [profile.dev.package.dsview-oracle]
 opt-level = 3
+
+# Inflating .dsl/.demo entries dominates debug-build test runs (the demo
+# driver re-reads its pattern on every poll in some modes).
+[profile.dev.package.zlib-rs]
+opt-level = 3
+
+[profile.dev.package.flate2]
+opt-level = 3

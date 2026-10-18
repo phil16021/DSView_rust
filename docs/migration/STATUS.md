@@ -6,7 +6,7 @@
 | 1 Formats + store | **done**: 1a formats behind `DSVIEW_IMPL_FORMATS`, 1b sample stores behind `DSVIEW_IMPL_STORE`; Rust becomes the default after one release of A/B | See "Phase 1a" and "Phase 1b" below |
 | 2 Decoder engine | **done**: Rust/PyO3 engine behind `DSVIEW_IMPL_DECODE`; Rust becomes the default after one release of A/B | See "Phase 2" below |
 | 3 Drivers | **done except hardware steps**: 3a demo, 3b file, 3c USB layer, 3d DSLogic (replug tests passed 2026-10-18), 3e DSCope/MSO-E8 (`DSVIEW_IMPL_DRV_DEMO` / `_FILE` / `_DSLOGIC` / `_DSCOPE`). Open: a firmware upload from the host, the nightly runs, one DSCope/E8 hardware confirmation | See "Phase 3" below |
-| 4 Session + control API | not started | |
+| 4 Session + control API | **in progress**: 4a acquisition library (lib_main.c, session.c) in Rust behind `DSVIEW_IMPL_ACQ`; next 4b capture session, control server, `dsview-cli serve` | See "Phase 4" below |
 | 5 Rust GUI | not started | Parity checklist: PARITY.md |
 | 6 Removal + packaging | not started | |
 
@@ -506,3 +506,53 @@ protocol.demo playback, channel keys without a channel, analog overruns and DSO 
   becomes the default (plan, Phase 3 exit).
 - 3d's firmware-upload and nightly hardware steps.
 
+## Phase 4 (session + control API): status
+
+### 4a acquisition library: done (a replug through DSView with it is open)
+
+**`crates/dsview-session`, `Library`** (= `lib_main.c` and the part of `session.c` the drivers
+use):
+- the device list (demo devices, then DSLogic, then DSCope, then capture files as they are opened);
+- activation, with C's fallback to the previous device;
+- `remove`, `release`, `close_all`, `reload`, the last error;
+- the collect thread: start, the dummy-source loop, the stop (including the second stop C's session
+  issues when a USB capture ends together with a stop request), and the end events;
+- hotplug on its own thread, with C's 100 ms ticks and the 500 ms reconnect merge;
+- the delayed destruction of a detached active device;
+- events posted on threads of their own, as C does.
+
+It uses the Rust drivers for every kind of device.
+- `dsview-usb` gains hotplug (`UsbBackend::watch`; the nusb backend runs `nusb::watch_devices`), so
+  this needs no libusb at all.
+- The simulator can be unplugged and plugged in again, and can hold its data (a capture waiting for
+  its trigger).
+
+**Seam:**
+- `dsview-ffi::acq` (`dsv_lib_*`) and `libsigrok4DSL/ds_api_rs.c` implement the `ds_*` API on the
+  library. With `DSVIEW_IMPL_ACQ=rust` (or `DSVIEW_IMPL=rust`), `lib_main.c`'s entry points hand
+  over to them, and `sr_session_stop()` asks the Rust capture to stop.
+- The GUI still sees a `struct sr_dev_inst` with an `sr_channel` list per device. `rs_driver.c`
+  makes these copies; the library calls back to copy channels in before it uses a device and out
+  after it changed one, to forward packets and events, and when a device is gone.
+- The config, status, mode and channel calls work on the active device's copy, as `lib_main.c`
+  does on its `sr_dev_inst`.
+
+**Checks:**
+- `drv-diff` now runs the Rust side entirely on the Rust library: demo, file and simulated
+  DSCope/E8 scenarios through the `ds_*` API. C library + C drivers against Rust library + Rust
+  drivers, **1500 scenarios, all identical**: 2.1 million answers, 108,000 packets.
+  - 70 of them hit the known C demo crashes (F18), where Rust matched up to the crash.
+  - Found on the way: a stop requested from a capture's first packet was lost (the flag was
+    registered after the thread started).
+- Hotplug, against the simulated DSLogic Plus (`tests/hotplug.rs`):
+  - a 150 ms loss of contact: the same device at its new address, opened again, no detach event;
+  - a real detach of the active device: out of the list after 500 ms, the active one kept;
+  - a new device: the attach event and a new entry;
+  - unplugging during a capture: the capture ends, END is sent, the capture ends with
+    COLLECT_TASK_END_BY_DETACHED.
+- The Qt GUI (headless DSView) on the Rust library:
+  - the control-API transcript is identical to the C library's;
+  - with the DSLogic Plus, the startup and a user stop in the middle of a stream give the same
+    USB protocol as C (`usb-diff`; 52 vs 53 transfers before the stop).
+
+**Open:** unplug and replug with the Rust library through DSView (needs someone at the device).

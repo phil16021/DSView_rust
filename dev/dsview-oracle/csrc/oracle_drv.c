@@ -302,9 +302,14 @@ int oracle_drv_capture(int stop_after, oracle_drv_packet_cb cb, void *user)
         return ret;
 
     g_mutex_lock(&g_lock);
-    /* captures that send nothing (F19) end here; the rest take well under a second
-     * (simulated USB captures are stopped by their transfer budget) */
-    deadline = g_get_monotonic_time() + 60 * G_TIME_SPAN_SECOND;
+    /* captures that send nothing (F19) end here, after 10 s (or
+     * ORACLE_CAPTURE_DEADLINE_S); the rest take well under a second, and
+     * simulated USB captures are stopped by their transfer budget */
+    {
+        const char *s = g_getenv("ORACLE_CAPTURE_DEADLINE_S");
+        gint64 secs = s ? g_ascii_strtoll(s, NULL, 10) : 0;
+        deadline = g_get_monotonic_time() + (secs > 0 ? secs : 10) * G_TIME_SPAN_SECOND;
+    }
     while (!g_ended) {
         if (!g_cond_wait_until(&g_cond, &g_lock, deadline))
             break;

@@ -396,6 +396,9 @@ running the C driver against the simulated device.
 | DSLogic stop | Waits for the device to drain, without a time limit | Waits 3 s, then cancels the transfers and ends the capture | 3d ✔ |
 | DSLogic `PROBE_VDIV` list without a range table | NULL dereference | Empty list | 3d ✔ |
 | DSLogic profile check | Reads manufacturer/product over USB (GET_DESCRIPTOR) | Takes them from the OS device list (sysfs on Linux), so no USB traffic while scanning | 3d ✔ |
+| Library: a device that reconnects within 500 ms | Gets a new `ds_device_handle` (its new `libusb_device`) | Keeps its handle; only its bus address changes | 4a ✔ |
+| Library: USB events | libusb hotplug callbacks; the hotplug thread also pumps libusb events, so it can complete the drivers' transfers alongside the collect thread | nusb's hotplug stream on a thread of its own; transfers are completed only by their driver | 4a ✔ |
+| Library with `DSVIEW_IMPL_ACQ=rust` | — | Every device runs on its Rust driver (`DSVIEW_IMPL_DRV_*` apply to the C library only) | 4a ✔ |
 | DSLogic DSO and DAQ modes | Code in `dslogic.c`, unreachable: no DSLogic profile offers them (F24) | Not ported; setting such a mode fails | 3e ✔ |
 | DSLogic/DSCope common key without its channel (`PROBE_VDIV` etc. with `ch` NULL) | SR_ERR_NA (the driver's own switch is tried after `dsl_config_get()` fails) | Same (3d answered SR_ERR) | 3e ✔ |
 | DSO envelope, `cal_vrms`, `cal_vmean` | Implemented, never called | Not ported; under `DSVIEW_IMPL_STORE=rust`, `enable_envelope` is a no-op and the two return 0 | 1b ✔ |
@@ -434,3 +437,5 @@ running the C driver against the simulated device.
 | Phase 3e: EEPROM layout "deliberately fixed" to 32 bytes | The 30 bytes C reads and writes; the two gains that do not fit are 1.0 | Writing 32 bytes would change the NVM layout under C, which still reads 30; the wire format stays compatible both ways |
 | Phase 3e: `ZeroCalState`/`TuneState` | `ZeroCal` per device; no tune state | `dso_tune()` is dead code (F24) |
 | Phase 3: DSCope Rust default | Still opt-in (`DSVIEW_IMPL_DRV_DSCOPE=rust`) | As planned: the default flips after a hardware confirmation |
+| Phase 4: `compat/ds_api_rs.c`, `DeviceManager` | `libsigrok4DSL/ds_api_rs.c` over `dsview_session::Library` | Same place as the other shims; the library is lib_main.c's device manager and capture thread in one |
+| Phase 4: CaptureSession state machine, DecodeScheduler | Moved to 4b (with the control server and `dsview-cli serve`) | They replace Qt's SigSession, which stays for the Qt GUI; 4a replaces what is under it |
