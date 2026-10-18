@@ -71,6 +71,10 @@ pub struct DsoState {
     measure_cache: Vec<(i32, u64, serde_json::Value)>,
     /// The value under the mouse: channel, sample, code, text.
     pub hover: Option<(u16, u64, u8, String)>,
+    /// The math trace.
+    pub math: crate::mathview::MathState,
+    /// The math trace's header row (`get_y()`), when shown.
+    math_y: Option<i32>,
 }
 
 impl DsoState {
@@ -86,23 +90,23 @@ impl DsoState {
 
 /// A DSO channel as the frame sees it.
 #[derive(Clone, Debug)]
-struct ChanView {
-    sig: Signal,
+pub(crate) struct ChanView {
+    pub(crate) sig: Signal,
     /// Its position in the device's channel list (for per-channel config).
-    pos: usize,
-    enabled: bool,
-    vdiv: u64,
-    factor: u64,
+    pub(crate) pos: usize,
+    pub(crate) enabled: bool,
+    pub(crate) vdiv: u64,
+    pub(crate) factor: u64,
     coupling: u8,
     zero_offset: u16,
-    hw_offset: i32,
+    pub(crate) hw_offset: i32,
     trig_value: u8,
-    geom: Geom,
+    pub(crate) geom: Geom,
     /// The header row's centre (`get_y()`), in trace-area coordinates.
     y: i32,
-    colour: Color32,
+    pub(crate) colour: Color32,
     /// The device's V/div list (the dial's entries).
-    vdivs: std::sync::Arc<Vec<u64>>,
+    pub(crate) vdivs: std::sync::Arc<Vec<u64>>,
 }
 
 impl ChanView {
@@ -111,7 +115,7 @@ impl ChanView {
     }
 }
 
-fn colour(sig: &Signal) -> Color32 {
+pub(crate) fn colour(sig: &Signal) -> Color32 {
     let [r, g, b] = sig
         .colour
         .unwrap_or(dso::SIGNAL_COLOURS[sig.index as usize % dso::SIGNAL_COLOURS.len()]);
@@ -146,6 +150,16 @@ fn is_hardware_logic(s: &Session) -> bool {
 
 /// The DSO channels and their settings (`load_settings`).
 fn channel_views(s: &Session, area_w: i32, area_h: i32, st: &DsoState) -> Vec<ChanView> {
+    channel_layout(s, area_w, area_h, st).0
+}
+
+/// The channels and the math trace's header row.
+fn channel_layout(
+    s: &Session,
+    area_w: i32,
+    area_h: i32,
+    st: &DsoState,
+) -> (Vec<ChanView>, Option<i32>) {
     let chans = s.channels();
     let signals: Vec<Signal> = s
         .state()
@@ -166,7 +180,7 @@ fn channel_views(s: &Session, area_w: i32, area_h: i32, st: &DsoState) -> Vec<Ch
             .iter()
             .any(|c| c.index == sig.index && c.ty == channel_type::DSO && c.enabled)
     };
-    let slots: Vec<Slot> = signals
+    let mut slots: Vec<Slot> = signals
         .iter()
         .map(|x| Slot {
             kind: TraceKind::Dso,
@@ -175,6 +189,15 @@ fn channel_views(s: &Session, area_w: i32, area_h: i32, st: &DsoState) -> Vec<Ch
             view_index: x.view_index,
         })
         .collect();
+    // the math trace takes a header row after the channels
+    if st.math.enabled {
+        slots.push(Slot {
+            kind: TraceKind::Dso,
+            rows: 1,
+            enabled: true,
+            view_index: i32::MAX,
+        });
+    }
     let l = layout::layout(
         &slots,
         &LayoutParams {
@@ -191,7 +214,9 @@ fn channel_views(s: &Session, area_w: i32, area_h: i32, st: &DsoState) -> Vec<Ch
     );
     let mut out = Vec::new();
     for p in &l.placed {
-        let sig = signals[p.slot].clone();
+        let Some(sig) = signals.get(p.slot).cloned() else {
+            continue;
+        };
         let (y, total) = (p.v_offset as i32, p.total_height);
         let rect = dso::view_rect(area_w, area_h, st.split.then_some((y, total)), 0);
         let Some(pos) = chans
@@ -224,7 +249,12 @@ fn channel_views(s: &Session, area_w: i32, area_h: i32, st: &DsoState) -> Vec<Ch
             sig,
         });
     }
-    out
+    let math_y = l
+        .placed
+        .iter()
+        .find(|p| p.slot == signals.len())
+        .map(|p| p.v_offset as i32);
+    (out, math_y)
 }
 
 /// `go_vDialPre` / `go_vDialNext`: one step of the V/div dial; while
@@ -274,7 +304,8 @@ impl TimeView {
 
         // a new capture: its scale and V/div convert codes to volts
         let started = s.state().started_seq;
-        let mut chans = channel_views(s, aw, ah, &self.dso);
+        let (mut chans, math_y) = channel_layout(s, aw, ah, &self.dso);
+        self.dso.math_y = math_y;
         if started != self.dso.started_seq {
             self.dso.started_seq = started;
             for c in &chans {
@@ -295,6 +326,7 @@ impl TimeView {
 
         let mut changed = self.dso_input(ui, s, &tb, area, rect, &chans);
         changed |= self.dso_header(ui, s, header, area, &chans);
+        changed |= self.math_header(ui, s, header, area, rect, self.dso.math_y);
 
         // paint
         let painter = ui.painter_at(full);
@@ -310,6 +342,7 @@ impl TimeView {
             self.paint_grid(&tpainter, area, rect, &tb);
         }
         self.paint_dso_traces(&tpainter, s, area, rect, &tb, &chans);
+        self.paint_math(&tpainter, s, area, rect, &tb, &chans);
         self.paint_dso_fore(&tpainter, area, rect, &tb, &chans);
         self.paint_ruler(&painter, ruler_rect, s, &tb);
         self.paint_cursors(&painter, ruler_rect, area, &tb);
@@ -320,6 +353,7 @@ impl TimeView {
             &chans,
             ui.input(|i| i.pointer.hover_pos()),
         );
+        self.paint_math_header(&painter, header, area, rect, self.dso.math_y);
         changed
     }
 
@@ -989,7 +1023,7 @@ impl TimeView {
 
 impl ChanView {
     /// The dial's position: (selected entry, entries).
-    fn dial_pos(&self) -> (usize, usize) {
+    pub(crate) fn dial_pos(&self) -> (usize, usize) {
         let sel = self.vdivs.iter().position(|&v| v == self.vdiv).unwrap_or(0);
         (sel, self.vdivs.len().max(1))
     }

@@ -197,6 +197,26 @@ fn fft_pane() {
     s.exit();
 }
 
+#[test]
+fn dso_math_view() {
+    let s = demo_in_mode(dsview_core::Mode::Dso);
+    let mut view = TimeView::default();
+    let m = &mut view.dso.math;
+    m.enabled = true;
+    m.ty = dsview_dsp::math::MathType::Add;
+    (m.src1, m.src2, m.filter_width, m.zero_vrate) = (0, 1, 10, 0.5);
+    let s2 = s.clone();
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1100.0, 640.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            view.show(ui, &s2);
+        });
+    harness.run();
+    harness.snapshot("dso_math_view");
+    s.exit();
+}
+
 fn click(h: &mut Harness<'_>, x: f32, y: f32) {
     let pos = egui::pos2(x, y);
     let ev = &mut h.input_mut().events;

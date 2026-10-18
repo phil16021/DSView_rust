@@ -5,9 +5,10 @@
 pub mod analogview;
 pub mod app;
 pub mod dsotrigger;
-pub mod fftview;
 pub mod dsoview;
+pub mod fftview;
 pub mod hooks;
+pub mod mathview;
 pub mod protocol;
 pub mod soak;
 pub mod timeview;

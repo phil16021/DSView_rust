@@ -41,7 +41,10 @@ impl MathType {
     }
 
     pub fn from_index(i: i32) -> MathType {
-        Self::ALL.get(i.max(0) as usize).copied().unwrap_or_default()
+        Self::ALL
+            .get(i.max(0) as usize)
+            .copied()
+            .unwrap_or_default()
     }
 
     /// The math options dialog's names.
@@ -198,7 +201,11 @@ pub fn calc(
     let k = math_factor.max(1) as f64;
     let mut out = vec![0.0; n];
     if t.is_unary() {
-        let dt = if samplerate > 0.0 { 1.0 / samplerate } else { 1.0 };
+        let dt = if samplerate > 0.0 {
+            1.0 / samplerate
+        } else {
+            1.0
+        };
         let win = filter_width.max(1) as usize;
         let (mut integ, mut acc) = (0.0, 0.0);
         for (i, o) in out.iter_mut().enumerate() {
@@ -313,17 +320,40 @@ mod tests {
     use super::*;
 
     fn dial(value: u64, factor: u64) -> Dial {
-        Dial { value, factor, min: 10, max: 10000 }
+        Dial {
+            value,
+            factor,
+            min: 10,
+            max: 10000,
+        }
     }
 
     #[test]
     fn dials() {
-        assert_eq!(default_vdial(MathType::Add, dial(500, 1), dial(1000, 1)), 1000);
-        assert_eq!(default_vdial(MathType::Mul, dial(500, 1), dial(1000, 1)), 500);
-        assert_eq!(default_vdial(MathType::Div, dial(500, 1), dial(1000, 1)), 500);
-        assert_eq!(default_vdial(MathType::Div, dial(300, 1), dial(1000, 1)), 500);
-        assert_eq!(default_factor(MathType::Mul, dial(500, 10), dial(1000, 10)), 100);
-        assert_eq!(default_factor(MathType::Div, dial(500, 1), dial(1000, 10)), 1);
+        assert_eq!(
+            default_vdial(MathType::Add, dial(500, 1), dial(1000, 1)),
+            1000
+        );
+        assert_eq!(
+            default_vdial(MathType::Mul, dial(500, 1), dial(1000, 1)),
+            500
+        );
+        assert_eq!(
+            default_vdial(MathType::Div, dial(500, 1), dial(1000, 1)),
+            500
+        );
+        assert_eq!(
+            default_vdial(MathType::Div, dial(300, 1), dial(1000, 1)),
+            500
+        );
+        assert_eq!(
+            default_factor(MathType::Mul, dial(500, 10), dial(1000, 10)),
+            100
+        );
+        assert_eq!(
+            default_factor(MathType::Div, dial(500, 1), dial(1000, 10)),
+            1
+        );
         let v = dial_values(MathType::Add, dial(500, 1), dial(1000, 1));
         assert_eq!(v.first(), Some(&10));
         assert_eq!(v.last(), Some(&20000));
@@ -336,7 +366,11 @@ mod tests {
     fn operators() {
         let a = [128u8, 138, 118, 128];
         let b = [128u8, 128, 148, 108];
-        let s = |c: &'static [u8]| Source { codes: c, scale: 0.1, delta: 12.8 };
+        let s = |c: &'static [u8]| Source {
+            codes: c,
+            scale: 0.1,
+            delta: 12.8,
+        };
         let a: &'static [u8] = Box::leak(Box::new(a));
         let b: &'static [u8] = Box::leak(Box::new(b));
         let add = calc(MathType::Add, s(a), Some(s(b)), 4, 1.0, 10, 1).unwrap();

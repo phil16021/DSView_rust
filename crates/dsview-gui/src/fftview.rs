@@ -104,7 +104,9 @@ impl FftState {
         let w = (pane.width() - RIGHT_MARGIN as f32).max(1.0);
         let h = pane.height().max(1.0);
         let rect = Rect::from_min_size(pane.min, vec2(w, h));
-        let Some((_, vdiv, factor, _)) = chan(s, i as u16) else { return };
+        let Some((_, vdiv, factor, _)) = chan(s, i as u16) else {
+            return;
+        };
         let (vdiv, factor) = (vdiv as f64, factor as f64);
         let colour = {
             let sig = s
@@ -151,11 +153,25 @@ impl FftState {
         p.rect_filled(full, 0.0, Color32::from_gray(24));
         p.rect_filled(header, 0.0, Color32::from_gray(34));
         p.rect_filled(rect, 0.0, Color32::from_gray(12));
-        p.rect_stroke(rect, 0.0, Stroke::new(1.0, Color32::from_rgba_unmultiplied(220, 220, 220, 100)), egui::StrokeKind::Inside);
+        p.rect_stroke(
+            rect,
+            0.0,
+            Stroke::new(1.0, Color32::from_rgba_unmultiplied(220, 220, 220, 100)),
+            egui::StrokeKind::Inside,
+        );
         // the header label ("FFT(n)")
-        let label = Rect::from_center_size(pos2(header.right() - 25.0, rect.center().y), vec2(40.0, 20.0));
+        let label = Rect::from_center_size(
+            pos2(header.right() - 25.0, rect.center().y),
+            vec2(40.0, 20.0),
+        );
         p.rect_filled(label, 0.0, colour);
-        p.text(label.center(), egui::Align2::CENTER_CENTER, format!("FFT({i})"), font.clone(), Color32::WHITE);
+        p.text(
+            label.center(),
+            egui::Align2::CENTER_CENTER,
+            format!("FFT({i})"),
+            font.clone(),
+            Color32::WHITE,
+        );
         let o = |x: f64, y: f64| pos2(rect.left() + x as f32, rect.top() + y as f32);
         let spec = &self.specs[i];
         let bins = &self.bins[i];
@@ -171,18 +187,34 @@ impl FftState {
         let snap = s.state().cur_snap_samplerate as f64;
         let st = Stroke::new(1.0, fore);
         for (x, major, text) in spec.freq_ticks(snap, w as f64) {
-            let len = if major { TICK_HEIGHT } else { TICK_HEIGHT / 2.0 };
+            let len = if major {
+                TICK_HEIGHT
+            } else {
+                TICK_HEIGHT / 2.0
+            };
             p.line_segment([o(x, 1.0), o(x, len)], st);
             if let Some(t) = text
                 && x > 30.0
                 && (w as f64 - x) > 30.0
             {
-                p.text(o(x, TICK_HEIGHT), egui::Align2::CENTER_TOP, t, font.clone(), fore);
+                p.text(
+                    o(x, TICK_HEIGHT),
+                    egui::Align2::CENTER_TOP,
+                    t,
+                    font.clone(),
+                    fore,
+                );
             }
         }
         for (y, text) in spec.level_ticks(vdiv, factor, h as f64) {
             p.line_segment([o(w as f64, y), o(w as f64 - TICK_HEIGHT / 2.0, y)], st);
-            p.text(o(w as f64 - TICK_HEIGHT, y), egui::Align2::RIGHT_CENTER, text, font.clone(), fore);
+            p.text(
+                o(w as f64 - TICK_HEIGHT, y),
+                egui::Align2::RIGHT_CENTER,
+                text,
+                font.clone(),
+                fore,
+            );
         }
         let df = spectrum::delta_freq(snap, spec.sample_num, spec.interval);
         p.text(
@@ -195,7 +227,12 @@ impl FftState {
         if let Some(bin) = self.hover
             && let Some((x, y, t)) = spec.hover(bins, bin, vdiv, factor, w as f64, h as f64, df)
         {
-            p.extend(egui::Shape::dashed_line(&[o(x, 0.0), o(x, h as f64)], st, 4.0, 3.0));
+            p.extend(egui::Shape::dashed_line(
+                &[o(x, 0.0), o(x, h as f64)],
+                st,
+                4.0,
+                3.0,
+            ));
             p.circle_filled(o(x, y), 3.0, fore);
             p.text(o(x, y), egui::Align2::LEFT_BOTTOM, t, font, fore);
         }
@@ -204,95 +241,110 @@ impl FftState {
     /// The FFT options dialog; changes apply on OK (only one spectrum is
     /// enabled at a time, as in Qt).
     pub fn dialog(&mut self, ctx: &egui::Context, s: &Session) {
-        let Some(mut d) = self.dialog.take() else { return };
+        let Some(mut d) = self.dialog.take() else {
+            return;
+        };
         let mut keep = true;
         let max_limits = s.config_u64(key::MAX_DSO_SAMPLELIMITS).unwrap_or(0);
         egui::Window::new("FFT Options")
             .collapsible(false)
             .resizable(false)
             .show(ctx, |ui| {
-                egui::Grid::new("fft-options").num_columns(2).show(ui, |ui| {
-                    ui.label("FFT Enable: ");
-                    ui.checkbox(&mut d.spec.enabled, "");
-                    ui.end_row();
-                    ui.label("FFT Source: ");
-                    let names: Vec<(u16, String)> = s
-                        .state()
-                        .signals
-                        .iter()
-                        .filter(|x| x.ty == channel_type::DSO)
-                        .map(|x| (x.index, x.name.clone()))
-                        .collect();
-                    let cur = names.iter().find(|n| n.0 == d.channel).map_or(String::new(), |n| n.1.clone());
-                    egui::ComboBox::from_id_salt("fft-src").selected_text(cur).show_ui(ui, |ui| {
-                        for (i, n) in &names {
-                            if ui.selectable_label(*i == d.channel, n).clicked() && *i < 2 {
-                                d.channel = *i;
-                                d.spec = Spectrum {
-                                    enabled: d.spec.enabled,
-                                    ..self.specs[*i as usize].clone()
-                                };
-                            }
-                        }
-                    });
-                    ui.end_row();
-                    let (lengths, _) = spectrum::lengths_and_intervals(max_limits, d.spec.sample_num);
-                    ui.label("FFT Length: ");
-                    egui::ComboBox::from_id_salt("fft-len")
-                        .selected_text(d.spec.sample_num.to_string())
-                        .show_ui(ui, |ui| {
-                            for l in &lengths {
-                                ui.selectable_value(&mut d.spec.sample_num, *l, l.to_string());
-                            }
-                        });
-                    ui.end_row();
-                    // the intervals follow the length
-                    let (_, intervals2) = spectrum::lengths_and_intervals(max_limits, d.spec.sample_num);
-                    if !intervals2.contains(&d.spec.interval) {
-                        d.spec.interval = intervals2.last().copied().unwrap_or(1);
-                    }
-                    ui.label("Sample Interval: ");
-                    egui::ComboBox::from_id_salt("fft-int")
-                        .selected_text(d.spec.interval.to_string())
-                        .show_ui(ui, |ui| {
-                            for v in &intervals2 {
-                                ui.selectable_value(&mut d.spec.interval, *v, v.to_string());
-                            }
-                        });
-                    ui.end_row();
-                    ui.label("FFT Window: ");
-                    egui::ComboBox::from_id_salt("fft-win")
-                        .selected_text(WINDOWS[d.spec.window.clamp(0, 4) as usize])
-                        .show_ui(ui, |ui| {
-                            for (k, w) in WINDOWS.iter().enumerate() {
-                                ui.selectable_value(&mut d.spec.window, k as i32, *w);
-                            }
-                        });
-                    ui.end_row();
-                    ui.label("DC Ignored: ");
-                    ui.checkbox(&mut d.spec.dc_ignore, "");
-                    ui.end_row();
-                    ui.label("Y-axis Mode: ");
-                    egui::ComboBox::from_id_salt("fft-mode")
-                        .selected_text(VIEW_MODES[d.spec.view_mode.min(1)])
-                        .show_ui(ui, |ui| {
-                            for (k, m) in VIEW_MODES.iter().enumerate() {
-                                ui.selectable_value(&mut d.spec.view_mode, k, *m);
-                            }
-                        });
-                    ui.end_row();
-                    ui.label("DBV Range: ");
-                    ui.add_enabled_ui(d.spec.view_mode == 1, |ui| {
-                        egui::ComboBox::from_id_salt("fft-dbv")
-                            .selected_text(d.spec.dbv_range.to_string())
+                egui::Grid::new("fft-options")
+                    .num_columns(2)
+                    .show(ui, |ui| {
+                        ui.label("FFT Enable: ");
+                        ui.checkbox(&mut d.spec.enabled, "");
+                        ui.end_row();
+                        ui.label("FFT Source: ");
+                        let names: Vec<(u16, String)> = s
+                            .state()
+                            .signals
+                            .iter()
+                            .filter(|x| x.ty == channel_type::DSO)
+                            .map(|x| (x.index, x.name.clone()))
+                            .collect();
+                        let cur = names
+                            .iter()
+                            .find(|n| n.0 == d.channel)
+                            .map_or(String::new(), |n| n.1.clone());
+                        egui::ComboBox::from_id_salt("fft-src")
+                            .selected_text(cur)
                             .show_ui(ui, |ui| {
-                                for r in DBV_RANGES {
-                                    ui.selectable_value(&mut d.spec.dbv_range, r, r.to_string());
+                                for (i, n) in &names {
+                                    if ui.selectable_label(*i == d.channel, n).clicked() && *i < 2 {
+                                        d.channel = *i;
+                                        d.spec = Spectrum {
+                                            enabled: d.spec.enabled,
+                                            ..self.specs[*i as usize].clone()
+                                        };
+                                    }
                                 }
                             });
+                        ui.end_row();
+                        let (lengths, _) =
+                            spectrum::lengths_and_intervals(max_limits, d.spec.sample_num);
+                        ui.label("FFT Length: ");
+                        egui::ComboBox::from_id_salt("fft-len")
+                            .selected_text(d.spec.sample_num.to_string())
+                            .show_ui(ui, |ui| {
+                                for l in &lengths {
+                                    ui.selectable_value(&mut d.spec.sample_num, *l, l.to_string());
+                                }
+                            });
+                        ui.end_row();
+                        // the intervals follow the length
+                        let (_, intervals2) =
+                            spectrum::lengths_and_intervals(max_limits, d.spec.sample_num);
+                        if !intervals2.contains(&d.spec.interval) {
+                            d.spec.interval = intervals2.last().copied().unwrap_or(1);
+                        }
+                        ui.label("Sample Interval: ");
+                        egui::ComboBox::from_id_salt("fft-int")
+                            .selected_text(d.spec.interval.to_string())
+                            .show_ui(ui, |ui| {
+                                for v in &intervals2 {
+                                    ui.selectable_value(&mut d.spec.interval, *v, v.to_string());
+                                }
+                            });
+                        ui.end_row();
+                        ui.label("FFT Window: ");
+                        egui::ComboBox::from_id_salt("fft-win")
+                            .selected_text(WINDOWS[d.spec.window.clamp(0, 4) as usize])
+                            .show_ui(ui, |ui| {
+                                for (k, w) in WINDOWS.iter().enumerate() {
+                                    ui.selectable_value(&mut d.spec.window, k as i32, *w);
+                                }
+                            });
+                        ui.end_row();
+                        ui.label("DC Ignored: ");
+                        ui.checkbox(&mut d.spec.dc_ignore, "");
+                        ui.end_row();
+                        ui.label("Y-axis Mode: ");
+                        egui::ComboBox::from_id_salt("fft-mode")
+                            .selected_text(VIEW_MODES[d.spec.view_mode.min(1)])
+                            .show_ui(ui, |ui| {
+                                for (k, m) in VIEW_MODES.iter().enumerate() {
+                                    ui.selectable_value(&mut d.spec.view_mode, k, *m);
+                                }
+                            });
+                        ui.end_row();
+                        ui.label("DBV Range: ");
+                        ui.add_enabled_ui(d.spec.view_mode == 1, |ui| {
+                            egui::ComboBox::from_id_salt("fft-dbv")
+                                .selected_text(d.spec.dbv_range.to_string())
+                                .show_ui(ui, |ui| {
+                                    for r in DBV_RANGES {
+                                        ui.selectable_value(
+                                            &mut d.spec.dbv_range,
+                                            r,
+                                            r.to_string(),
+                                        );
+                                    }
+                                });
+                        });
+                        ui.end_row();
                     });
-                    ui.end_row();
-                });
                 ui.horizontal(|ui| {
                     if ui.button("OK").clicked() {
                         // accept(): every trace off, the chosen one as set

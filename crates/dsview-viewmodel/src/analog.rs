@@ -101,17 +101,42 @@ pub fn shape(
     let index_offset = f.x_offset as f64 * spp;
     let start_index = (ring_start + index_offset.floor() as u64) % count;
     let start_pixel = ((index_offset.floor() - index_offset) / spp) as i64;
-    let show_length =
-        ((count as f64 - index_offset.floor()).floor()).min((f.width as f64 * spp + 1.0).ceil()) as i64;
+    let show_length = ((count as f64 - index_offset.floor()).floor())
+        .min((f.width as f64 * spp + 1.0).ceil()) as i64;
     if show_length <= 0 {
         return None;
     }
     if spp < ENVELOPE_THRESHOLD {
-        Some(trace(store, order, zero_y, start_pixel, start_index, show_length, spp, g, top, bottom, hw_offset))
+        Some(trace(
+            store,
+            order,
+            zero_y,
+            start_pixel,
+            start_index,
+            show_length,
+            spp,
+            g,
+            top,
+            bottom,
+            hw_offset,
+        ))
     } else {
         let e = store.get_envelope_section(start_index, show_length, spp as f32, order as i32);
         let samples = store.get_envelope_samples(spp as f32, order as i32);
-        envelope(&e, samples, store.ring_end(), f.sample_limit, zero_y, start_pixel, spp, g, top, bottom, hw_offset, f.width)
+        envelope(
+            &e,
+            samples,
+            store.ring_end(),
+            f.sample_limit,
+            zero_y,
+            start_pixel,
+            spp,
+            g,
+            top,
+            bottom,
+            hw_offset,
+            f.width,
+        )
     }
 }
 
@@ -145,7 +170,9 @@ fn trace(
             index += 1;
             yv += ((data.get(index).copied().unwrap_or(0) as u32) << (i * 8)) as f32;
         }
-        let y = (zero_y as f32 + (yv - hw_offset as f32) * g.scale).max(top).min(bottom);
+        let y = (zero_y as f32 + (yv - hw_offset as f32) * g.scale)
+            .max(top)
+            .min(bottom);
         points.push((x, y));
         if yindex == ring_end {
             break;
@@ -225,7 +252,13 @@ fn envelope(
 
 /// `paint_back`'s rule: (y, is a major tick, label) at the row's left and
 /// right edges; labels at the top, the middle and the bottom.
-pub fn rule(g: &Geom, zero_offset: u16, map_min: f64, map_max: f64, unit: &str) -> Vec<(f32, bool, Option<String>)> {
+pub fn rule(
+    g: &Geom,
+    zero_offset: u16,
+    map_min: f64,
+    map_max: f64,
+    unit: &str,
+) -> Vec<(f32, bool, Option<String>)> {
     const DIVS: i32 = 10;
     const MIN_DIVS: i32 = 5;
     let height = g.height as f64;
@@ -251,7 +284,15 @@ pub fn rule(g: &Geom, zero_offset: u16, map_min: f64, map_max: f64, unit: &str) 
 }
 
 /// `get_voltage(v, p, scaled)`: `v` in pixels (`scaled`) or codes.
-pub fn value_text(g: &Geom, v: f64, precision: usize, scaled: bool, map_min: f64, map_max: f64, unit: &str) -> String {
+pub fn value_text(
+    g: &Geom,
+    v: f64,
+    precision: usize,
+    scaled: bool,
+    map_min: f64,
+    map_max: f64,
+    unit: &str,
+) -> String {
     let range = (map_max - map_min) * 1000.0;
     let v = if scaled {
         v / g.height as f64 * range
@@ -305,7 +346,10 @@ mod tests {
 
     fn store(n: u64) -> AnalogStore {
         let mut s = AnalogStore::new();
-        let chans = [AnalogChannel { index: 0, enabled: true }];
+        let chans = [AnalogChannel {
+            index: 0,
+            enabled: true,
+        }];
         let data: Vec<u8> = (0..n).map(|i| (i % 256) as u8).collect();
         s.first_payload(&data, n, 8, 1, n, &chans);
         s
@@ -320,7 +364,10 @@ mod tests {
         assert_eq!(g.zero_vpos(128), (128.0 / 255.0 * 200.0) as i32);
         let r = rule(&g, 128, -1.0, 1.0, "V");
         assert_eq!(r.len(), 51);
-        assert_eq!(r[0].2.as_deref(), Some(format!("{:.2}V", 1.0 + (128.0 / 255.0 - 0.5) * 2.0).as_str()));
+        assert_eq!(
+            r[0].2.as_deref(),
+            Some(format!("{:.2}V", 1.0 + (128.0 / 255.0 - 0.5) * 2.0).as_str())
+        );
         assert_eq!(r[50].0, 200.0);
         assert_eq!(value_text(&g, 100.0, 2, true, -1.0, 1.0, "V"), "1.00V");
         assert_eq!(value_text(&g, 10.0, 2, true, -1.0, 1.0, "V"), "100.00mV");
@@ -330,8 +377,16 @@ mod tests {
     fn polyline_follows_the_samples() {
         let s = store(1000);
         let g = Geom::new(100, 200, Some(0), Some(255), 8);
-        let f = Frame { samplerate: 1e6, scale: 1e-6, x_offset: 0, width: 500, sample_limit: 1000 };
-        let Some(Shape::Polyline(p)) = shape(&s, 0, &g, 128, 128, &f) else { panic!() };
+        let f = Frame {
+            samplerate: 1e6,
+            scale: 1e-6,
+            x_offset: 0,
+            width: 500,
+            sample_limit: 1000,
+        };
+        let Some(Shape::Polyline(p)) = shape(&s, 0, &g, 128, 128, &f) else {
+            panic!()
+        };
         assert_eq!(p.len(), 501);
         assert_eq!(p[0].0, 0.0);
         assert_eq!(p[3].0, 3.0);
@@ -346,8 +401,16 @@ mod tests {
     fn envelope_columns() {
         let s = store(1 << 16);
         let g = Geom::new(100, 200, Some(0), Some(255), 8);
-        let f = Frame { samplerate: 1e6, scale: 256e-6, x_offset: 0, width: 200, sample_limit: 1 << 16 };
-        let Some(Shape::Envelope(r)) = shape(&s, 0, &g, 128, 128, &f) else { panic!() };
+        let f = Frame {
+            samplerate: 1e6,
+            scale: 256e-6,
+            x_offset: 0,
+            width: 200,
+            sample_limit: 1 << 16,
+        };
+        let Some(Shape::Envelope(r)) = shape(&s, 0, &g, 128, 128, &f) else {
+            panic!()
+        };
         assert!(!r.is_empty());
         // one rect per pixel column, in order
         assert!(r.windows(2).all(|w| w[1].0 == w[0].0 + 1.0));

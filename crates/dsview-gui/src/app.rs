@@ -260,6 +260,10 @@ impl eframe::App for App {
                             self.fft.open_dialog();
                             ui.close();
                         }
+                        if ui.button("Math…").clicked() {
+                            self.view.dso.math.open_dialog();
+                            ui.close();
+                        }
                     });
                 });
                 ui.separator();
@@ -338,6 +342,15 @@ impl eframe::App for App {
             }
         });
         self.fft.dialog(&ctx, &self.session);
+        let names: Vec<(u16, String)> = self
+            .session
+            .state()
+            .signals
+            .iter()
+            .filter(|x| x.ty == dsview_core::channel_type::DSO)
+            .map(|x| (x.index, x.name.clone()))
+            .collect();
+        self.view.dso.math.dialog(&ctx, &names);
         if let Some((handle, name)) = self.switch_prompt.clone() {
             egui::Window::new("New device")
                 .collapsible(false)

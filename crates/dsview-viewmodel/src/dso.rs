@@ -36,7 +36,8 @@ pub const TRIGGER_RISING: u8 = 0;
 pub const TRIGGER_FALLING: u8 = 1;
 
 /// `DsoSignal::SignalColours`: yellow, green, red, blue by channel index.
-pub const SIGNAL_COLOURS: [[u8; 3]; 4] = [[238, 178, 17], [0, 153, 37], [213, 15, 37], [17, 133, 209]];
+pub const SIGNAL_COLOURS: [[u8; 3]; 4] =
+    [[238, 178, 17], [0, 153, 37], [213, 15, 37], [17, 133, 209]];
 
 /// An integer rectangle (`QRect`): x, y, width, height.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -71,7 +72,12 @@ impl IRect {
 /// `DsoSignal::get_view_rect()`: the grid of a channel. Split: the
 /// channel's own band (`v_offset`, `total_height`); overlaid: the whole
 /// viewport above the `covered` pixels of the measurement bar.
-pub fn view_rect(viewport_w: i32, viewport_h: i32, split: Option<(i32, i32)>, covered: i32) -> IRect {
+pub fn view_rect(
+    viewport_w: i32,
+    viewport_h: i32,
+    split: Option<(i32, i32)>,
+    covered: i32,
+) -> IRect {
     match split {
         Some((v_offset, total_height)) => IRect {
             x: 0,
@@ -147,7 +153,8 @@ impl Geom {
     /// zero line.
     pub fn trig_vrate(&self, trig_value: u8, zero_offset: u16, hardware_logic: bool) -> f64 {
         if hardware_logic {
-            self.value2ratio(trig_value as i32 - self.ratio2value(0.5)) + self.zero_ratio(zero_offset)
+            self.value2ratio(trig_value as i32 - self.ratio2value(0.5))
+                + self.zero_ratio(zero_offset)
         } else {
             self.value2ratio(trig_value as i32)
         }
@@ -214,7 +221,11 @@ pub fn span(
 pub enum TraceShape {
     /// Up to 2 samples per pixel: a polyline, with a dot per sample from
     /// 10 pixels per sample on (`dot` is the diameter).
-    Polyline { points: Vec<(f32, f32)>, dots: usize, dot: f64 },
+    Polyline {
+        points: Vec<(f32, f32)>,
+        dots: usize,
+        dot: f64,
+    },
     /// 2-256 samples per pixel: one bar per pixel column.
     Bars(Vec<IRect>),
     /// 256 samples per pixel and more: one rect per envelope entry
@@ -241,7 +252,8 @@ pub fn trace_shape(
     let spp = sp.samples_per_pixel;
     let right = g.rect.right() as f32;
     let pps = 1.0 / spp;
-    let mut x = ((sp.start as f64 / spp - sp.pixels_offset) + left as f64 + sp.trig_hoff * pps) as f32;
+    let mut x =
+        ((sp.start as f64 / spp - sp.pixels_offset) + left as f64 + sp.trig_hoff * pps) as f32;
 
     if spp > 2.0 {
         let x0 = x as f64;
@@ -262,14 +274,19 @@ pub fn trace_shape(
                 continue;
             }
             let s = &samples[sample as usize..col_end as usize];
-            let (mut vmin, mut vmax) = s.iter().fold((s[0], s[0]), |(lo, hi), &v| (lo.min(v), hi.max(v)));
+            let (mut vmin, mut vmax) = s
+                .iter()
+                .fold((s[0], s[0]), |(lo, hi), &v| (lo.min(v), hi.max(v)));
             // reach back to where the previous column ended
             if let Some(p) = prev_last {
                 vmin = vmin.min(p);
                 vmax = vmax.max(p);
             }
             prev_last = Some(samples[col_end as usize - 1]);
-            let (mut y0, mut y1) = (g.code_y(vmin, zero_y, hw_offset), g.code_y(vmax, zero_y, hw_offset));
+            let (mut y0, mut y1) = (
+                g.code_y(vmin, zero_y, hw_offset),
+                g.code_y(vmax, zero_y, hw_offset),
+            );
             if y0 > y1 {
                 std::mem::swap(&mut y0, &mut y1);
             }
@@ -297,7 +314,9 @@ pub fn trace_shape(
     for &value in samples {
         let y = g.code_y(value, zero_y, hw_offset);
         if x > right {
-            let Some(&(px, py)) = points.last() else { break };
+            let Some(&(px, py)) = points.last() else {
+                break;
+            };
             let last_y = py + (y - py) / (x - px) * (right - px);
             points.push((right, last_y));
             clipped = true;
@@ -335,12 +354,139 @@ pub fn envelope_shape(
     let n = (e.length as usize).min(e.samples.len());
     let mut rects = Vec::with_capacity(n);
     for i in 0..n.saturating_sub(1) {
-        let x = ((e.scale as f64 * i as f64 + e.start as f64) / spp - sp.pixels_offset + left as f64
+        let x = ((e.scale as f64 * i as f64 + e.start as f64) / spp - sp.pixels_offset
+            + left as f64
             + sp.trig_hoff / spp) as f32;
         let (s, t) = (e.samples[i], e.samples[i + 1]);
-        let to_y = |v: u8| -> f32 { ((v as i32 - hw_offset) as f32 * g.scale + zero_y as f32).max(top).min(bottom) };
+        let to_y = |v: u8| -> f32 {
+            ((v as i32 - hw_offset) as f32 * g.scale + zero_y as f32)
+                .max(top)
+                .min(bottom)
+        };
         let b = to_y(s.max.max(t.min));
         let tp = to_y(s.min.min(t.max));
+        let mut h = b - tp;
+        if (0.0..=1.0).contains(&h) {
+            h = 1.0;
+        }
+        if (-1.0..=0.0).contains(&h) {
+            h = -1.0;
+        }
+        rects.push((x, tp, 1.0, h));
+    }
+    Some(TraceShape::Envelope(rects))
+}
+
+/// `MathTrace::paint_trace`: `values` from `sp.start` on, drawn down from
+/// `zero_y` at `scale` pixels per unit. Above 2 samples per pixel each
+/// column becomes first, min/max (in the order they occur) and last.
+pub fn math_shape(
+    g: &Geom,
+    values: &[f64],
+    sp: &Span,
+    zero_y: f32,
+    scale: f32,
+    left: i32,
+) -> Option<TraceShape> {
+    let sample_count = sp.end - sp.start + 1;
+    if sample_count <= 0 || values.len() < sample_count as usize {
+        return None;
+    }
+    let (top, bottom) = (g.rect.top() as f64, g.rect.bottom() as f64);
+    let right = g.rect.right() as f64;
+    let spp = sp.samples_per_pixel;
+    let pps = 1.0 / spp;
+    let mut x =
+        ((sp.start as f64 / spp - sp.pixels_offset) + left as f64 + sp.trig_hoff / spp) as f32;
+    let to_y = |v: f64| (zero_y as f64 - v * scale as f64).max(top).min(bottom);
+    let mut points: Vec<(f32, f32)> = Vec::new();
+    if spp > 2.0 {
+        let x0 = x as f64;
+        let mut sample = 0i64;
+        while sample < sample_count {
+            let col = (sample as f64 * pps).floor() as i64;
+            let col_x = x0 + col as f64;
+            if col_x > right {
+                break;
+            }
+            let col_end = (((col + 1) as f64 * spp).ceil() as i64)
+                .max(sample + 1)
+                .min(sample_count);
+            let first = values[sample as usize];
+            let last = values[col_end as usize - 1];
+            let (mut vmin, mut vmax, mut imin, mut imax) = (first, first, sample, sample);
+            for i in sample + 1..col_end {
+                let v = values[i as usize];
+                if v < vmin {
+                    vmin = v;
+                    imin = i;
+                } else if v > vmax {
+                    vmax = v;
+                    imax = i;
+                }
+            }
+            let cx = col_x as f32;
+            points.push((cx, to_y(first) as f32));
+            if imin < imax {
+                points.push((cx, to_y(vmin) as f32));
+                points.push((cx, to_y(vmax) as f32));
+            } else {
+                points.push((cx, to_y(vmax) as f32));
+                points.push((cx, to_y(vmin) as f32));
+            }
+            points.push((cx, to_y(last) as f32));
+            sample = col_end;
+        }
+        return Some(TraceShape::Polyline {
+            points,
+            dots: 0,
+            dot: 0.0,
+        });
+    }
+    for &v in &values[..sample_count as usize] {
+        let y = to_y(v) as f32;
+        if x as f64 > right {
+            if let Some(&(px, py)) = points.last() {
+                let r = right as f32;
+                points.push((r, py + (y - py) / (x - px) * (r - px)));
+            }
+            break;
+        }
+        points.push((x, y));
+        x = (x as f64 + pps) as f32;
+    }
+    Some(TraceShape::Polyline {
+        points,
+        dots: 0,
+        dot: 0.0,
+    })
+}
+
+/// `MathTrace::paint_envelope`: `section` is (start, scale, entries) of
+/// `dsview_dsp::math::envelope_section`.
+pub fn math_envelope_shape(
+    g: &Geom,
+    section: (u64, u64, &[(f64, f64)]),
+    sp: &Span,
+    zero_y: f32,
+    scale: f32,
+    left: i32,
+) -> Option<TraceShape> {
+    let (start, step, e) = section;
+    if e.len() < 2 {
+        return None;
+    }
+    let (top, bottom) = (g.rect.top() as f64, g.rect.bottom() as f64);
+    let spp = sp.samples_per_pixel;
+    let mut rects = Vec::with_capacity(e.len());
+    for i in 0..e.len() - 1 {
+        let x = ((step as f64 * i as f64 + start as f64) / spp - sp.pixels_offset
+            + left as f64
+            + sp.trig_hoff / spp) as f32;
+        let (s, t) = (e[i], e[i + 1]);
+        let to_y = |v: f64| (zero_y as f64 - v * scale as f64).max(top).min(bottom) as f32;
+        let b = to_y(s.1.max(t.0));
+        let tp = to_y(s.0.min(t.1));
         let mut h = b - tp;
         if (0.0..=1.0).contains(&h) {
             h = 1.0;
@@ -369,7 +515,9 @@ pub fn trig_hoff(samples: &[u8], trig_index: i64, trig_value: u8, slope: u8) -> 
         }
         let (t0, t1) = (samples[i0 as usize], samples[i1 as usize]);
         let tv = trig_value;
-        if (slope == TRIGGER_RISING && t0 >= tv && t1 <= tv) || (slope == TRIGGER_FALLING && t0 <= tv && t1 >= tv) {
+        if (slope == TRIGGER_RISING && t0 >= tv && t1 <= tv)
+            || (slope == TRIGGER_FALLING && t0 <= tv && t1 >= tv)
+        {
             let xoff = if t1 == t0 {
                 0.0
             } else {
@@ -450,8 +598,14 @@ pub fn grid(
     ];
     // drawLine(int, int, int, int): the doubles are truncated
     let t = |v: f64| v as i32 as f32;
-    g.rails.push((left as f32, t(marker_y), t(shown_offset), t(marker_y)));
-    g.rails.push((t(shown_offset + shown_len), t(marker_y), (left + width) as f32, t(marker_y)));
+    g.rails
+        .push((left as f32, t(marker_y), t(shown_offset), t(marker_y)));
+    g.rails.push((
+        t(shown_offset + shown_len),
+        t(marker_y),
+        (left + width) as f32,
+        t(marker_y),
+    ));
     // drawRect(int, int, int, int)
     g.shown = (t(shown_offset), t(marker_y - 3.0), t(shown_len), 6.0);
 
@@ -460,7 +614,8 @@ pub fn grid(
     for i in 1..=VDIVS {
         let pos_y = span_y * i as f64 + top as f64;
         if i != VDIVS {
-            g.dividers.push((left as f32, t(pos_y), right as f32, t(pos_y)));
+            g.dividers
+                .push((left as f32, t(pos_y), right as f32, t(pos_y)));
         }
         let mini = span_y / 5.0;
         for j in 1..5 {
@@ -477,7 +632,8 @@ pub fn grid(
     for i in 1..=HDIVS {
         let pos_x = span_x * i as f64;
         if i != HDIVS {
-            g.dividers.push((t(pos_x), top as f32, t(pos_x), (height + top) as f32));
+            g.dividers
+                .push((t(pos_x), top as f32, t(pos_x), (height + top) as f32));
         }
         let mini = span_x / 5.0;
         for j in 1..5 {
@@ -544,17 +700,33 @@ pub fn header_rects(y: i32, zero_y: i32, right: i32) -> HeaderRects {
     let y = y as f32;
     let left_width = (SQUARE_WIDTH / 2 + MARGIN) as f32;
     let n = SQUARE_NUM as f32;
-    let small = |x: f32, top: f32| FRect { x, y: top, w: sq * 1.75, h: sq };
+    let small = |x: f32, top: f32| FRect {
+        x,
+        y: top,
+        w: sq * 1.75,
+        h: sq,
+    };
     HeaderRects {
-        colour: FRect { x: 2.0, y: y - sq / 2.0, w: left_width - m, h: sq },
+        colour: FRect {
+            x: 2.0,
+            y: y - sq / 2.0,
+            w: left_width - m,
+            h: sq,
+        },
         vdial: FRect {
             x: left_width + sq * 0.5 + m,
             y: y - sq * n + sq * 3.0,
             w: sq * (n - 1.0),
             h: sq * (n - 1.0),
         },
-        x1: small(left_width + sq * 0.5, y - sq * 2.0 - sq * (n - 2.0) + sq * 3.0),
-        x10: small(left_width + sq * 0.5, y - sq * 2.0 - sq * (n - 2.0) * 0.5 + sq * 3.0),
+        x1: small(
+            left_width + sq * 0.5,
+            y - sq * 2.0 - sq * (n - 2.0) + sq * 3.0,
+        ),
+        x10: small(
+            left_width + sq * 0.5,
+            y - sq * 2.0 - sq * (n - 2.0) * 0.5 + sq * 3.0,
+        ),
         x100: small(left_width + sq * 0.5, y - sq * 2.0 + sq * 3.0),
         enable: small(2.0, y - sq / 2.0 + sq * 3.0),
         coupling: small(2.0 + sq * 1.75 + m, y - sq / 2.0 + sq * 3.0),
@@ -593,7 +765,11 @@ impl Volts {
     /// `get_voltage(v, p, scaled)`: `v` in pixels (`scaled`) or codes.
     pub fn text(&self, v: f64, precision: usize, scaled: bool) -> String {
         let k = self.vdiv_mv as f64 * self.factor as f64 * VDIVS as f64 / self.height.max(1) as f64;
-        let v = if scaled { v * k } else { v * self.data_scale as f64 * k };
+        let v = if scaled {
+            v * k
+        } else {
+            v * self.data_scale as f64 * k
+        };
         if v.abs() >= 1000.0 {
             format!("{:.*}V", precision, v / 1000.0)
         } else {
@@ -614,7 +790,10 @@ impl Volts {
 
 /// `get_point`: where code `value` of sample `index` is drawn.
 pub fn point(g: &Geom, x: f64, value: u8, zero_offset: u16, hw_offset: i32) -> (f32, f32) {
-    (x as f32, g.code_y(value, g.zero_vpos(zero_offset), hw_offset))
+    (
+        x as f32,
+        g.code_y(value, g.zero_vpos(zero_offset), hw_offset),
+    )
 }
 
 /// `DsoSignal::get_time`: nanoseconds with Qt's unit spellings.
@@ -668,7 +847,9 @@ impl WheelAccumulator {
         if amount == 0.0 {
             return 0;
         }
-        if now_ms - self.last_ms > WHEEL_IDLE_RESET_MS || (self.accum != 0.0 && (self.accum > 0.0) != (amount > 0.0)) {
+        if now_ms - self.last_ms > WHEEL_IDLE_RESET_MS
+            || (self.accum != 0.0 && (self.accum > 0.0) != (amount > 0.0))
+        {
             self.accum = 0.0;
         }
         self.last_ms = now_ms;
@@ -697,7 +878,15 @@ mod tests {
     #[test]
     fn rect_and_mapping() {
         let g = geom();
-        assert_eq!(g.rect, IRect { x: 0, y: 30, w: 1000, h: 500 });
+        assert_eq!(
+            g.rect,
+            IRect {
+                x: 0,
+                y: 30,
+                w: 1000,
+                h: 500
+            }
+        );
         assert!((g.scale - 500.0 / 255.0).abs() < 1e-6);
         // zero at mid-range
         assert_eq!(g.zero_vpos(128), (128.0 / 255.0 * 500.0 + 30.0) as i32);
@@ -705,8 +894,14 @@ mod tests {
         assert_eq!(g.pos2ratio(10_000), 1.0);
         assert_eq!(g.ratio2value(0.5), 127);
         // trigger clamps to 0.06..0.945
-        assert_eq!(g.trig_value_for(0.0, 128, false), g.ratio2value(0.06f32 as f64) as u8);
-        assert_eq!(g.trig_value_for(1.0, 128, false), g.ratio2value(0.945f32 as f64) as u8);
+        assert_eq!(
+            g.trig_value_for(0.0, 128, false),
+            g.ratio2value(0.06f32 as f64) as u8
+        );
+        assert_eq!(
+            g.trig_value_for(1.0, 128, false),
+            g.ratio2value(0.945f32 as f64) as u8
+        );
         // DSLogic: relative to zero, ±0.5
         let v = g.trig_value_for(g.zero_ratio(100), 100, true);
         assert_eq!(v, g.ratio2value(0.5) as u8);
@@ -723,7 +918,9 @@ mod tests {
         // 20 px per sample: dots
         let sp = span(60, 1e6, 1e-6 / 20.0, 0, 0.0, 1000);
         assert_eq!((sp.start, sp.end), (0, 51));
-        let Some(TraceShape::Polyline { points, dots, dot }) = trace_shape(&g, &samples, &sp, 285, 128, 0, 1.0) else {
+        let Some(TraceShape::Polyline { points, dots, dot }) =
+            trace_shape(&g, &samples, &sp, 285, 128, 0, 1.0)
+        else {
             panic!()
         };
         // sample 50 is at 1000 px > right (999): clipped at the edge
@@ -742,7 +939,9 @@ mod tests {
     fn bars_cover_each_column() {
         let g = geom();
         // a square wave, period 20 samples, 10 samples per pixel
-        let samples: Vec<u8> = (0..10_000).map(|i| if (i / 10) % 2 == 0 { 50 } else { 200 }).collect();
+        let samples: Vec<u8> = (0..10_000)
+            .map(|i| if (i / 10) % 2 == 0 { 50 } else { 200 })
+            .collect();
         let sp = span(10_000, 1e6, 10e-6, 0, 0.0, 1000);
         let Some(TraceShape::Bars(rects)) = trace_shape(&g, &samples, &sp, 285, 128, 0, 1.0) else {
             panic!()
@@ -769,7 +968,12 @@ mod tests {
             EnvelopeSample { min: 30, max: 40 },
             EnvelopeSample { min: 30, max: 30 },
         ];
-        let e = EnvelopeSection { start: 0, scale: 256, length: 3, samples: &es };
+        let e = EnvelopeSection {
+            start: 0,
+            scale: 256,
+            length: 3,
+            samples: &es,
+        };
         let sp = span(768, 1e6, 256e-6, 0, 0.0, 1000);
         let Some(TraceShape::Envelope(r)) = envelope_shape(&g, &e, &sp, 285, 0, 0) else {
             panic!()
@@ -787,7 +991,10 @@ mod tests {
     fn trigger_offset() {
         // rising slope means falling codes (a higher code is a lower voltage)
         let s = [200u8, 150, 100, 50];
-        assert_eq!(trig_hoff(&s, 2, 120, TRIGGER_RISING), Some(1.0 - (120.0 - 150.0) / (100.0 - 150.0)));
+        assert_eq!(
+            trig_hoff(&s, 2, 120, TRIGGER_RISING),
+            Some(1.0 - (120.0 - 150.0) / (100.0 - 150.0))
+        );
         assert_eq!(trig_hoff(&s, 9, 120, TRIGGER_RISING), None);
         assert_eq!(trig_hoff(&s, 0, 120, TRIGGER_RISING), None);
     }
@@ -806,13 +1013,37 @@ mod tests {
     #[test]
     fn header_geometry() {
         let h = header_rects(100, 120, 150);
-        assert_eq!(h.vdial, FRect { x: 26.0, y: 60.0, w: 80.0, h: 80.0 });
+        assert_eq!(
+            h.vdial,
+            FRect {
+                x: 26.0,
+                y: 60.0,
+                w: 80.0,
+                h: 80.0
+            }
+        );
         assert_eq!(h.x1.y, 60.0);
         assert_eq!(h.x10.y, 90.0);
         assert_eq!(h.x100.y, 120.0);
-        assert_eq!(h.enable, FRect { x: 2.0, y: 150.0, w: 35.0, h: 20.0 });
+        assert_eq!(
+            h.enable,
+            FRect {
+                x: 2.0,
+                y: 150.0,
+                w: 35.0,
+                h: 20.0
+            }
+        );
         assert_eq!(h.auto.x, 2.0 + 70.0 + 6.0);
-        assert_eq!(h.label, FRect { x: 120.0, y: 110.0, w: 20.0, h: 20.0 });
+        assert_eq!(
+            h.label,
+            FRect {
+                x: 120.0,
+                y: 110.0,
+                w: 20.0,
+                h: 20.0
+            }
+        );
         // the sweep: first entry up-right, last down-right
         let (x, y) = dial_direction(0.0);
         assert!(x > 0.2 && y < -0.9);
@@ -821,8 +1052,40 @@ mod tests {
     }
 
     #[test]
+    fn math_columns() {
+        let g = geom();
+        // a ramp, 10 samples per pixel: first, min, max, last per column
+        let v: Vec<f64> = (0..1000).map(|i| i as f64 / 100.0).collect();
+        let sp = span(1000, 1e6, 10e-6, 0, 0.0, 1000);
+        let Some(TraceShape::Polyline { points, .. }) = math_shape(&g, &v, &sp, 280.0, 10.0, 0)
+        else {
+            panic!()
+        };
+        assert_eq!(points.len(), 400);
+        assert_eq!(points[0], (0.0, 280.0));
+        // rising: min first, then max
+        assert_eq!(points[1].1, 280.0);
+        assert_eq!(points[3].1, (280.0 - 0.09 * 10.0) as f32);
+        let l = vec![(0.0, 1.0), (1.0, 2.0), (2.0, 3.0)];
+        let sp = span(768, 1e6, 256e-6, 0, 0.0, 1000);
+        let Some(TraceShape::Envelope(r)) =
+            math_envelope_shape(&g, (0, 256, &l), &sp, 280.0, 10.0, 0)
+        else {
+            panic!()
+        };
+        assert_eq!(r.len(), 2);
+        // values grow upwards: C's "bottom" lies above "top", the height is negative
+        assert_eq!(r[0], (0.0, 280.0, 1.0, -10.0));
+    }
+
+    #[test]
     fn texts() {
-        let v = Volts { vdiv_mv: 500, data_scale: 1.0, factor: 1, height: 500 };
+        let v = Volts {
+            vdiv_mv: 500,
+            data_scale: 1.0,
+            factor: 1,
+            height: 500,
+        };
         assert_eq!(v.text(50.0, 2, true), "500.00mV");
         assert_eq!(v.text(200.0, 2, true), "2.00V");
         assert_eq!(vdiv_text(500, 10), "5V/div");

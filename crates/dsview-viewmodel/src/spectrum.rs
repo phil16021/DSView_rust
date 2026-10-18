@@ -58,7 +58,9 @@ impl Spectrum {
         let pre = self.offset + self.scale * px as f64 / width;
         self.scale *= 1.5f64.powf(-steps);
         self.scale = self.scale.min(1.0).max(100.0 / self.sample_num as f64);
-        self.offset = (pre - self.scale * px as f64 / width).min(1.0 - self.scale).max(0.0);
+        self.offset = (pre - self.scale * px as f64 / width)
+            .min(1.0 - self.scale)
+            .max(0.0);
     }
 
     /// `set_offset(delta)`: pan by `delta` pixels.
@@ -89,7 +91,14 @@ impl Spectrum {
     }
 
     /// `paint_mid`: the polyline over `width` × `height` pixels.
-    pub fn points(&self, bins: &[f64], vdiv: f64, factor: f64, width: f64, height: f64) -> Vec<(f32, f32)> {
+    pub fn points(
+        &self,
+        bins: &[f64],
+        vdiv: f64,
+        factor: f64,
+        width: f64,
+        height: f64,
+    ) -> Vec<(f32, f32)> {
         if bins.is_empty() {
             return Vec::new();
         }
@@ -149,7 +158,11 @@ impl Spectrum {
         let v = self.level(mag, vmin);
         let y = height - height / (vmax - vmin) * (v - vmin);
         let unit = if self.view_mode == 0 { "" } else { "dbv" };
-        Some((x, y, format!("{v:.4}{unit}@{}", format_freq(delta_freq * bin as f64, 4))))
+        Some((
+            x,
+            y,
+            format!("{v:.4}{unit}@{}", format_freq(delta_freq * bin as f64, 4)),
+        ))
     }
 
     /// The frequency ruler: (x, major, label) from `paint_fore`.
@@ -216,7 +229,10 @@ pub fn format_freq(freq: f64, precision: usize) -> String {
     let order = (freq as f32).log10().floor() as i32;
     let prefix = ((order - FIRST) as f32 / 3.0).floor() as i32;
     let divider = 10f64.powf((prefix as f64 * 3.0 + FIRST as f64).max(0.0));
-    let p = PREFIXES.get(prefix.clamp(0, 8) as usize).copied().unwrap_or("");
+    let p = PREFIXES
+        .get(prefix.clamp(0, 8) as usize)
+        .copied()
+        .unwrap_or("");
     format!("{:.*}{p}Hz", precision, freq / divider)
 }
 
@@ -264,11 +280,16 @@ mod tests {
         assert_eq!(p[0], (2.0, 200.0));
         assert_eq!(p[63], (128.0, (200.0 - 200.0 / 5.0 * 0.5) as f32));
         assert_eq!(s.hover_bin(128.4, 1024.0), Some(64));
-        let (_, _, t) = s.hover(&bins, 64, 1000.0, 1.0, 1024.0, 200.0, 1e6 / 1024.0).unwrap();
+        let (_, _, t) = s
+            .hover(&bins, 64, 1000.0, 1.0, 1024.0, 200.0, 1e6 / 1024.0)
+            .unwrap();
         assert_eq!(t, "0.5000@62.5000KHz");
         let mut d = s.clone();
         d.view_mode = 1;
-        assert_eq!(d.range(1000.0, 1.0), (20.0 * 5f64.log10() - 120.0, 20.0 * 5f64.log10()));
+        assert_eq!(
+            d.range(1000.0, 1.0),
+            (20.0 * 5f64.log10() - 120.0, 20.0 * 5f64.log10())
+        );
     }
 
     #[test]
