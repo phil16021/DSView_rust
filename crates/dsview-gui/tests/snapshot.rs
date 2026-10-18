@@ -823,3 +823,54 @@ fn ruler_cursor_strips() {
     harness.snapshot("ruler_cursor_strips");
     s.exit();
 }
+
+/// Ctrl+Shift+wheel zooms the trace heights and shows the Y-scale badge;
+/// a click on the badge resets the zoom.
+#[test]
+fn yscale_badge() {
+    let s = demo_session();
+    let view = Arc::new(std::sync::Mutex::new(TimeView::default()));
+    let (s2, v2) = (s.clone(), view.clone());
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1100.0, 640.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            let mut view = v2.lock().unwrap();
+            view.show(ui, &s2);
+            if view.cursors.samples.is_empty() {
+                view.show_region(&s2, 40_000, 60_000);
+                view.cursors.samples = vec![45_147];
+            }
+        });
+    harness.run();
+    let mods = egui::Modifiers {
+        ctrl: true,
+        shift: true,
+        command: true,
+        ..Default::default()
+    };
+    harness
+        .input_mut()
+        .events
+        .push(egui::Event::PointerMoved(egui::pos2(600.0, 300.0)));
+    harness.event_modifiers(
+        egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Line,
+            delta: egui::vec2(0.0, 2.0),
+            modifiers: mods,
+            phase: egui::TouchPhase::Move,
+            source: egui::MouseWheelSource::Wheel,
+        },
+        mods,
+    );
+    harness.run();
+    let f = view.lock().unwrap().height_factor;
+    assert!((f - 1.5).abs() < 1e-9, "factor {f}");
+    harness.run();
+    harness.snapshot("yscale_badge");
+    // the badge at the top right of the traces
+    click(&mut harness, 1100.0 - 40.0, 46.0 + 14.0);
+    harness.run();
+    assert_eq!(view.lock().unwrap().height_factor, 1.0);
+    s.exit();
+}

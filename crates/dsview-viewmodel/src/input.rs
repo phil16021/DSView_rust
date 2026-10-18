@@ -236,3 +236,41 @@ mod tests {
         assert_eq!(vp.pixel_to_index(0.0, &tb), first);
     }
 }
+
+/// `Viewport::YScaleBadgeDurationMs`, `YScaleBadgeFadeMs`: the Y-scale
+/// badge shows 4 s after a vertical zoom, fading over the last 0.8 s.
+pub const YSCALE_BADGE_MS: u64 = 4000;
+pub const YSCALE_BADGE_FADE_MS: u64 = 800;
+
+/// `paintYScaleBadge`: the badge's opacity `elapsed_ms` after it was
+/// flashed, None once it is gone.
+pub fn yscale_badge_opacity(elapsed_ms: u64) -> Option<f64> {
+    if elapsed_ms >= YSCALE_BADGE_MS {
+        return None;
+    }
+    let fade_start = YSCALE_BADGE_MS - YSCALE_BADGE_FADE_MS;
+    Some(if elapsed_ms > fade_start {
+        (1.0 - (elapsed_ms - fade_start) as f64 / YSCALE_BADGE_FADE_MS as f64).max(0.0)
+    } else {
+        1.0
+    })
+}
+
+/// The badge's text (`"Y-scale %1x"` with two decimals).
+pub fn yscale_badge_text(factor: f64) -> String {
+    format!("Y-scale {factor:.2}x")
+}
+
+#[cfg(test)]
+mod badge_tests {
+    use super::*;
+
+    #[test]
+    fn badge_fades() {
+        assert_eq!(yscale_badge_opacity(0), Some(1.0));
+        assert_eq!(yscale_badge_opacity(3200), Some(1.0));
+        assert_eq!(yscale_badge_opacity(3600), Some(0.5));
+        assert_eq!(yscale_badge_opacity(4000), None);
+        assert_eq!(yscale_badge_text(1.5), "Y-scale 1.50x");
+    }
+}

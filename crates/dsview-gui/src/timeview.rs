@@ -144,6 +144,8 @@ pub struct TimeView {
     /// label or close box was pressed (`_hitCursor`).
     ruler_grab: Option<usize>,
     ruler_hit: bool,
+    /// When the Y-scale badge was flashed (`flash_yscale_badge`).
+    yscale_flash: Option<Instant>,
 }
 
 impl Default for TimeView {
@@ -155,6 +157,7 @@ impl Default for TimeView {
             strips: ruler::RulerStrips::default(),
             ruler_grab: None,
             ruler_hit: false,
+            yscale_flash: None,
             cursors: Cursors::default(),
             kinetic: Kinetic::default(),
             kinetic_last: None,
@@ -393,6 +396,8 @@ impl TimeView {
 
         let mut changed = self.input(ui, s, &tb, area, &rows);
         changed |= self.ruler_input(ui, s, ruler_rect, area, &tb);
+        let badge = self.yscale_badge(ui, area);
+        changed |= badge.is_some_and(|(_, clicked, _)| clicked);
         changed |= self.header(ui, s, header, area, &rows);
 
         // paint
@@ -481,8 +486,91 @@ impl TimeView {
         self.paint_ruler(&painter, ruler_rect, s, &tb);
         self.paint_cursors(&painter, s, ruler_rect, area, &tb);
         self.paint_actions(&tpainter, area, &tb);
+        if let Some((r, _, opacity)) = badge {
+            self.paint_yscale_badge(&tpainter, r, opacity);
+        }
         self.paint_header(&painter, header, area, &rows, &font_id);
         changed
+    }
+
+    /// The Y-scale badge (`paintYScaleBadge`) after a vertical zoom: its
+    /// rectangle, whether it was clicked (which resets the zoom,
+    /// `reset_yscale`) and its opacity. Hovering keeps it.
+    fn yscale_badge(&mut self, ui: &mut Ui, area: Rect) -> Option<(Rect, bool, f32)> {
+        let t = self.yscale_flash?;
+        let Some(opacity) = input::yscale_badge_opacity(t.elapsed().as_millis() as u64) else {
+            self.yscale_flash = None;
+            return None;
+        };
+        let font = egui::FontId::proportional(11.0);
+        let m = Font(&ui.painter_at(area), font);
+        let text = input::yscale_badge_text(self.height_factor);
+        let (pad_x, pad_y, margin) = (8.0, 4.0, 6.0);
+        // the text, then the reset arrow (U+27F2 in Qt) a text height wide
+        let (w, h) = (
+            m.width(&text) + 4.0 + m.height() + 2.0 * pad_x,
+            m.height() + 2.0 * pad_y,
+        );
+        let r = Rect::from_min_size(
+            pos2(area.right() - w - margin, area.top() + margin),
+            vec2(w, h),
+        );
+        let resp = ui.interact(r, ui.make_persistent_id("yscale"), egui::Sense::click());
+        let mut clicked = false;
+        if resp.clicked() {
+            self.height_factor = 1.0;
+            clicked = true;
+        }
+        if resp.hovered() || clicked {
+            self.yscale_flash = Some(Instant::now());
+        }
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(40));
+        Some((r, clicked, opacity as f32))
+    }
+
+    fn paint_yscale_badge(&self, p: &egui::Painter, r: Rect, opacity: f32) {
+        let blue = Color32::from_rgb(17, 133, 209).gamma_multiply(opacity);
+        let font = egui::FontId::proportional(11.0);
+        p.rect(
+            r,
+            4.0,
+            Color32::from_rgba_unmultiplied(24, 24, 24, 220).gamma_multiply(opacity),
+            Stroke::new(1.0, blue),
+            egui::StrokeKind::Inside,
+        );
+        let text = input::yscale_badge_text(self.height_factor);
+        let g = p.layout_no_wrap(
+            text,
+            font.clone(),
+            Color32::from_gray(220).gamma_multiply(opacity),
+        );
+        let (w, th) = (g.size().x, g.size().y);
+        p.galley(
+            pos2(r.left() + 8.0, r.center().y - th / 2.0),
+            g,
+            Color32::WHITE,
+        );
+        // an anticlockwise arrow: three quarters of a circle, head at the top
+        let c = pos2(r.left() + 8.0 + w + 4.0 + th / 2.0, r.center().y);
+        let rad = th * 0.32;
+        let pts: Vec<Pos2> = (0..=24)
+            .map(|i| {
+                let a = std::f32::consts::PI * (-0.5 + 1.5 * i as f32 / 24.0);
+                c + vec2(rad * a.cos(), -rad * a.sin())
+            })
+            .collect();
+        let head = pts[0];
+        p.add(egui::Shape::line(pts, Stroke::new(1.5, blue)));
+        p.add(egui::Shape::convex_polygon(
+            vec![
+                head + vec2(-3.5, -3.0),
+                head + vec2(-3.5, 3.0),
+                head + vec2(1.5, 0.0),
+            ],
+            blue,
+            Stroke::NONE,
+        ));
     }
 
     /// `Viewport::paintProgress`: the logo in a circle, the received
@@ -798,6 +886,7 @@ impl TimeView {
                 WheelAction::VerticalZoom { steps } => {
                     self.height_factor =
                         (self.height_factor * 1.5f64.powf(steps * 0.5)).clamp(0.5, 20.0);
+                    self.yscale_flash = Some(Instant::now());
                     changed = true;
                 }
                 WheelAction::Pan { dx } => {
