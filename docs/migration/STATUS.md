@@ -749,3 +749,51 @@ the demo transcript is unchanged.
 - the ruler's cursor-selector strips;
 - the Y-scale badge;
 - a vertical scroll bar (the wheel scrolls already).
+
+### M6b logic capture: done (the GUI soak result follows)
+- **Sampling bar:**
+  - device list, work mode, channel enable (8 per row);
+  - duration list (the depth steps, "(RLE)" or "/ div" as in Qt) @ rate list;
+  - collect mode Single/Repeat (with interval)/Loop;
+  - Start/Stop (S), Single (I);
+  - capture progress, "Waiting for trigger".
+- **Simple trigger:** the header's trigger squares, put into `ds_trigger` at the start.
+- **While streaming:** the view follows the data at up to 30 Hz (`SessionEvent::DataAppended`,
+  `is_realtime_refresh`).
+- **Hotplug:**
+  - "The current device was disconnected." and a switch to the default device;
+  - a new device asks "Switch to it?".
+- **Profiles:** as in 4b (the Qt GUI's profile directory).
+- **Hardware matrix through the Rust GUI** (`dsview --mcp`, `cargo xtask usb record` with the
+  DSLogic Plus):
+  - all 11 baseline scenarios give the same USB protocol as the C driver under Qt (`usb-diff`);
+  - stopping a stream midway gives the same protocol, with 56 vs 52 transfers before the stop
+    (timing).
+
+### M6c decoders: done
+- **Decoder traces in the view:**
+  - rows with annotations, coloured as in Qt (row colours, HSL offsets per row and annotation
+    type);
+  - hexagons, instants, the best-fitting text form;
+  - "Zoom in for details" below the detail threshold;
+  - row headings, errors, "Unshown" decoders;
+  - placed among the channels by view index.
+- **Protocol dock (D):**
+  - **Decoder search:** stacked decoders bring their base decoders, as Qt does
+    (`get_output_protocol_by_id`).
+  - **Options dialog:** channel binding (required marked, matched by name), option values as
+    lists or text. The same dialog edits an existing stack in place ("Settings").
+  - **Decoder list:** progress, decode again, remove.
+  - **Annotation table:** virtual, Qt's model (one column per row shown in the list, bits and
+    warnings hidden).
+  - **Search and navigation:** search in the chosen column with match count and previous/next;
+    a click jumps the view to the annotation.
+  - **CSV export:** in `ProtocolExp`'s format, tested on the demo.
+- **Live decoding:**
+  - a single stream capture (demo, files, DSLogic stream) is decoded while it runs, as `SigSession`
+    does;
+  - the decoders wait for data and end with the capture;
+  - constant leaves stay until the decoder has passed them.
+  - All 8,379 demo annotations remain identical to the C GUI's.
+- **Snapshots:** the protocol.demo view with the decoder rows and the protocol dock
+  (`tests/snapshots`).

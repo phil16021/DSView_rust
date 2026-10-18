@@ -59,6 +59,8 @@ struct AddDialog {
     /// Per decoder: option id -> text.
     options: Vec<Vec<(String, String)>>,
     error: Option<String>,
+    /// Editing decoder trace `n` (its name and place are kept).
+    replace: Option<(usize, String, i32)>,
 }
 
 impl AddDialog {
@@ -104,6 +106,50 @@ impl AddDialog {
             channels,
             options,
             error: None,
+            replace: None,
+        }
+    }
+
+    /// The dialog for an existing stack (the decoder's "Settings").
+    fn edit(i: usize, t: &DecodeTrace) -> AddDialog {
+        let stack: Vec<Arc<DecoderInfo>> =
+            t.stack.decoders().iter().map(|d| d.info.clone()).collect();
+        let root = &t.stack.decoders()[0];
+        let channels = root
+            .info
+            .channels
+            .iter()
+            .chain(&root.info.opt_channels)
+            .map(|c| {
+                let bound = root
+                    .probes
+                    .iter()
+                    .find(|(id, _)| *id == c.id)
+                    .map(|(_, ch)| *ch as u16);
+                (c.id.clone(), bound)
+            })
+            .collect();
+        let options = t
+            .stack
+            .decoders()
+            .iter()
+            .map(|d| {
+                d.info
+                    .options
+                    .iter()
+                    .map(|o| {
+                        let v = d.options.get(&o.id).or(o.def.as_ref());
+                        (o.id.clone(), v.map(opt_text).unwrap_or_default())
+                    })
+                    .collect()
+            })
+            .collect();
+        AddDialog {
+            stack,
+            channels,
+            options,
+            error: None,
+            replace: Some((i, t.name(), *t.view_index.lock().unwrap())),
         }
     }
 
@@ -269,6 +315,9 @@ impl ProtocolDock {
                 {
                     s.start_decode(i);
                 }
+                if ui.small_button("Settings").clicked() {
+                    self.add = Some(AddDialog::edit(i, t));
+                }
                 if ui.small_button("x").on_hover_text("Remove").clicked() {
                     remove = Some(i);
                 }
@@ -389,11 +438,20 @@ impl ProtocolDock {
         });
         if ok {
             match dlg.to_json() {
-                Ok(entry) => {
+                Ok(mut entry) => {
+                    if let Some((_, name, vi)) = &dlg.replace {
+                        entry["label"] = name.clone().into();
+                        entry["view_index"] = (*vi).into();
+                    }
                     if dsview_session::store::load_decoders(s, &[entry]) == 0 {
                         dlg.error = Some("DSView could not add the decoder".into());
                     } else {
-                        let index = s.state().decoders.len() - 1;
+                        let mut index = s.state().decoders.len() - 1;
+                        if let Some((old, _, _)) = dlg.replace {
+                            s.remove_decoder(old);
+                            s.move_last_decoder_to(old);
+                            index = old;
+                        }
                         s.start_decode(index);
                         self.table = index;
                         keep = false;

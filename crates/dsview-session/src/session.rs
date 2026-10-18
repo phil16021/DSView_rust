@@ -1816,6 +1816,16 @@ impl Session {
         st.decoders.len() - 1
     }
 
+    /// Moves the last decoder trace to position `index` (an edited stack
+    /// takes the place of the one it replaces).
+    pub fn move_last_decoder_to(&self, index: usize) {
+        let mut st = self.state();
+        if let Some(t) = st.decoders.pop() {
+            let i = index.min(st.decoders.len());
+            st.decoders.insert(i, t);
+        }
+    }
+
     /// `remove_decoder`: stops its decoding and drops it.
     pub fn remove_decoder(&self, index: usize) -> bool {
         let t = {
