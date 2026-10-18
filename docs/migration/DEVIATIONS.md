@@ -434,6 +434,27 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
   (F18); the Rust demo pads with zeros. The histogram and the Lissajous figure show that sample
   (code 0, +5 V on the demo's range) as an outlier.
 
+### F29. Docks and dialogs findings (M6e)
+- **The region dialog is never opened.** `pv/dialogs/regionoptions.cpp` is built and included by
+  `mainwindow.cpp`, but nothing creates it. Not ported; the decoder options carry the decode
+  region (M6c).
+- **A ranged `.dsl` save writes the whole capture's length.** With a start cursor inside a block,
+  `StoreSession::save_logic` writes `total samples` of the full capture and a first block that
+  starts mid-block; a range over several blocks does not load back as written. Rust repacks the
+  range into whole blocks, writes the range's length and moves the trigger position by the
+  range's start.
+- **Ctrl while dragging header labels.** `Header::mouseMoveEvent` moves logic traces only while
+  Ctrl is *not* held; Ctrl at the press only adds the trace to the selection. Ported as it is.
+- **"Don't ask to save" is not asked everywhere.** `SamplingBar::on_device_selected` offers to
+  save without looking at `dontAskSaveOnExit`; a detach, a new device and closing the window do.
+  Ported as it is.
+- **Hover snapping ignores the trigger.** `View::eventFilter` snaps the hover point to multiples
+  of the smallest ruler period counted from sample 0, while the ruler counts from the trigger.
+  Ported as it is.
+- **The first view of a hardware capture.** Qt starts at `_scale(10)` (10 s per pixel), which the
+  first limit update clamps to the whole capture. The Rust view started at 10 ns per pixel, so
+  a first DSLogic capture opened zoomed far in (found on the DSLogic Plus); fixed.
+
 ## Planned behaviour deviations (Rust intentionally differs)
 
 | Area | C behaviour | Rust behaviour | Phase |
@@ -504,6 +525,13 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
 | DSO persistence | A pixmap of the old frames, faded in coarse steps (×0.92 at a time) | The old frames' shapes kept and drawn with alpha exp(−age / time); same remapping on zoom/pan and the same reset on vertical changes | M6d ✔ |
 | DSO voltages in the view | `get_voltage` from the snapshot's measure factor and data scale, set at `set_cur_snap_samplerate` | The same factors, taken when a capture starts (the view does not change them between frames) | M6d ✔ |
 | Analog data/DSO frames/envelopes before they are written | `malloc`: uninitialised | Zeroed | 1b ✔ |
+| Ranged `.dsl` save (F29) | Full capture length; first block starts mid-block | Whole blocks of the range, its length, trigger position moved by the start | M6e ✔ |
+| Region dialog (F29) | Built, never opened | Not ported | M6e ✔ |
+| Decoder dynamic font width | `QFont::setStretch` between the minimum and maximum percent | A smaller font down to the minimum percent; never wider than the font (egui has no stretch, and a larger font would not fit the row) | M6e ✔ |
+| Y-scale badge | Reset glyph U+27F2 | A painted arrow (no egui font has the glyph) | M6e ✔ |
+| Older per-language profile `<driver><mode>.ses<N>.dsc` | The file of the configured language | The first such file by name (the Rust GUI has no language setting before M6f) | M6e |
+| Saving with a range | The range dialog first, with a default file name and a "path" button | The file dialog first, then the range dialog | M6e ✔ |
+| Protocol export progress | `QProgressDialog` over the export thread | A window with a progress bar and Cancel; the lines written are kept, as in Qt | M6e ✔ |
 
 ## Departures from PLAN.md
 
@@ -527,6 +555,8 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
 | Phase 2: one interpreter per build, tested on 3.10 and 3.12 | Both engines use the same interpreter (`PYO3_PYTHON`, else `python3`); the oracle no longer uses pkg-config `python3-embed` | A single process needs a single libpython; CI uses the runner's Python |
 | USB traces in the repository | Recorded 2026-10-17 (11 scenarios plus startup). The pcapng files stay out of git; `testdata/usb/dslogic/manifest.json` pins their sha256 | 16 MB of binary traces; the plan's separate test-data repository is not set up yet |
 | Phase 3a: demo random mode checked "structurally only" | Checked packet for packet | Both drivers run on one virtual clock and one random sequence (`dev/dsview-oracle/src/drv.rs`; `demo.c` is built with `g_timer_*`, `g_usleep`, `rand`, `srand` mapped onto it), so random and time-based output is deterministic |
+| M6e: Rust GUI default | CMake option `DSVIEW_RUST_GUI` (on by default on Linux): the Rust GUI installs as `DSView`, the Qt GUI as `DSView-qt` with its own desktop entry, for one release; without cargo the Qt GUI stays `DSView` | `build.yml` (deb/AppImage) has no Rust toolchain, so its packages stay Qt until that workflow gets one; Windows and macOS keep Qt (PLAN: Linux first) |
+| M6e: AccessKit in the `dsview` binary | Widgets are labelled and checked by the kittest accessibility check, but eframe is built without its `accesskit` feature | It needs `accesskit_winit`, which is not in the offline cargo registry; added with the M6f audit |
 | Phase 3: `compat/rs_driver.c` | `libsigrok4DSL/hardware/rust/rs_driver.c`, next to the other shims (`output/rs_output.c`, `rs_decode.c`) | Same place as the code it stands in for |
 | Phase 3: `dsview-usb-fake` for the demo/file drivers | The real libsigrok4DSL `ds_*` API in the oracle, with the C and the Rust driver selected by `DSVIEW_IMPL_DRV_*` | The demo and file drivers do no USB; the fake is for 3c/3d |
 | Oracle C build | Now `NDEBUG` (as DSView's Release build) and `DSVIEW_RUST_CORE` (the shims are linked) | The driver oracle needs the shipped app's behaviour (`sr_config_get` asserts are off there) and the Rust drivers behind the same API. The goldens are unchanged |

@@ -450,16 +450,22 @@ Critical path: P0 → P1a → P2 → P3d → P4 → P5. With two developers, P1b
 | Missing crates offline (nusb, pyo3, egui_dock, cbindgen, criterion not cached) | First fetch needs network; optionally `cargo vendor` |
 
 ## 6. Immediate next step
-*Updated 2026-10-18; Phases 0-4 and M6.0-M6d are done (STATUS.md).*
+*Updated 2026-10-18; Phases 0-4 and M6.0-M6e are done (STATUS.md). The Rust GUI is the default on
+Linux (`DSVIEW_RUST_GUI`); the Qt GUI ships as `DSView-qt` for one release.*
 
-**M6e, docks and dialogs, after which the Rust GUI becomes the default:**
-1. **Advanced and serial trigger** (16 stages, the trigger dock's position slider) in the session
-   and the dock.
-2. **Measure and search docks** (cursor list, per-channel measurements, search pattern dialog).
-3. **Device options** generated from the driver's option list; calibration (with the start-up
-   prompt for DSO hardware); store progress (cursor range, compressed or original).
-4. **Application options** that M6a-d left in menus (persistence, line widths, wheel).
-5. **The full MCP suite** against `dsview --mcp`, then the default flip.
+**M6f, polish, until PARITY.md is complete (11 items left):**
+1. **i18n:** `lang/{cn,en,de}` through `L_S(page, id, default)`, runtime switching, a CJK font
+   subset; with it the per-language profile names.
+2. **Themes and icons:** dark, light, frappé, latte as egui visuals, the display menu's choice,
+   the SVG icons.
+3. **The logo bar and help:** about, manual PDFs, bug-report and release links, log options
+   (file, append, level), the help-documents dialog and the driver hint at start-up.
+4. **Shortcuts:** O, 0/1, ↑/↓, Esc, Qt's modifier filter and the 200 ms debounce.
+5. **Settings:** window state and dock layout per mode, user history (directories), first-run
+   import of the Qt `DSView.conf`; command line `-s`.
+6. **AccessKit:** eframe's `accesskit` feature (needs `accesskit_winit` fetched once) and an
+   audit with the kittest accessibility check over every dialog.
+7. **Packaging:** a Rust toolchain in `build.yml`, so the deb and AppImage carry the Rust GUI.
 
 Each milestone ends with a commit, STATUS/DEVIATIONS updates, and a report before the next one
 starts.

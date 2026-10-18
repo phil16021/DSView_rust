@@ -7,7 +7,7 @@
 | 2 Decoder engine | **done**: Rust/PyO3 engine behind `DSVIEW_IMPL_DECODE`; Rust becomes the default after one release of A/B | See "Phase 2" below |
 | 3 Drivers | **done except hardware steps**: 3a demo, 3b file, 3c USB layer, 3d DSLogic (replug tests passed 2026-10-18), 3e DSCope/MSO-E8 (`DSVIEW_IMPL_DRV_DEMO` / `_FILE` / `_DSLOGIC` / `_DSCOPE`). Open: a firmware upload from the host, the nightly runs, one DSCope/E8 hardware confirmation | See "Phase 3" below |
 | 4 Session + control API | **done**: 4a acquisition library in Rust behind `DSVIEW_IMPL_ACQ`; 4b capture session, control server, `dsview-cli serve --mcp` (transcript identical to the Qt GUI, 1 h soaks passed) | See "Phase 4" below |
-| 5 Rust GUI | **in progress**: M6.0, M6a viewer (core), M6b logic capture, M6c decoders, M6d DSO/analog done; next M6e docks and dialogs | Plan revised 2026-10-18 (PLAN.md §5) |
+| 5 Rust GUI | **in progress**: M6.0, M6a-M6e done; the Rust GUI is the default on Linux (`DSVIEW_RUST_GUI`, Qt kept as `DSView-qt` for one release); next M6f polish | Plan revised 2026-10-18 (PLAN.md §5); PARITY.md 41 of 52, the rest M6f |
 | 6 Removal + packaging | not started | |
 
 ## Phase 0 deliverables
@@ -853,3 +853,65 @@ the demo transcript is unchanged.
   - application options for line width and persistence (M6f; persistence is in the View menu
     meanwhile).
 
+### M6e docks and dialogs: done; the Rust GUI is the default on Linux
+- **Triggers:**
+  - advanced (16 stages: X/0/1/R/F/C, and/or, invert, counter, contiguous) and serial trigger
+    in the session (`commit_trigger`) and the trigger dock (T);
+  - the oracle compares 3000 random dock states with C's `ds_trigger_*` (all identical).
+- **Docks:**
+  - measure dock (M): mouse-measurement switch, cursor distances, edges between cursors, the
+    cursor list with go-to and delete;
+  - search dock (R): pattern dialog, next/previous in a thread with Cancel, the search cursor
+    (draggable).
+- **Dialogs:**
+  - device options generated from the driver's option list, channel mode and channels;
+  - manual calibration (VGAIN/VOFF/VCOMB) and auto calibration with the start-up prompt;
+  - save/export with a cursor range, original or compressed CSV, and a progress bar with Cancel
+    (a cancelled save discards the file; F29 on ranged `.dsl` files);
+  - protocol export (CSV/TXT, choice of rows) and the protocol list options (map zoom fit/fixed,
+    protocol, rows listed);
+  - application options, all applied: font size, line widths, decoder font width (F29),
+    trigger position in the middle, profile in the title, swap back buffer, don't ask to save;
+  - File menu: profiles (load, store, default) and screenshot.
+- **Decoders (M6c items):**
+  - per-protocol number format;
+  - decode region;
+  - decoder and row show buttons;
+  - the protocol list's mark and the type-2xx marks on bound channels.
+- **The viewer gaps (M6a/b items):**
+  - ruler cursor labels with time and close box, "T" and "S" labels;
+  - the cursor selector and go-to strips;
+  - Y-scale badge;
+  - header multi-select and 10 px grid drag;
+  - pinch zoom;
+  - mouse-measure arrows and popup;
+  - hover snapping;
+  - the capture progress and trigger-wait screen;
+  - "Save captured data?" on device change, detach, new device and close.
+- **Profiles:** `<driver><mode>.ses.dsc`, the file Qt DSView uses (before this the Rust session
+  wrote `<driver><mode>.dsc`); older per-language files are read when it is missing.
+- **Tests:**
+  - 33 egui_kittest snapshot and interaction tests;
+  - 2 window tests (`tests/app_flow.rs`) on a simulated DSLogic that drive `App` itself (the
+    store question on a device change and on close);
+  - session tests for profile names, store progress and cancel, protocol export cancel.
+  - The kittest accessibility check found and got labels for the decoder options and sampling
+    bar widgets.
+- **MCP suite (exit):** `cargo xtask mcp suite target/debug/dsview`: 30 tools, 37 steps green;
+  identical to `dsview-cli` and to Qt DSView on the Rust core in all 37 steps.
+- **DSLogic Plus, through the Rust GUI:**
+  - a trigger on channel 0 with nothing connected shows Qt's wait screen ("Waiting for Trigger!
+    0% Captured", blinking dots, from the device's status);
+  - a 1 s capture at 1 MHz fills the view.
+  - That check found the first-view scale bug (F29), now fixed.
+- **Default flip:**
+  - CMake option `DSVIEW_RUST_GUI` (on by default on Linux) builds `crates/dsview-gui` with
+    cargo and installs it as `bin/DSView`;
+  - the Qt GUI installs as `bin/DSView-qt` with a "DSView (Qt)" desktop entry, for one release
+    (PLAN §1.2);
+  - without cargo the Qt GUI stays `DSView`.
+  - `build.yml`'s deb/AppImage jobs have no Rust toolchain and stay Qt (DEVIATIONS, departures).
+- **Not here (M6f):** the logo bar, about, help, i18n, themes and icons (with the display menu's
+  theme choice), shortcuts O, 0/1, ↑/↓, Esc and the debounce, settings import and window state,
+  `-s`, AccessKit in the binary (needs `accesskit_winit`, not in the offline registry), dock
+  layout per mode, log options.

@@ -53,7 +53,7 @@ fn main() -> eframe::Result {
             "--soak" => soak = args.next().and_then(|v| v.parse::<f64>().ok()),
             "-l" | "--loglevel" => level = args.next().and_then(|v| v.parse().ok()).unwrap_or(3),
             "-v" | "-V" | "--version" => {
-                println!("DSView {DSVIEW_VERSION} (Rust preview)");
+                println!("DSView {DSVIEW_VERSION}");
                 return Ok(());
             }
             "-h" | "-?" | "--help" => usage(),
@@ -161,6 +161,8 @@ fn main() -> eframe::Result {
         renderer,
         viewport: egui::ViewportBuilder::default()
             .with_title(format!("DSView v{DSVIEW_VERSION}"))
+            // the desktop entry's StartupWMClass
+            .with_app_id("DSView")
             .with_inner_size(size),
         ..Default::default()
     };

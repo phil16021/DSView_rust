@@ -119,7 +119,9 @@ jobs:
           cargo check --locked -p dsview-ffi
 
   cpp-with-rust-core:
-    # The Qt application linking the Rust core (DSVIEW_RUST_CORE=ON).
+    # The Qt application linking the Rust core (DSVIEW_RUST_CORE=ON), next to
+    # the Rust GUI, which installs as DSView (DSVIEW_RUST_GUI, on by default);
+    # the Qt GUI is DSView-qt.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -134,8 +136,13 @@ jobs:
           cmake -S . -B build -DDSVIEW_RUST_CORE=ON
           cmake --build build -j"$(nproc)"
       - name: Rust core is linked
-        run: nm build/bin/DSView | grep -q ' T dsv_version'
+        run: nm build/bin/DSView-qt | grep -q ' T dsv_version'
       - name: C vs Rust inside DSView (open, export, save every corpus capture)
         run: |
           DESTDIR="$PWD/stage" cmake --install build --prefix /usr
-          cargo xtask control ab --bin "$PWD/stage/usr/bin/DSView"
+          cargo xtask control ab --bin "$PWD/stage/usr/bin/DSView-qt"
+      - name: The Rust GUI is installed as DSView
+        run: |
+          test -x stage/usr/bin/DSView
+          stage/usr/bin/DSView -v | grep -q '^DSView '
+          test -f stage/usr/share/applications/dsview-qt.desktop

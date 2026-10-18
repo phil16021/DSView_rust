@@ -74,6 +74,14 @@ set(DISABLE_WERROR TRUE) #Build without -Werror
 set(ENABLE_SIGNALS TRUE) #Build with UNIX signals
 set(ENABLE_COTIRE FALSE) #Enable cotire
 option(DSVIEW_RUST_CORE "Link the Rust core (crates/dsview-ffi, built with cargo)" OFF)
+# Milestone M6e (docs/migration/PLAN.md): the Rust GUI is the default on
+# Linux. It is installed as DSView; the Qt GUI stays for one release as
+# DSView-qt. Without cargo the Qt GUI remains DSView.
+if(CMAKE_SYSTEM_NAME MATCHES "Linux")
+    option(DSVIEW_RUST_GUI "Build the Rust GUI (crates/dsview-gui) and install it as DSView" ON)
+else()
+    option(DSVIEW_RUST_GUI "Build the Rust GUI (crates/dsview-gui) and install it as DSView" OFF)
+endif()
 
 if(WIN32)
     # Windows does not support UNIX signals.
@@ -708,6 +716,32 @@ if(DSVIEW_RUST_CORE)
     target_link_libraries(${PROJECT_NAME} ${DSVIEW_FFI_LIB} dl)
 endif()
 
+#===============================================================================
+#= Rust GUI (default on Linux since M6e)
+#-------------------------------------------------------------------------------
+if(DSVIEW_RUST_GUI)
+    find_program(DSVIEW_CARGO cargo)
+    if(NOT DSVIEW_CARGO)
+        message(WARNING "cargo not found: the Qt GUI stays DSView (DSVIEW_RUST_GUI is off)")
+        set(DSVIEW_RUST_GUI OFF)
+    endif()
+endif()
+if(DSVIEW_RUST_GUI)
+    set(DSVIEW_GUI_TARGET_DIR ${CMAKE_BINARY_DIR}/cargo)
+    set(DSVIEW_GUI_BIN ${DSVIEW_GUI_TARGET_DIR}/release/dsview)
+    # the decoder engine embeds the Python DSView finds
+    find_program(DSVIEW_GUI_PYTHON NAMES python${Python3_VERSION_MAJOR}.${Python3_VERSION_MINOR} python3 REQUIRED)
+    message(STATUS "Rust GUI: installed as DSView, the Qt GUI as DSView-qt (PyO3: ${DSVIEW_GUI_PYTHON})")
+    add_custom_target(dsview_gui ALL
+        COMMAND ${CMAKE_COMMAND} -E env PYO3_PYTHON=${DSVIEW_GUI_PYTHON}
+                ${DSVIEW_CARGO} build --release --locked -p dsview-gui --target-dir ${DSVIEW_GUI_TARGET_DIR}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        BYPRODUCTS ${DSVIEW_GUI_BIN}
+        COMMENT "Building the Rust GUI (dsview-gui)"
+        VERBATIM)
+    set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME DSView-qt)
+endif()
+
 if(WIN32)
 # Pass -mwindows so that no "DOS box" will open when PulseView is started.
 set_target_properties(${PROJECT_NAME} PROPERTIES LINK_FLAGS "-mwindows")
@@ -757,8 +791,15 @@ else()
     install(FILES DSView/icons/logo.svg DESTINATION share/icons/hicolor/scalable/apps RENAME dsview.svg)
     install(FILES DSView/icons/logo.svg DESTINATION share/pixmaps RENAME dsview.svg)
 
+    if(DSVIEW_RUST_GUI)
+        install(PROGRAMS ${DSVIEW_GUI_BIN} DESTINATION bin RENAME DSView)
+    endif()
+
     if(CMAKE_SYSTEM_NAME MATCHES "Linux")
         install(FILES DSView/DSView.desktop DESTINATION /usr/share/applications RENAME dsview.desktop)
+        if(DSVIEW_RUST_GUI)
+            install(FILES DSView/DSView-qt.desktop DESTINATION /usr/share/applications RENAME dsview-qt.desktop)
+        endif()
 
         add_compile_definitions(_DEFAULT_SOURCE)
 
