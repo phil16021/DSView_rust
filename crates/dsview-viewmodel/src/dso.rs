@@ -616,6 +616,79 @@ pub fn ref_wave_shape(
     Some((pts, dense))
 }
 
+/// The X measurement (`DSO_XM_STEP0..2`): a double click sets the start,
+/// two more clicks the end of the high part and of the period. Indexes are
+/// kept sorted as Qt sorts them.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct XMeasure {
+    /// Clicks made so far: 1 after the double click, 3 when complete.
+    pub stage: usize,
+    pub index: [u64; 3],
+    /// The row the measurement is drawn at.
+    pub y: f32,
+}
+
+impl XMeasure {
+    pub fn start(index: u64, y: f32) -> XMeasure {
+        XMeasure { stage: 1, index: [index, 0, 0], y }
+    }
+
+    pub fn is_complete(&self) -> bool {
+        self.stage >= 3
+    }
+
+    /// The next click (`DSO_XM_STEP1`, `DSO_XM_STEP2`).
+    pub fn click(&mut self, index: u64) {
+        match self.stage {
+            1 => {
+                self.index[1] = index;
+                let max = self.index[0].max(self.index[1]);
+                self.index[0] = self.index[0].min(self.index[1]);
+                self.index[1] = max;
+                self.stage = 2;
+            }
+            2 => {
+                self.index[2] = index;
+                let max = self.index[1].max(self.index[2]);
+                self.index[1] = self.index[1].min(self.index[2]);
+                self.index[2] = max;
+                let max = self.index[0].max(self.index[1]);
+                self.index[0] = self.index[0].min(self.index[1]);
+                self.index[1] = max;
+                self.stage = 3;
+            }
+            _ => {}
+        }
+    }
+
+    /// The labels: "W=…" from two clicks on, and "P=…", "F=…", "D=…" once
+    /// complete.
+    pub fn texts(&self, samplerate: u64) -> (Option<String>, Option<[String; 3]>) {
+        let w = (self.stage >= 2).then(|| {
+            format!(
+                "W={}",
+                crate::ruler::format_real_time(self.index[1] as i64 - self.index[0] as i64, samplerate)
+            )
+        });
+        let rest = self.is_complete().then(|| {
+            let period = self.index[2] as i64 - self.index[0] as i64;
+            [
+                format!("P={}", crate::ruler::format_real_time(period, samplerate)),
+                // `Ruler::pricision`: 2
+                format!(
+                    "F={}",
+                    crate::ruler::format_freq(period as f64 / samplerate.max(1) as f64, 2)
+                ),
+                format!(
+                    "D={:.2}%",
+                    (self.index[1] - self.index[0]) as f64 * 100.0 / period as f64
+                ),
+            ]
+        });
+        (w, rest)
+    }
+}
+
 /// `LissajousTrace::DIV_NUM`
 pub const LISSAJOUS_DIVS: i32 = 10;
 /// `LissajousOptions::WellLen`: the percent slider keeps at least 16 k
@@ -1271,6 +1344,23 @@ mod tests {
         assert!(dense);
         assert!(pts.len() <= 2 * 1000 + 16);
         assert_eq!(pts[0].0, 0.0);
+    }
+
+    #[test]
+    fn x_measure() {
+        let mut m = XMeasure::start(500, 100.0);
+        assert_eq!(m.texts(1_000_000), (None, None));
+        m.click(200);
+        assert_eq!(m.index[..2], [200, 500]);
+        m.click(900);
+        assert!(m.is_complete());
+        assert_eq!(m.index, [200, 500, 900]);
+        let (w, rest) = m.texts(1_000_000);
+        assert_eq!(w.as_deref(), Some("W=+300μs"));
+        let [p, f, d] = rest.unwrap();
+        assert_eq!(p, "P=+700μs");
+        assert_eq!(d, "D=42.86%");
+        assert_eq!(f, "F=1.43KHz");
     }
 
     #[test]

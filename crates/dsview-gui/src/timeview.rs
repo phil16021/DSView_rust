@@ -123,6 +123,8 @@ pub struct TimeView {
     pub dso: crate::dsoview::DsoState,
     /// Analog mode.
     pub analog: crate::analogview::AnalogState,
+    /// The pointer over the DSO traces.
+    pub(crate) dso_mouse: Option<Pos2>,
 }
 
 impl Default for TimeView {
@@ -149,6 +151,7 @@ impl Default for TimeView {
             show_samples: false,
             dso: crate::dsoview::DsoState::new(),
             analog: crate::analogview::AnalogState::new(),
+            dso_mouse: None,
         }
     }
 }

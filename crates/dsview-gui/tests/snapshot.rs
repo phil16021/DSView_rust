@@ -335,6 +335,35 @@ fn dso_controls() {
     s.exit();
 }
 
+/// A double click and two clicks make the X measurement.
+#[test]
+fn dso_x_measure() {
+    let s = demo_in_mode(dsview_core::Mode::Dso);
+    let view = std::rc::Rc::new(std::cell::RefCell::new(TimeView::default()));
+    let (v2, s2) = (view.clone(), s.clone());
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 640.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            v2.borrow_mut().show(ui, &s2);
+        });
+    h.run();
+    let y = 300.0;
+    click(&mut h, 300.0, y);
+    click(&mut h, 300.0, y);
+    h.run();
+    assert_eq!(view.borrow().dso.xm.map(|m| m.stage), Some(1));
+    click(&mut h, 480.0, y);
+    h.run();
+    click(&mut h, 660.0, y);
+    h.run();
+    let m = view.borrow().dso.xm.unwrap();
+    assert!(m.is_complete());
+    assert!(m.index[0] < m.index[1] && m.index[1] < m.index[2], "{:?}", m.index);
+    h.snapshot("dso_x_measure");
+    s.exit();
+}
+
 #[test]
 fn protocol_dock() {
     let s = demo_session();

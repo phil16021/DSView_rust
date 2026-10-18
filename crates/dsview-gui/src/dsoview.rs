@@ -77,6 +77,8 @@ pub struct DsoState {
     pub lissajous: crate::lissajousview::LissajousState,
     /// Reference waveforms.
     pub refs: crate::refview::RefState,
+    /// The X measurement (double click, then two clicks).
+    pub xm: Option<dso::XMeasure>,
     /// The math trace's header row (`get_y()`), when shown.
     math_y: Option<i32>,
 }
@@ -422,6 +424,7 @@ impl TimeView {
             )
         });
         let hover = resp.hover_pos();
+        self.dso_mouse = hover;
         let local = |p: Pos2| (p.x - area.left(), p.y - area.top());
 
         if let Some(p) = hover
@@ -484,6 +487,51 @@ impl TimeView {
         if resp.drag_stopped() {
             self.dso.drag = None;
             self.dso.trig_moved = false;
+        }
+
+        // the X measurement: a double click starts it (or clears a finished
+        // one), two clicks complete it, a right click drops it
+        let have_data = s
+            .data()
+            .dso
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .sample_count()
+            > 0;
+        if have_data
+            && resp.double_clicked()
+            && let Some(p) = resp.interact_pointer_pos()
+        {
+            let (x, y) = local(p);
+            self.dso.xm = match self.dso.xm {
+                Some(_) => None,
+                None => chans
+                    .iter()
+                    .any(|c| c.geom.rect.contains(x as f64, y as f64))
+                    .then(|| dso::XMeasure::start(self.vp.pixel_to_index(x as f64, tb), y)),
+            };
+            changed = true;
+        } else if let Some(m) = &mut self.dso.xm
+            && !m.is_complete()
+        {
+            if resp.clicked()
+                && let Some(p) = resp.interact_pointer_pos()
+            {
+                m.click(self.vp.pixel_to_index(local(p).0 as f64, tb));
+                changed = true;
+            } else if resp.secondary_clicked() {
+                self.dso.xm = None;
+                changed = true;
+            } else if let Some(p) = resp.hover_pos() {
+                // leaving the traces drops an unfinished measurement
+                let (x, y) = local(p);
+                if !chans
+                    .iter()
+                    .any(|c| c.geom.rect.contains(x as f64, y as f64))
+                {
+                    self.dso.xm = None;
+                }
+            }
         }
 
         // the value under the mouse while stopped (`DsoSignal::measure`)
@@ -755,6 +803,56 @@ impl TimeView {
                 ));
             }
         }
+        // the X measurement, in red dotted lines (`paintMeasure`)
+        if let Some(m) = &self.dso.xm {
+            let red = Stroke::new(1.0, Color32::RED);
+            let dot = |q: &[Pos2]| egui::Shape::dotted_line(q, Color32::RED, 3.0, 0.6);
+            let px = |i: usize| self.vp.index_to_pixel(m.index[i], false, tb) as f32;
+            let y = m.y;
+            p.extend(dot(&[o(px(0), y - 10.0), o(px(0), y + 10.0)]));
+            let (w, rest) = m.texts(tb.snap_samplerate as u64);
+            if let Some(w) = w {
+                p.extend(dot(&[o(px(1), y - 10.0), o(px(1), y + 10.0)]));
+                p.extend(dot(&[o(px(0), y), o(px(1), y)]));
+                p.text(
+                    o(px(0) + 10.0, y),
+                    egui::Align2::LEFT_BOTTOM,
+                    w,
+                    font.clone(),
+                    Color32::RED,
+                );
+            }
+            if let Some([per, freq, duty]) = rest {
+                p.extend(dot(&[o(px(0), y + 20.0), o(px(0), y + 40.0)]));
+                p.extend(dot(&[o(px(0), y + 30.0), o(px(2), y + 30.0)]));
+                p.extend(dot(&[o(px(2), y + 20.0), o(px(2), y + 40.0)]));
+                let pr = p.text(
+                    o(px(0) + 10.0, y + 30.0),
+                    egui::Align2::LEFT_BOTTOM,
+                    per,
+                    font.clone(),
+                    Color32::RED,
+                );
+                p.text(
+                    pos2(pr.right() + 10.0, area.top() + y + 30.0),
+                    egui::Align2::LEFT_BOTTOM,
+                    freq,
+                    font.clone(),
+                    Color32::RED,
+                );
+                p.text(
+                    o(px(1) + 10.0, y),
+                    egui::Align2::LEFT_CENTER,
+                    duty,
+                    font.clone(),
+                    Color32::RED,
+                );
+            } else if let Some(mouse) = self.dso_mouse {
+                // the rubber line to the pointer
+                p.line_segment([o(px(m.stage - 1), y), pos2(mouse.x, area.top() + y)], red);
+            }
+        }
+
         // the hover value: the point (`paint_hover_measure`) and the value
         // (Qt's floating measure panel)
         if let Some((index, sample, value, text)) = &self.dso.hover
