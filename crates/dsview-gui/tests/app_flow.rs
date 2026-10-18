@@ -211,10 +211,18 @@ fn shortcuts_and_docks_per_mode() {
     // Ctrl+D is not a shortcut
     press(&mut h, egui::Key::D, egui::Modifiers::CTRL);
     assert!(docks(&app).0.decode);
-    // two keys within 200 ms: the second is dropped
-    h.key_press(egui::Key::M);
-    h.run();
-    h.key_press(egui::Key::M);
+    // two keys within 200 ms (here in one frame): the second is dropped
+    std::thread::sleep(Duration::from_millis(220));
+    for _ in 0..2 {
+        // raw events: kittest's key_press queues each for its own frame
+        h.input_mut().events.push(egui::Event::Key {
+            key: egui::Key::M,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: none,
+        });
+    }
     h.run();
     assert!(docks(&app).0.measure);
     // the oscilloscope: no protocol dock; M is its own

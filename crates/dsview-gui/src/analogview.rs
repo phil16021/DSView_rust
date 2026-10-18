@@ -154,9 +154,9 @@ impl TimeView {
         changed |= self.ruler_input(ui, s, ruler_rect, area, &tb);
 
         let painter = ui.painter_at(full);
-        painter.rect_filled(full, 0.0, Color32::from_gray(24));
-        painter.rect_filled(header, 0.0, Color32::from_gray(34));
-        painter.rect_filled(ruler_rect, 0.0, Color32::from_gray(30));
+        painter.rect_filled(full, 0.0, self.palette.bg);
+        painter.rect_filled(header, 0.0, self.palette.header);
+        painter.rect_filled(ruler_rect, 0.0, self.palette.ruler);
         let tp = ui.painter_at(area);
         self.paint_analog(&tp, s, area, &rows, &frame);
         self.paint_ruler(&painter, ruler_rect, s, &tb);
@@ -284,7 +284,7 @@ impl TimeView {
     ) {
         let o = |x: f32, y: f32| pos2(area.left() + x, area.top() + y);
         let font = self.font(11.0);
-        let fore = Color32::from_gray(200);
+        let fore = self.palette.text2;
         let right = frame.width as f32 - 1.0;
         let store = s.data().analog.lock().unwrap_or_else(|e| e.into_inner());
         for r in rows {
@@ -438,7 +438,7 @@ impl TimeView {
                 egui::Align2::LEFT_CENTER,
                 &r.sig.name,
                 font.clone(),
-                Color32::from_gray(220),
+                self.palette.text,
             );
             let l = ho(hr.label);
             p.add(egui::Shape::convex_polygon(

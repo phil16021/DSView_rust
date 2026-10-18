@@ -101,6 +101,8 @@ fn decoder_rows(t: &DecodeTrace) -> Vec<DecRow> {
 
 pub struct TimeView {
     pub vp: Viewport,
+    /// The theme's view colours.
+    pub palette: crate::theme::Palette,
     /// Map Zoom "Fixed": `show_region` keeps the scale.
     pub map_zoom_fixed: bool,
     pub cursors: Cursors,
@@ -247,6 +249,7 @@ impl Default for TimeView {
     fn default() -> Self {
         TimeView {
             vp: Viewport::default(),
+            palette: crate::theme::Palette::default(),
             map_zoom_fixed: false,
             wait_since: None,
             strips: ruler::RulerStrips::default(),
@@ -545,9 +548,9 @@ impl TimeView {
 
         // paint
         let painter = ui.painter_at(full);
-        painter.rect_filled(full, 0.0, Color32::from_gray(24));
-        painter.rect_filled(header, 0.0, Color32::from_gray(34));
-        painter.rect_filled(ruler_rect, 0.0, Color32::from_gray(30));
+        painter.rect_filled(full, 0.0, self.palette.bg);
+        painter.rect_filled(header, 0.0, self.palette.header);
+        painter.rect_filled(ruler_rect, 0.0, self.palette.ruler);
         let store = s.data().logic.lock().unwrap_or_else(|e| e.into_inner());
         let end_align = store.ring_sample_count().saturating_sub(1);
         let tpainter = ui.painter_at(area);
@@ -601,7 +604,7 @@ impl TimeView {
             if self.dividers {
                 // between this row and the next, in the middle of the margins
                 let yb = y + l.span_y as f32 / 2.0;
-                tpainter.hline(area.x_range(), yb, Stroke::new(1.0, Color32::from_gray(48)));
+                tpainter.hline(area.x_range(), yb, Stroke::new(1.0, self.palette.divider));
             }
             let shape = logic_shape(
                 &store,
@@ -728,7 +731,7 @@ impl TimeView {
         p.rect(
             r,
             4.0,
-            Color32::from_rgba_unmultiplied(24, 24, 24, 220).gamma_multiply(opacity),
+            crate::theme::alpha(self.palette.bg, 220).gamma_multiply(opacity),
             Stroke::new(1.0, blue),
             egui::StrokeKind::Inside,
         );
@@ -736,7 +739,7 @@ impl TimeView {
         let g = p.layout_no_wrap(
             text,
             font.clone(),
-            Color32::from_gray(220).gamma_multiply(opacity),
+            self.palette.text.gamma_multiply(opacity),
         );
         let (w, th) = (g.size().x, g.size().y);
         p.galley(
@@ -783,7 +786,7 @@ impl TimeView {
         let green = Color32::from_rgb(0, 153, 37);
         let blue = Color32::from_rgb(17, 133, 209);
         let grey = Color32::from_rgb(160, 160, 164);
-        let fore = Color32::from_gray(220);
+        let fore = self.palette.text;
         let arc = |r: f32, percent: f64, c: Color32| {
             let pts: Vec<Pos2> = g.arc(r, percent).iter().map(|&(x, y)| at(x, y)).collect();
             if pts.len() > 1 {
@@ -897,7 +900,7 @@ impl TimeView {
             );
             return marks;
         }
-        let grey = Color32::from_gray(170);
+        let grey = self.palette.tick;
         let mark = st.mark();
         let bottom = area.top() + row.y - self.v_scroll + row.height / 2.0 + 1.0;
         let blue = Color32::from_rgb(17, 133, 209);
@@ -1045,7 +1048,7 @@ impl TimeView {
                         }
                     } else {
                         // draw_nodetail: a line with the hint in the middle
-                        painter.hline(area.x_range(), y, Stroke::new(1.0, Color32::from_gray(90)));
+                        painter.hline(area.x_range(), y, Stroke::new(1.0, self.palette.faint));
                         let r = painter.text(
                             pos2(area.center().x, y),
                             egui::Align2::CENTER_CENTER,
@@ -1053,7 +1056,7 @@ impl TimeView {
                             font.clone(),
                             grey,
                         );
-                        painter.rect_filled(r.expand(2.0), 0.0, Color32::from_gray(24));
+                        painter.rect_filled(r.expand(2.0), 0.0, self.palette.bg);
                         painter.text(
                             pos2(area.center().x, y),
                             egui::Align2::CENTER_CENTER,
@@ -1068,7 +1071,7 @@ impl TimeView {
                         egui::Align2::LEFT_TOP,
                         title,
                         self.font(9.0),
-                        Color32::from_gray(140),
+                        self.palette.dim,
                     );
                 }
             }
@@ -1729,7 +1732,7 @@ impl TimeView {
                 egui::Align2::LEFT_CENTER,
                 &sig.name,
                 font.clone(),
-                Color32::from_gray(220),
+                self.palette.text,
             );
             for (k, t) in [
                 trig::RISING,
@@ -1763,7 +1766,7 @@ impl TimeView {
                     r.bottom() - 2.0,
                 );
                 let m = r.center().x;
-                let st = Stroke::new(1.0, Color32::from_gray(200));
+                let st = Stroke::new(1.0, self.palette.text2);
                 let pts: Vec<Pos2> = match t {
                     trig::RISING => vec![pos2(l, bot), pos2(m, bot), pos2(m, top), pos2(rr, top)],
                     trig::FALLING => vec![pos2(l, top), pos2(m, top), pos2(m, bot), pos2(rr, bot)],
@@ -1805,7 +1808,7 @@ impl TimeView {
             &m,
         );
         self.min_period.set(ticks.min_period);
-        let fg = Color32::from_gray(170);
+        let fg = self.palette.tick;
         for t in &ticks.ticks {
             let x = rect.left() + t.x as f32;
             if x < rect.left() - 1.0 || x > rect.right() + 1.0 {
@@ -1966,7 +1969,7 @@ impl TimeView {
             let c = if hit {
                 blue
             } else {
-                Color32::from_rgba_unmultiplied(220, 220, 220, 100)
+                crate::theme::alpha(self.palette.text, 100)
             };
             let text = if self.show_samples {
                 ruler::format_samples(pos as i64)
@@ -2072,7 +2075,7 @@ impl TimeView {
                         egui::Align2::LEFT_BOTTOM,
                         format!("Rising: {r}  Falling: {f}  Edges: {}", r + f),
                         small,
-                        Color32::WHITE,
+                        self.palette.text,
                     );
                 }
             }
@@ -2098,7 +2101,7 @@ impl TimeView {
                             ruler::format_real_time(delta, tb.snap_samplerate as u64)
                         ),
                         small,
-                        Color32::WHITE,
+                        self.palette.text,
                     );
                 }
             }
@@ -2135,7 +2138,7 @@ impl TimeView {
             self.snapped_hover(p.x, area.left()),
             area.top(),
             area.bottom(),
-            Color32::from_rgba_unmultiplied(220, 220, 220, 140),
+            crate::theme::alpha(self.palette.text, 140),
         );
         let (Some(m), Some((mid_y, height))) = (&self.measure, self.measure_row) else {
             return;
@@ -2353,7 +2356,7 @@ mod tests {
                 .wgpu()
                 .build_ui(move |ui| {
                     let r = ui.max_rect();
-                    ui.painter().rect_filled(r, 0.0, Color32::from_gray(24));
+                    ui.painter().rect_filled(r, 0.0, tv.palette.bg);
                     tv.paint_progress(&ui.painter_at(r), r, &s2, received, 1000);
                 });
             h.run_steps(2);

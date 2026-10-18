@@ -124,8 +124,7 @@ impl SamplingBar {
                         .response
                         .widget_info(|| named("Mode"));
                 }
-                if ui
-                    .button(tr("Options"))
+                if crate::icons::button(ui, "gear", tr("Options"))
                     .on_hover_text(tr("Device options"))
                     .clicked()
                     && self.options.is_none()
@@ -211,10 +210,14 @@ impl SamplingBar {
                 }
             });
             let run = if working { "Stop" } else { "Start" };
-            if ui.button(tr(run)).clicked() {
+            let icon = if working { "stop" } else { "start" };
+            if crate::icons::button(ui, icon, tr(run)).clicked() {
                 self.run_stop(s, false);
             }
-            if s.mode() != Mode::Analog as i32 && !working && ui.button(tr("Single")).clicked() {
+            if s.mode() != Mode::Analog as i32
+                && !working
+                && crate::icons::button(ui, "single", tr("Single")).clicked()
+            {
                 self.run_stop(s, true);
             }
             if working {

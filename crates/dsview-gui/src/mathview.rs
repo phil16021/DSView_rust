@@ -277,7 +277,7 @@ impl TimeView {
         // the zero line
         p.extend(egui::Shape::dotted_line(
             &[o(0.0, zero_y), o(rect.w as f32, zero_y)],
-            Color32::from_rgba_unmultiplied(220, 220, 220, 100),
+            crate::theme::alpha(self.palette.text, 100),
             3.0,
             0.8,
         ));
@@ -457,7 +457,7 @@ impl TimeView {
             egui::Align2::CENTER_CENTER,
             format!("{v}{}/div", m.ty.unit(unit)),
             font.clone(),
-            Color32::from_gray(220),
+            self.palette.text,
         );
         // the "M" label at the zero line
         let l = ho(hr.label);

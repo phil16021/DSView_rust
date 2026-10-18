@@ -79,14 +79,21 @@ impl LissajousState {
     }
 
     /// `paint_back` and `paint_mid` over the trace area.
-    pub fn paint(&self, p: &egui::Painter, s: &Session, area: Rect, width: i32) {
+    pub fn paint(
+        &self,
+        p: &egui::Painter,
+        s: &Session,
+        area: Rect,
+        width: i32,
+        palette: &crate::theme::Palette,
+    ) {
         let (border, lines) = dso::lissajous_grid(width, area.height() as i32);
         let o = |x: f32, y: f32| pos2(area.left() + x, area.top() + y);
         let br = Rect::from_min_size(
             o(border.x as f32, border.y as f32),
             vec2(border.w as f32, border.h as f32),
         );
-        p.rect_filled(br, 0.0, Color32::from_gray(12));
+        p.rect_filled(br, 0.0, palette.deep);
         p.rect_stroke(
             br,
             0.0,
@@ -108,7 +115,7 @@ impl LissajousState {
             egui::Align2::LEFT_TOP,
             "Lissajous Figure",
             font.clone(),
-            Color32::from_gray(220),
+            palette.text,
         );
         let store = s.data().dso.lock().unwrap_or_else(|e| e.into_inner());
         let n = store.sample_count();

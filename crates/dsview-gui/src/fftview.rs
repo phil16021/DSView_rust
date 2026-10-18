@@ -24,6 +24,8 @@ pub struct FftDialog {
 
 #[derive(Default)]
 pub struct FftState {
+    /// The theme's view colours.
+    pub palette: crate::theme::Palette,
     /// Per DSO channel (index 0 and 1).
     pub specs: [Spectrum; 2],
     bins: [Vec<f64>; 2],
@@ -149,15 +151,15 @@ impl FftState {
 
         // paint
         let p = ui.painter_at(full);
-        let fore = Color32::from_gray(220);
+        let fore = self.palette.text;
         let font = egui::FontId::proportional(11.0);
-        p.rect_filled(full, 0.0, Color32::from_gray(24));
-        p.rect_filled(header, 0.0, Color32::from_gray(34));
-        p.rect_filled(rect, 0.0, Color32::from_gray(12));
+        p.rect_filled(full, 0.0, self.palette.bg);
+        p.rect_filled(header, 0.0, self.palette.header);
+        p.rect_filled(rect, 0.0, self.palette.deep);
         p.rect_stroke(
             rect,
             0.0,
-            Stroke::new(1.0, Color32::from_rgba_unmultiplied(220, 220, 220, 100)),
+            Stroke::new(1.0, crate::theme::alpha(self.palette.text, 100)),
             egui::StrokeKind::Inside,
         );
         // the header label ("FFT(n)")

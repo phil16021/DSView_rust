@@ -325,6 +325,11 @@ impl AppOptions {
     /// font size scales every text, as Qt sets it on bars, docks and
     /// traces).
     pub fn apply(&self, view: &mut crate::timeview::TimeView, ctx: &egui::Context) {
+        // `switchTheme`: the widgets, the view colours, the icon set
+        let theme = crate::theme::Theme::from_style(&self.frame.style);
+        crate::theme::apply(ctx, theme);
+        crate::icons::set_dark(theme.is_dark());
+        view.palette = theme.palette();
         let scale = self.font_size() / 9.0;
         view.font_scale = scale;
         let base = egui::Style::default().text_styles;

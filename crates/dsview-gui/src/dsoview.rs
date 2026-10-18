@@ -381,13 +381,15 @@ impl TimeView {
 
         // paint
         let painter = ui.painter_at(full);
-        painter.rect_filled(full, 0.0, Color32::from_gray(24));
-        painter.rect_filled(header, 0.0, Color32::from_gray(34));
-        painter.rect_filled(ruler_rect, 0.0, Color32::from_gray(30));
+        painter.rect_filled(full, 0.0, self.palette.bg);
+        painter.rect_filled(header, 0.0, self.palette.header);
+        painter.rect_filled(ruler_rect, 0.0, self.palette.ruler);
         let tpainter = ui.painter_at(area);
         if self.dso.lissajous.enabled {
             // the figure replaces the grid and the traces
-            self.dso.lissajous.paint(&tpainter, s, area, rect.w);
+            self.dso
+                .lissajous
+                .paint(&tpainter, s, area, rect.w, &self.palette);
         } else {
             if self.dso.split {
                 for c in &chans {
@@ -717,13 +719,13 @@ impl TimeView {
             self.vp.x_offset,
         );
         let o = |x: f32, y: f32| pos2(area.left() + x, area.top() + y);
-        let fore = Color32::from_gray(220);
-        let back_a = Color32::from_rgba_unmultiplied(220, 220, 220, 100);
+        let fore = self.palette.text;
+        let back_a = crate::theme::alpha(self.palette.text, 100);
         let f = g.frame;
         let fr = Rect::from_min_size(o(f.x as f32, f.y as f32), vec2(f.w as f32, f.h as f32));
-        p.rect_filled(fr, 0.0, Color32::from_gray(12));
+        p.rect_filled(fr, 0.0, self.palette.deep);
         p.rect_stroke(fr, 0.0, Stroke::new(1.0, back_a), egui::StrokeKind::Inside);
-        let dashed = Stroke::new(1.0, Color32::from_rgba_unmultiplied(220, 220, 220, 60));
+        let dashed = Stroke::new(1.0, crate::theme::alpha(self.palette.text, 60));
         for &(x0, y0, x1, y1) in &g.dividers {
             p.extend(egui::Shape::dashed_line(
                 &[o(x0, y0), o(x1, y1)],
@@ -860,7 +862,7 @@ impl TimeView {
     ) {
         let o = |x: f32, y: f32| pos2(area.left() + x, area.top() + y);
         let font = self.font(12.0);
-        let fore = Color32::from_gray(220);
+        let fore = self.palette.text;
         for c in chans {
             let zy = c.zero_y() as f32;
             p.extend(egui::Shape::dotted_line(
@@ -969,7 +971,7 @@ impl TimeView {
             let (px, py) = dso::point(&c.geom, x, *value, c.zero_offset, c.hw_offset);
             let sz = dso::HOVER_POINT_SIZE as f32;
             let r = Rect::from_min_size(o(px - 1.0, py - 1.0), vec2(sz, sz));
-            p.rect_filled(r, 0.0, Color32::from_gray(24));
+            p.rect_filled(r, 0.0, self.palette.bg);
             p.rect_stroke(r, 0.0, Stroke::new(1.0, fore), egui::StrokeKind::Outside);
             p.text(
                 o(rect.w as f32 - 8.0, 8.0),
@@ -1126,8 +1128,8 @@ impl TimeView {
         pointer: Option<Pos2>,
     ) {
         let font = self.font(12.0);
-        let fore = Color32::from_gray(220);
-        let fore_back = Color32::from_rgba_unmultiplied(220, 220, 220, 100);
+        let fore = self.palette.text;
+        let fore_back = crate::theme::alpha(self.palette.text, 100);
         let ho = |r: dso::FRect| {
             Rect::from_min_size(pos2(header.left() + r.x, area.top() + r.y), vec2(r.w, r.h))
         };
@@ -1329,9 +1331,7 @@ impl TimeView {
                     } else {
                         format!("Measure{i}")
                     };
-                    let colour = sig
-                        .filter(|_| active)
-                        .map_or(Color32::from_gray(160), colour);
+                    let colour = sig.filter(|_| active).map_or(self.palette.muted, colour);
                     let b = egui::Button::new(egui::RichText::new(text).color(colour))
                         .min_size(vec2(width, 18.0))
                         .stroke(Stroke::new(1.0, colour));

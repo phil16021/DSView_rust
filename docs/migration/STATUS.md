@@ -1063,3 +1063,25 @@ the demo transcript is unchanged.
     snapshot; skipped without a CJK font;
   - the per-language profile choice.
 
+**Step 7, themes and icons (done 2026-10-19):**
+- **`theme.rs`:** dark, light, latte and frappé.
+  - egui visuals in each theme's colours;
+  - a `Palette` of view colours by role (background, header, ruler, deep plot background, text,
+    ticks, dim, muted, faint, dividers, accent), threaded through the logic, DSO, analog, FFT, math
+    and Lissajous views;
+  - the dark palette keeps the colours the views had, so all 33 snapshots are unchanged.
+- **Display menu (Qt's):** Themes (saved as `style`) and Options…
+- **`icons.rs`:** Qt's dark and light SVG sets (`GetIconPath`: dark for dark and frappé),
+  rasterised with resvg/usvg 0.44 at the drawn size and cached as textures. Used on the toolbar
+  (options, start/stop, single) and the File, Function, Display and Help menu entries.
+- **Tests:**
+  - every icon rasterises and draws something, in both sets;
+  - the theme styles round-trip;
+  - `tests/theme_flow.rs`, in its own binary: Display > Themes > Latte through the window, with a
+    snapshot of the demo capture.
+  - The shortcut test is now deterministic: both keys in one frame, since kittest gives each queued
+    key its own frame.
+- **Open, needs a decision:** `cargo deny check licenses` fails on egui's built-in Ubuntu font
+  (`epaint_default_fonts`: OFL-1.1 AND Ubuntu-font-1.0), present since M6.0. Either allow
+  `Ubuntu-font-1.0` in `deny.toml`, or build egui without `default_fonts` and ship another UI font.
+

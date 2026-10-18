@@ -681,7 +681,7 @@ impl App {
         egui::Panel::top("menu").show(ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button(tr("File"), |ui| {
-                    if ui.button(tr("Open…")).clicked() {
+                    if crate::icons::button(ui, "open", tr("Open…")).clicked() {
                         self.pick(
                             &ctx,
                             "Open File",
@@ -691,7 +691,7 @@ impl App {
                         );
                         ui.close();
                     }
-                    if ui.button(tr("Save…")).clicked() {
+                    if crate::icons::button(ui, "save", tr("Save…")).clicked() {
                         self.pick(
                             &ctx,
                             "Save File",
@@ -701,7 +701,7 @@ impl App {
                         );
                         ui.close();
                     }
-                    if ui.button(tr("Export…")).clicked() {
+                    if crate::icons::button(ui, "export", tr("Export…")).clicked() {
                         self.pick(
                             &ctx,
                             "Export Data",
@@ -713,7 +713,7 @@ impl App {
                     }
                     ui.separator();
                     // the profile menu (FileBar's session menu)
-                    if ui.button(tr("Load Session…")).clicked() {
+                    if crate::icons::button(ui, "file", tr("Load Session…")).clicked() {
                         self.pick(
                             &ctx,
                             "Open Session",
@@ -723,7 +723,7 @@ impl App {
                         );
                         ui.close();
                     }
-                    if ui.button(tr("Save Session…")).clicked() {
+                    if crate::icons::button(ui, "file", tr("Save Session…")).clicked() {
                         self.pick(
                             &ctx,
                             "Save Session",
@@ -745,7 +745,7 @@ impl App {
                         ui.close();
                     }
                     ui.separator();
-                    if ui.button(tr("Capture…")).clicked() {
+                    if crate::icons::button(ui, "capture", tr("Capture…")).clicked() {
                         self.pick(
                             &ctx,
                             "Save As",
@@ -756,8 +756,20 @@ impl App {
                         ui.close();
                     }
                 });
-                ui.menu_button(tr("Options"), |ui| {
-                    if ui.button(tr("Application options…")).clicked() {
+                // Qt's display menu: the themes and the application options
+                ui.menu_button(tr("Display"), |ui| {
+                    ui.menu_button(tr("Themes"), |ui| {
+                        let now = crate::theme::Theme::from_style(&self.options.frame.style);
+                        for t in crate::theme::Theme::ALL {
+                            if ui.radio(now == t, tr(t.label())).clicked() {
+                                self.options.frame.style = t.style().to_owned();
+                                self.options.save();
+                                self.options.apply(&mut self.view, ui.ctx());
+                                ui.close();
+                            }
+                        }
+                    });
+                    if crate::icons::button(ui, "gear", tr("Options…")).clicked() {
                         self.options_edit = Some(self.options.clone());
                         ui.close();
                     }
@@ -792,15 +804,15 @@ impl App {
                 let dso = self.session.mode() == dsview_core::Mode::Dso as i32;
                 ui.add_enabled_ui(dso, |ui| {
                     ui.menu_button(tr("Function"), |ui| {
-                        if ui.button(tr("FFT…")).clicked() {
+                        if crate::icons::button(ui, "fft", tr("FFT…")).clicked() {
                             self.fft.open_dialog();
                             ui.close();
                         }
-                        if ui.button(tr("Math…")).clicked() {
+                        if crate::icons::button(ui, "math", tr("Math…")).clicked() {
                             self.view.dso.math.open_dialog();
                             ui.close();
                         }
-                        if ui.button(tr("Lissajous…")).clicked() {
+                        if crate::icons::button(ui, "lissajous", tr("Lissajous…")).clicked() {
                             self.view.dso.lissajous.open_dialog(&self.session);
                             ui.close();
                         }
@@ -833,23 +845,23 @@ impl App {
                             }
                         }
                     });
-                    if ui.button(tr("About…")).clicked() {
+                    if crate::icons::button(ui, "about", tr("About…")).clicked() {
                         self.about = true;
                         ui.close();
                     }
-                    if ui.button(tr("Manual…")).clicked() {
+                    if crate::icons::button(ui, "manual", tr("Manual…")).clicked() {
                         self.open_manual();
                         ui.close();
                     }
-                    if ui.button(tr("Bug Report")).clicked() {
+                    if crate::icons::button(ui, "bug", tr("Bug Report")).clicked() {
                         crate::help::open(crate::help::BUG_REPORT_URL);
                         ui.close();
                     }
-                    if ui.button(tr("Update")).clicked() {
+                    if crate::icons::button(ui, "update", tr("Update")).clicked() {
                         crate::help::open(crate::help::UPDATE_URL);
                         ui.close();
                     }
-                    if ui.button(tr("Log Options")).clicked() {
+                    if crate::icons::button(ui, "log", tr("Log Options")).clicked() {
                         self.log_options = Some(crate::log::LogOptions::new(&self.options));
                         ui.close();
                     }
@@ -999,6 +1011,7 @@ impl App {
             self.options.save();
         }
         self.protocol.translate = self.options.trans_decoder_dlg;
+        self.fft.palette = self.view.palette;
         // the protocol export's directory (`protocolExportPath`)
         self.protocol.export_dir = Some(self.options.history.protocol_export_path.clone());
         if let Some(p) = self.protocol.exported_to.take()

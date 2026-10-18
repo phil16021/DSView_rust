@@ -544,6 +544,8 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
 | Settings storage | `QSettings` INI (`DSView.conf`); `windowState` as Qt's dock blob | JSON (`dsview-rs.json`), the Qt file imported once on the first start; `windowState` is not imported (egui has no equivalent) | M6f ✔ |
 | Text lookup | `L_S(page, id, default)` at each call site | The GUI's English texts are looked up through Qt's English text of the same id (`lang/en`), without accelerators, ellipsis or colon; texts Qt does not have stay English. Device option and decoder texts by text and `idn` as in Qt | M6f ✔ |
 | CJK glyphs | Qt's font fallback | A system CJK font (Droid Sans Fallback, Noto Sans CJK SC, WenQuanYi) as egui's last fallback; a shipped font comes with the packaging (Phase 6) | M6f ✔ |
+| Dark theme colours | Trace area rgb(38,38,38), widgets from `dark.qss` | The Rust GUI's dark colours since M6a (trace area 24, header 34, ruler 30); light, latte and frappé take the qss palettes | M6f ✔ |
+| Icons | Every bar button and many widgets (212 SVGs incl. widget decorations) | The bar buttons and menu entries (27 icons, dark and light sets), rasterised with resvg 0.44; egui draws its own checkboxes, arrows and scrollbars | M6f ✔ |
 | Esc in dialogs | Closes the focused dialog | Closes every open dialog window (egui has no focused window) | M6f ✔ |
 | Shortcuts while a dialog is open | The filter sits on the view, bars and docks, so keys in a dialog are not shortcuts | Shortcuts work unless a text field has the keyboard | M6f ✔ |
 | Screen check of the restored window | All screens' geometry | The current monitor's size (egui knows no others before the window exists) | M6f ✔ |

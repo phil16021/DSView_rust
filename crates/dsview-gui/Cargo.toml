@@ -27,6 +27,7 @@ dsview-usb = { path = "../dsview-usb" }
 dsview-viewmodel = { path = "../dsview-viewmodel" }
 rfd = "0.17"
 open = "5.4"
+resvg = { version = "0.44", default-features = false }
 egui_extras = "0.37"
 serde.workspace = true
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }

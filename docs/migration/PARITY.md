@@ -35,7 +35,7 @@ Milestones: **a** viewer, **b** logic capture, **c** decoders, **d** DSO/analog,
 - [x] (e) Search (bottom panel): per-channel pattern, previous/next
 
 ## Toolbars and dialogs
-- [ ] (e) Trig bar: trigger/decode/measure/search toggles, function menu (FFT, math, lissajous, ch-ch, histogram, reference), display menu — all but the display menu's theme choice, which comes with the themes (M6f)
+- [x] (e) Trig bar: trigger/decode/measure/search toggles, function menu (FFT, math, lissajous, ch-ch, histogram, reference), display menu (themes and options since M6f)
 - [x] (a/e) File bar: open/save session, load/store/default profile, export, screenshot (export: CSV and VCD; srzip follows in M6g, gnuplot is dropped)
 - [x] (f) Logo bar: about, manual, bug report, update, language, log options
 - [x] (e) Device options, generated at runtime from the device's option list; channel enable and layout
@@ -51,7 +51,7 @@ Milestones: **a** viewer, **b** logic capture, **c** decoders, **d** DSO/analog,
 - [x] (f) Settings (app options, window state, user history, fonts, per-decoder format); first-run import of the Qt `DSView.conf`
 - [x] (a/f) `.dsl` open/save; `.dsc` profiles, including automatic `<driver><mode>.ses.dsc` and the shipped defaults
 - [x] (f) i18n: cn/en/de from `lang/*.json`, runtime switching, CJK font (the system's; a shipped font with the packaging, Phase 6)
-- [ ] (f) Themes: dark, light, frappé, latte; about 250 SVG icons
+- [x] (f) Themes: dark, light, frappé, latte; about 250 SVG icons (the 27 icons on bars and menus, both sets; Qt's widget-decoration SVGs have no use in egui)
 - [x] (f) Help: user guide PDFs, bug-report and release URLs, open log file
 - [x] (a) Control API (`--mcp`) hosted natively: the 31 methods and `testdata/control/demo-scenario.json` pass
 - [ ] (f) Command line: `-l`, `-v`, `-s`, `--mcp`, file to open
