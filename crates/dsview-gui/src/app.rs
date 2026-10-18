@@ -62,6 +62,8 @@ pub struct App {
     /// What follows the save that answer started (`_is_auto_switch_device`,
     /// `_next_switch_device`).
     after_save: Option<AfterSave>,
+    /// The window title set last (`update_title_bar_text`).
+    title: String,
     pub bench: Option<Bench>,
     pub soak: Option<crate::soak::Soak>,
 }
@@ -200,6 +202,7 @@ impl App {
             known_devices: 0,
             store_confirm: None,
             after_save: None,
+            title: String::new(),
             bench: None,
             soak: None,
         }
@@ -618,6 +621,18 @@ impl App {
                 self.session.set_device(h);
             }
         }
+        // `update_title_bar_text`: the version, and the hardware profile if
+        // the option says so
+        let mut title = format!("DSView v{}", self.version);
+        if self.options.display_profile_in_bar
+            && let Some(f) = self.session.state().profile_file.clone()
+        {
+            title += &format!(" [{}]", f.display());
+        }
+        if title != self.title {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            self.title = title;
+        }
         // `MainFrame::closeEvent` / `able_to_close`
         if ctx.input(|i| i.viewport().close_requested())
             && self.confirm_store(AfterSave::Nothing, true)
@@ -782,6 +797,7 @@ impl App {
             match done {
                 Some(true) => {
                     o.apply(&mut self.view, &ctx);
+                    self.session.state().swap_back_buffer_always = o.swap_back_buffer_always;
                     o.save();
                     self.options = o;
                 }

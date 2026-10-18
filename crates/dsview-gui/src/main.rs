@@ -160,7 +160,7 @@ fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         renderer,
         viewport: egui::ViewportBuilder::default()
-            .with_title("DSView (Rust preview)")
+            .with_title(format!("DSView v{DSVIEW_VERSION}"))
             .with_inner_size(size),
         ..Default::default()
     };
@@ -184,6 +184,7 @@ fn main() -> eframe::Result {
                 app.options.antialias = false;
             }
             app.options.apply(&mut app.view, &cc.egui_ctx);
+            app.session.state().swap_back_buffer_always = app.options.swap_back_buffer_always;
             app.soak = soak.map(dsview_gui::soak::Soak::new);
             app.bench = bench.map(|secs| app::Bench {
                 until: Instant::now() + Duration::from_secs_f64(secs),

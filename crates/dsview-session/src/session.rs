@@ -232,6 +232,12 @@ pub struct State {
     /// The capture whose data was last offered for saving
     /// (`_confirm_store_time_id`).
     confirm_store_seq: u64,
+    /// The profile a hardware device's settings came from
+    /// (`_title_ext_string`).
+    pub profile_file: Option<PathBuf>,
+    /// `swapBackBufferAlways`: a repeat capture ending after the stop is
+    /// shown too.
+    pub swap_back_buffer_always: bool,
     pub ended_seq: u64,
     pub cur_snap_samplerate: u64,
     pub cur_samplelimits: u64,
@@ -720,6 +726,14 @@ impl Session {
             self.remove_decoder(0);
         }
         if crate::store::load_config_from_json(self, &doc) {
+            let hardware = self
+                .state()
+                .device
+                .as_ref()
+                .is_some_and(DeviceDesc::is_hardware);
+            if hardware {
+                self.state().profile_file = Some(path.to_owned());
+            }
             Ok(())
         } else {
             Err("The profile does not suit this device or mode.".into())
@@ -768,6 +782,7 @@ impl Session {
     /// - a demo: the profile shipped for its mode (`res/virtual-demo<mode>.dsc`,
     ///   only DSO has one).
     fn load_device_config(&self) {
+        self.state().profile_file = None;
         let Some(d) = self.state().device.clone() else {
             return;
         };
@@ -791,7 +806,9 @@ impl Session {
         };
         match serde_json::from_str(&text) {
             Ok(doc) => {
-                crate::store::load_config_from_json(self, &doc);
+                if crate::store::load_config_from_json(self, &doc) && d.is_hardware() {
+                    self.state().profile_file = Some(file);
+                }
             }
             Err(e) => sr_err!("Profile {}: {e}", file.display()),
         }
@@ -2028,6 +2045,7 @@ impl Session {
             )
         };
         // in a single stream capture the decoders run already (live)
+        let swap_always = self.state().swap_back_buffer_always;
         let (mut add, mut swap) = match mode {
             CollectMode::Single => (!stream, false),
             CollectMode::Loop => (true, false),
@@ -2036,7 +2054,7 @@ impl Session {
         self.0.capture_ended.store(true, Ordering::Release);
         // a repeat capture that ends after the stop is dropped
         // (swapBackBufferAlways off)
-        if mode == CollectMode::Repeat && !working && times > 1 {
+        if mode == CollectMode::Repeat && !swap_always && !working && times > 1 {
             add = false;
             swap = false;
             self.capture_data().clear();

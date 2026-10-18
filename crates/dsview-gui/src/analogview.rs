@@ -283,7 +283,7 @@ impl TimeView {
         frame: &Frame,
     ) {
         let o = |x: f32, y: f32| pos2(area.left() + x, area.top() + y);
-        let font = egui::FontId::proportional(11.0);
+        let font = self.font(11.0);
         let fore = Color32::from_gray(200);
         let right = frame.width as f32 - 1.0;
         let store = s.data().analog.lock().unwrap_or_else(|e| e.into_inner());
@@ -424,7 +424,7 @@ impl TimeView {
     }
 
     fn paint_analog_header(&self, p: &egui::Painter, header: Rect, area: Rect, rows: &[Row]) {
-        let font = egui::FontId::proportional(12.0);
+        let font = self.font(12.0);
         for r in rows {
             let zy = r.geom.zero_vpos(r.zero_offset);
             let hr = dso::header_rects(r.geom.y, zy, HEADER_WIDTH as i32);

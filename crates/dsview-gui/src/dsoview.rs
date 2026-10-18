@@ -379,7 +379,7 @@ impl TimeView {
                 pos2(area.left() + rect.w as f32, area.top() + rect.y as f32),
                 egui::Align2::RIGHT_TOP,
                 "Out off range! ",
-                egui::FontId::proportional(13.0),
+                self.font(13.0),
                 Color32::from_rgba_unmultiplied(255, 0, 0, 200),
             );
         }
@@ -745,7 +745,17 @@ impl TimeView {
             } else {
                 store
                     .get_samples(sp.start as u64, c.sig.index as i32)
-                    .and_then(|b| dso::trace_shape(&c.geom, b, &sp, zero_y, c.hw_offset, 0, 1.0))
+                    .and_then(|b| {
+                        dso::trace_shape(
+                            &c.geom,
+                            b,
+                            &sp,
+                            zero_y,
+                            c.hw_offset,
+                            0,
+                            self.dso_line_width,
+                        )
+                    })
             };
             let col = c.colour;
             match shape {
@@ -775,7 +785,10 @@ impl TimeView {
                     for &q in pts.iter().take(dots) {
                         frame.push(egui::Shape::circle_filled(q, dot as f32 / 2.0, col));
                     }
-                    frame.push(egui::Shape::line(pts, Stroke::new(1.0, col)));
+                    frame.push(egui::Shape::line(
+                        pts,
+                        Stroke::new(self.dso_line_width, col),
+                    ));
                 }
                 None => {}
             }
@@ -799,7 +812,7 @@ impl TimeView {
         chans: &[ChanView],
     ) {
         let o = |x: f32, y: f32| pos2(area.left() + x, area.top() + y);
-        let font = egui::FontId::proportional(12.0);
+        let font = self.font(12.0);
         let fore = Color32::from_gray(220);
         for c in chans {
             let zy = c.zero_y() as f32;
@@ -1065,7 +1078,7 @@ impl TimeView {
         chans: &[ChanView],
         pointer: Option<Pos2>,
     ) {
-        let font = egui::FontId::proportional(12.0);
+        let font = self.font(12.0);
         let fore = Color32::from_gray(220);
         let fore_back = Color32::from_rgba_unmultiplied(220, 220, 220, 100);
         let ho = |r: dso::FRect| {

@@ -125,6 +125,18 @@ pub struct TimeView {
     pub(crate) pinch: input::Pinch,
     /// The measured trace's centre y (screen) and height.
     measure_row: Option<(f32, f32)>,
+    /// The font size option over its default (9 pt): trace texts scale.
+    pub font_scale: f32,
+    /// `logicSignalLineWidth`, `dsoSignalLineWidth`
+    pub logic_line_width: f32,
+    pub dso_line_width: f32,
+    /// `decoderDynamicFontWidth`: annotation text condensed or stretched
+    /// within these percents to fit its box.
+    pub decoder_font_width: Option<(i32, i32)>,
+    /// `trigPosDisplayInMid`: a trigger puts its position in the middle,
+    /// once per capture (the capture it was done for).
+    pub trig_in_middle: bool,
+    trig_centred: u64,
     /// The capture the view was fitted to.
     fitted_capture: u64,
     pub vertical_scroll_is_zoom: bool,
@@ -255,6 +267,12 @@ impl Default for TimeView {
             shown_rows: Vec::new(),
             pinch: input::Pinch::default(),
             measure_row: None,
+            font_scale: 1.0,
+            logic_line_width: 1.0,
+            dso_line_width: 1.0,
+            decoder_font_width: None,
+            trig_in_middle: true,
+            trig_centred: 0,
             fitted_capture: u64::MAX,
             vertical_scroll_is_zoom: true,
             quick_scroll: true,
@@ -303,6 +321,18 @@ pub(crate) fn wheel_angle(i: &egui::InputState) -> (i32, i32) {
 }
 
 struct Font<'a>(&'a egui::Painter, egui::FontId);
+
+/// Text measured as if condensed to a fraction of its width.
+struct Condensed<'a>(&'a dyn TextMeasure, f32);
+
+impl TextMeasure for Condensed<'_> {
+    fn width(&self, text: &str) -> f32 {
+        self.0.width(text) * self.1
+    }
+    fn height(&self) -> f32 {
+        self.0.height()
+    }
+}
 
 impl TextMeasure for Font<'_> {
     fn width(&self, text: &str) -> f32 {
@@ -406,6 +436,15 @@ impl TimeView {
             self.vp.update_limits(&tb);
         }
         self.fit(s, &tb);
+        // `set_trig_cursor_posistion`: the trigger in the middle
+        let (trig_shown, trig_pos, seq) = {
+            let st = s.state();
+            (st.trig_cursor, st.trigger_pos, st.started_seq)
+        };
+        if self.trig_in_middle && trig_shown && self.trig_centred != seq {
+            self.trig_centred = seq;
+            self.center_on(s, trig_pos);
+        }
 
         // the rows, from the session's signals and decoders
         let st = s.state();
@@ -435,7 +474,7 @@ impl TimeView {
                 view_index: *t.view_index.lock().unwrap(),
             });
         }
-        let font_id = egui::FontId::proportional(13.0);
+        let font_id = self.font(13.0);
         let painter = ui.painter_at(full);
         let font_h = Font(&painter, font_id.clone()).height() as f64;
         let max_height_value = s
@@ -573,20 +612,24 @@ impl TimeView {
             );
             let colour = line_colour(sig);
             let mut mesh = egui::Mesh::default();
+            // `logicSignalLineWidth`: the 1 px lines grow to both sides
+            let grow = (self.logic_line_width - 1.0).max(0.0) / 2.0;
             for ln in &shape.lines {
                 let (x0, x1) = (ln.x0.min(ln.x1), ln.x0.max(ln.x1));
                 let (y0, y1) = (ln.y0.min(ln.y1), ln.y0.max(ln.y1));
                 mesh.add_colored_rect(
                     Rect::from_min_max(
-                        pos2(area.left() + x0, area.top() + y0),
-                        pos2(area.left() + x1 + 1.0, area.top() + y1 + 1.0),
+                        pos2(area.left() + x0 - grow, area.top() + y0 - grow),
+                        pos2(area.left() + x1 + 1.0 + grow, area.top() + y1 + 1.0 + grow),
                     ),
                     colour,
                 );
             }
             tpainter.add(egui::Shape::mesh(mesh));
+            // sample dots: max(4, width + SampleDotGrow) across
+            let dot = (self.logic_line_width + 3.0).max(4.0) / 2.0;
             for &(x, dy) in &shape.dots {
-                tpainter.circle_filled(pos2(area.left() + x, area.top() + dy), 2.0, colour);
+                tpainter.circle_filled(pos2(area.left() + x, area.top() + dy), dot, colour);
             }
         }
         drop(store);
@@ -648,7 +691,7 @@ impl TimeView {
             self.yscale_flash = None;
             return None;
         };
-        let font = egui::FontId::proportional(11.0);
+        let font = self.font(11.0);
         let m = Font(&ui.painter_at(area), font);
         let text = input::yscale_badge_text(self.height_factor);
         let (pad_x, pad_y, margin) = (8.0, 4.0, 6.0);
@@ -677,7 +720,7 @@ impl TimeView {
 
     fn paint_yscale_badge(&self, p: &egui::Painter, r: Rect, opacity: f32) {
         let blue = Color32::from_rgb(17, 133, 209).gamma_multiply(opacity);
-        let font = egui::FontId::proportional(11.0);
+        let font = self.font(11.0);
         p.rect(
             r,
             4.0,
@@ -770,7 +813,7 @@ impl TimeView {
                     at(g.cx, g.cy + g.radius * 0.4 + g.radius * 0.25),
                     egui::Align2::CENTER_CENTER,
                     vprog::status_text(triggered, progress),
-                    egui::FontId::proportional(13.0),
+                    self.font(13.0),
                     blue,
                 );
             }
@@ -779,7 +822,7 @@ impl TimeView {
                 at(g.cx, g.cy),
                 egui::Align2::CENTER_CENTER,
                 format!("{progress100}%"),
-                egui::FontId::proportional(66.0),
+                self.font(66.0),
                 green,
             );
         }
@@ -802,8 +845,13 @@ impl TimeView {
         let rate = (st.sample_rate() as f64).max(1.0);
         let spp = rate * self.vp.scale;
         let off = self.vp.x_offset;
-        let font = egui::FontId::proportional(11.0);
+        let font = self.font(11.0);
         let m = Font(painter, font.clone());
+        // `decoderDynamicFontWidth`: text may condense to the minimum
+        // percent to fit (a smaller font here; egui has no stretch)
+        let (min_stretch, max_stretch) = self
+            .decoder_font_width
+            .map_or((1.0, 1.0), |(a, b)| (a as f32 / 100.0, b as f32 / 100.0));
         let (left, right) = (0.0, area.width() as f64);
         let start = ((left + off as f64) * spp).max(0.0) as u64;
         let end = ((right + off as f64) * spp).max(0.0) as u64;
@@ -881,7 +929,7 @@ impl TimeView {
                                 h as f64,
                                 min_w,
                                 &mut last_x,
-                                &m,
+                                &Condensed(&m, min_stretch),
                             );
                             let (fill, outline) = vdec::annotation_colours(base, local_row, a.ty);
                             let rgb = |c: [u8; 3]| Color32::from_rgb(c[0], c[1], c[2]);
@@ -960,12 +1008,22 @@ impl TimeView {
                                             pos2(e - c / 2.0, bot),
                                         );
                                         let p = painter.with_clip_rect(r.intersect(area));
+                                        // the stretch that fits, within the
+                                        // limits (never wider than the font)
+                                        let stretch = if faded {
+                                            min_stretch
+                                        } else {
+                                            (r.width() / m.width(&txt).max(1.0))
+                                                .clamp(min_stretch, max_stretch)
+                                        }
+                                        .min(1.0);
+                                        let f = egui::FontId::proportional(font.size * stretch);
                                         if faded {
                                             p.text(
                                                 pos2(r.left(), y),
                                                 egui::Align2::LEFT_CENTER,
                                                 txt,
-                                                font.clone(),
+                                                f,
                                                 text_c,
                                             );
                                         } else {
@@ -973,7 +1031,7 @@ impl TimeView {
                                                 r.center(),
                                                 egui::Align2::CENTER_CENTER,
                                                 txt,
-                                                font.clone(),
+                                                f,
                                                 text_c,
                                             );
                                         }
@@ -1005,7 +1063,7 @@ impl TimeView {
                         pos2(x0 + 2.0, y - h / 2.0 + 1.0),
                         egui::Align2::LEFT_TOP,
                         title,
-                        egui::FontId::proportional(9.0),
+                        self.font(9.0),
                         Color32::from_gray(140),
                     );
                 }
@@ -1352,7 +1410,7 @@ impl TimeView {
         tb: &Timebase,
     ) -> Vec<(usize, ruler::Bx, String)> {
         let trig = s.state().trigger_pos as i64;
-        let m = Font(painter, egui::FontId::proportional(11.0));
+        let m = Font(painter, self.font(11.0));
         let (spp, width) = (tb.snap_samplerate * self.vp.scale, ruler.width() as f64);
         self.cursors
             .samples
@@ -1764,7 +1822,7 @@ impl TimeView {
         s: &Session,
         tb: &Timebase,
     ) {
-        let small = egui::FontId::proportional(11.0);
+        let small = self.font(11.0);
         let m = Font(painter, small.clone());
         let trig_pos = s.state().trigger_pos;
         let ticks = ruler::logic_ticks(
@@ -1844,7 +1902,7 @@ impl TimeView {
         let orange = Color32::from_rgb(238, 178, 17);
         let red = Color32::from_rgb(213, 15, 37);
         let blue = Color32::from_rgb(17, 133, 209);
-        let font = egui::FontId::proportional(11.0);
+        let font = self.font(11.0);
         let dashed = |x: f32, c: Color32, w: f32| {
             painter.extend(egui::Shape::dashed_line(
                 &[pos2(x, area.top()), pos2(x, area.bottom())],
@@ -2031,7 +2089,7 @@ impl TimeView {
             return;
         };
         let x_of = |i: u64| area.left() + self.vp.index_to_pixel(i, false, tb) as f32;
-        let small = egui::FontId::proportional(11.0);
+        let small = self.font(11.0);
         match &self.action {
             Action::Edges { start, y, .. } => {
                 let x0 = x_of(*start);
@@ -2150,7 +2208,7 @@ impl TimeView {
         if !self.measure_enabled {
             return;
         }
-        let font = egui::FontId::proportional(11.0);
+        let font = self.font(11.0);
         let f = Font(painter, font.clone());
         let labels = ["Width: ", "Period: ", "Frequency: ", "Duty Cycle: "];
         let values = [&m.width_time, &m.period_time, &m.frequency, &m.duty];
@@ -2215,6 +2273,11 @@ impl TimeView {
     pub fn show_region(&mut self, s: &Session, start: u64, end: u64) {
         let tb = timebase(s);
         self.vp.show_region(start, end, self.map_zoom_fixed, &tb);
+    }
+
+    /// A trace font `px` points at the default font size.
+    pub(crate) fn font(&self, px: f32) -> egui::FontId {
+        egui::FontId::proportional(px * self.font_scale)
     }
 
     /// The logic traces in view order with their centres' screen y.

@@ -77,9 +77,32 @@ impl AppOptions {
             .unwrap_or_default()
     }
 
-    /// Puts the options into the view (the ones the Rust GUI has so far;
-    /// fonts, line widths and the decoder font width follow in M6f).
+    /// `GetTraceFontSize`: the font size inside Linux's range.
+    pub fn font_size(&self) -> f32 {
+        self.font_size.clamp(8.0, 16.0)
+    }
+
+    /// Puts the options into the view and the window's text styles (the
+    /// font size scales every text, as Qt sets it on bars, docks and
+    /// traces).
     pub fn apply(&self, view: &mut crate::timeview::TimeView, ctx: &egui::Context) {
+        let scale = self.font_size() / 9.0;
+        view.font_scale = scale;
+        let base = egui::Style::default().text_styles;
+        ctx.all_styles_mut(|st| {
+            for (k, f) in st.text_styles.iter_mut() {
+                if let Some(b) = base.get(k) {
+                    f.size = b.size * scale;
+                }
+            }
+        });
+        view.logic_line_width = self.logic_signal_line_width;
+        view.dso_line_width = self.dso_signal_line_width;
+        view.decoder_font_width = self.decoder_dynamic_font_width.then_some((
+            self.min_decoder_font_width_percent,
+            self.max_decoder_font_width_percent,
+        ));
+        view.trig_in_middle = self.trig_pos_display_in_mid;
         view.quick_scroll = self.quick_scroll;
         view.dividers = self.logic_channel_divider;
         view.vertical_scroll_is_zoom = self.vertical_scroll_is_zoom;
@@ -245,5 +268,34 @@ mod tests {
         let old: AppOptions = serde_json::from_str(r#"{"quick_scroll": false}"#).unwrap();
         assert!(!old.quick_scroll);
         assert_eq!(old.max_decoder_font_width_percent, 125);
+    }
+
+    #[test]
+    fn apply_reaches_the_view_and_the_fonts() {
+        let ctx = egui::Context::default();
+        let mut view = crate::timeview::TimeView::default();
+        let o = AppOptions {
+            font_size: 12.0,
+            logic_signal_line_width: 2.5,
+            dso_signal_line_width: 1.5,
+            decoder_dynamic_font_width: true,
+            trig_pos_display_in_mid: false,
+            ..AppOptions::default()
+        };
+        o.apply(&mut view, &ctx);
+        assert!((view.font_scale - 12.0 / 9.0).abs() < 1e-6);
+        assert_eq!(view.logic_line_width, 2.5);
+        assert_eq!(view.dso_line_width, 1.5);
+        assert_eq!(view.decoder_font_width, Some((75, 125)));
+        assert!(!view.trig_in_middle);
+        let body = ctx.global_style().text_styles[&egui::TextStyle::Body].size;
+        let base = egui::Style::default().text_styles[&egui::TextStyle::Body].size;
+        assert!((body - base * 12.0 / 9.0).abs() < 1e-4);
+        // the size is kept inside Linux's range
+        let big = AppOptions {
+            font_size: 40.0,
+            ..AppOptions::default()
+        };
+        assert_eq!(big.font_size(), 16.0);
     }
 }
