@@ -959,3 +959,23 @@ the demo transcript is unchanged.
   - option application;
   - `app_flow`: "No" sends the window's Close.
 
+**Step 2, log (done 2026-10-18):**
+- **`crates/dsview-gui/src/log.rs`** ports `pv/log.cpp` over xlog:
+  - messages up to the level (0-5) go to stderr and, once enabled, to `~/DSView.log` as
+    `DSView: <message>`;
+  - the file opens once, appending or overwriting;
+  - it can be switched off and on;
+  - Clear empties an open file and deletes a closed one.
+- **Start-up as `main.cpp`:**
+  - `-s/--storelog` raises the level to debug and appends to the file;
+  - a saved "Save To File" opens it in the saved mode, and the saved level wins when it is higher;
+  - `-l3`/`--loglevel=3` are accepted too;
+  - a second file argument ends with Qt's "Only one file can be openened." and exit code 1.
+- **Help > Log Options:** level, Save To File, Append mode, Open (system viewer, `open` crate) and
+  Clear (confirmed).
+- **App id:** the Wayland app id and X11 class are now `dsview`, as Qt's
+  `setDesktopFileName("dsview")`. The Rust GUI's desktop entry matches it and no longer lists
+  `Qt;`.
+- **Tests:** the log file, levels and clear (with a redirected path), and the dialog through the
+  window.
+

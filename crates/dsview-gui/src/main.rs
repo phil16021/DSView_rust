@@ -35,7 +35,7 @@ fn default_data_dir() -> PathBuf {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: dsview [-l N] [-v] [--mcp] [--data-dir DIR] [--bench SECONDS] [--soak MINUTES] [FILE]"
+        "usage: dsview [-l N] [-s] [-v] [--mcp] [--data-dir DIR] [--bench SECONDS] [--soak MINUTES] [FILE]"
     );
     std::process::exit(2);
 }
@@ -45,7 +45,16 @@ fn main() -> eframe::Result {
     let (mut data_dir, mut bench, mut file, mut mcp) = (None, None, None, false);
     let mut soak = None;
     let mut level = 3;
+    let mut store_log = false;
     while let Some(a) = args.next() {
+        // getopt's attached forms: -l3, --loglevel=3
+        if let Some(v) = a
+            .strip_prefix("--loglevel=")
+            .or_else(|| a.strip_prefix("-l").filter(|v| !v.is_empty()))
+        {
+            level = v.parse().unwrap_or(level);
+            continue;
+        }
         match a.as_str() {
             "--data-dir" => data_dir = args.next().map(PathBuf::from),
             "--bench" => bench = args.next().and_then(|v| v.parse::<f64>().ok()),
@@ -56,16 +65,17 @@ fn main() -> eframe::Result {
                 println!("DSView {DSVIEW_VERSION}");
                 return Ok(());
             }
+            "-s" | "--storelog" => store_log = true,
             "-h" | "-?" | "--help" => usage(),
             f if !f.starts_with('-') && file.is_none() => file = Some(f.to_owned()),
+            f if !f.starts_with('-') => {
+                println!("Only one file can be openened.");
+                std::process::exit(1);
+            }
             _ => usage(),
         }
     }
-    dsview_drivers::sys::set_log_sink(Box::new(move |l, m| {
-        if l <= level {
-            eprintln!("{m}");
-        }
-    }));
+    dsview_gui::log::init(level);
     let data_dir = data_dir.unwrap_or_else(default_data_dir);
     let decoders = {
         let own = data_dir.join("decoders");
@@ -152,14 +162,17 @@ fn main() -> eframe::Result {
     };
     // the saved settings; benchmarks and soaks run on the defaults
     let saved = (bench.is_none() && soak.is_none()).then(dsview_gui::options::AppOptions::load);
+    // `-s` and the saved log options (main.cpp)
+    dsview_gui::log::start(level, store_log, &saved.clone().unwrap_or_default());
     let bench_size = std::env::var("DSVIEW_BENCH_SIZE").ok().and_then(|v| {
         let (w, h) = v.split_once('x')?;
         Some([w.parse().ok()?, h.parse().ok()?])
     });
     let mut viewport = egui::ViewportBuilder::default()
         .with_title(format!("DSView v{DSVIEW_VERSION}"))
-        // the desktop entry's StartupWMClass
-        .with_app_id("DSView")
+        // Wayland app id and X11 class: the installed desktop file's name,
+        // `dsview` (Qt: `setDesktopFileName("dsview")`)
+        .with_app_id("dsview")
         .with_inner_size(bench_size.unwrap_or([1280.0, 800.0]));
     // `MainFrame::ReadSettings`: the last normal window, maximised again if
     // it was

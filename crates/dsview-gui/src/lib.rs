@@ -12,6 +12,7 @@ pub mod dsoview;
 pub mod fftview;
 pub mod hooks;
 pub mod lissajousview;
+pub mod log;
 pub mod mathview;
 pub mod measuredock;
 pub mod options;

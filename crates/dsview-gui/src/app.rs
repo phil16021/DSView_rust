@@ -66,6 +66,8 @@ pub struct App {
     title: String,
     /// Close the window this frame.
     close_now: bool,
+    /// The Log Options dialog while open.
+    log_options: Option<crate::log::LogOptions>,
     /// The restored window was checked against the screen.
     window_checked: bool,
     pub bench: Option<Bench>,
@@ -287,6 +289,7 @@ impl App {
             after_save: None,
             title: String::new(),
             close_now: false,
+            log_options: None,
             window_checked: false,
             bench: None,
             soak: None,
@@ -655,6 +658,12 @@ impl App {
                         ui.close();
                     }
                 });
+                ui.menu_button("Help", |ui| {
+                    if ui.button("Log Options").clicked() {
+                        self.log_options = Some(crate::log::LogOptions::new(&self.options));
+                        ui.close();
+                    }
+                });
                 ui.menu_button("View", |ui| {
                     ui.checkbox(&mut self.dso_trigger.open, "Trigger (T)");
                     ui.checkbox(&mut self.protocol.open, "Protocol (D)");
@@ -738,6 +747,11 @@ impl App {
             }
         }
         self.store_confirm_window(&ctx);
+        if let Some(mut d) = self.log_options.take()
+            && d.show(&ctx, &mut self.options).is_none()
+        {
+            self.log_options = Some(d);
+        }
         // "No" to the store question while closing
         if std::mem::take(&mut self.close_now) {
             if self.bench.is_none() && self.soak.is_none() {

@@ -131,3 +131,39 @@ fn close_offers_to_save_once() {
     assert!(h.query_by_label("Save captured data?").is_none());
     s.exit();
 }
+
+/// Help > Log Options: "Save To File" and a level, OK applies them (the log
+/// file opens; Qt opens it in overwrite mode here).
+#[test]
+fn log_options_dialog() {
+    let dir = std::env::temp_dir().join(format!("dsv-logdlg-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let log = dir.join("DSView.log");
+    dsview_gui::log::set_path(log.clone());
+    let s = dslogic_session();
+    let (mut h, app) = harness(&s);
+    h.run();
+    h.get_by_label("Help").click();
+    h.run();
+    h.get_by_label("Log Options").click();
+    h.run();
+    h.get_by_label("Save To File").click();
+    h.run();
+    h.get_by_label("Log Level").click();
+    h.run();
+    h.get_by_label("4").click();
+    h.run();
+    h.get_by_label("OK").click();
+    h.run();
+    {
+        let a = app.lock().unwrap();
+        let o = &a.as_ref().unwrap().options;
+        assert!(o.able_save_log);
+        assert_eq!(o.log_level, 4);
+    }
+    assert_eq!(dsview_gui::log::level(), 4);
+    assert!(log.is_file());
+    assert!(h.query_by_label("Log Options").is_none());
+    s.exit();
+    let _ = std::fs::remove_dir_all(&dir);
+}
