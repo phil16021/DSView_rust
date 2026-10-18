@@ -1141,7 +1141,13 @@ impl TimeView {
         }
     }
 
-    pub(crate) fn paint_ruler(&self, painter: &egui::Painter, rect: Rect, s: &Session, tb: &Timebase) {
+    pub(crate) fn paint_ruler(
+        &self,
+        painter: &egui::Painter,
+        rect: Rect,
+        s: &Session,
+        tb: &Timebase,
+    ) {
         let small = egui::FontId::proportional(11.0);
         let m = Font(painter, small.clone());
         let trig_pos = s.state().trigger_pos;
@@ -1200,7 +1206,13 @@ impl TimeView {
         }
     }
 
-    pub(crate) fn paint_cursors(&self, painter: &egui::Painter, ruler: Rect, area: Rect, tb: &Timebase) {
+    pub(crate) fn paint_cursors(
+        &self,
+        painter: &egui::Painter,
+        ruler: Rect,
+        area: Rect,
+        tb: &Timebase,
+    ) {
         for (i, &smp) in self.cursors.samples.iter().enumerate() {
             let x = area.left() + self.vp.index_to_pixel(smp, false, tb) as f32;
             if x < area.left() || x > area.right() {

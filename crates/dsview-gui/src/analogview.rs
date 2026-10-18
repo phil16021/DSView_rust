@@ -192,12 +192,19 @@ impl TimeView {
             && (angle.0 != 0 || angle.1 != 0)
         {
             let x = (p.x - area.left()) as i32;
-            match input::wheel(angle.0, angle.1, x, mods, false, self.vertical_scroll_is_zoom) {
+            match input::wheel(
+                angle.0,
+                angle.1,
+                x,
+                mods,
+                false,
+                self.vertical_scroll_is_zoom,
+            ) {
                 WheelAction::Zoom { steps, x } => changed |= self.vp.zoom(steps, x, tb),
                 WheelAction::Pan { dx } => {
-                    changed |= self
-                        .vp
-                        .set_scale_offset(self.vp.scale, self.vp.x_offset + dx as i64, tb)
+                    changed |=
+                        self.vp
+                            .set_scale_offset(self.vp.scale, self.vp.x_offset + dx as i64, tb)
                 }
                 _ => {}
             }
@@ -210,7 +217,9 @@ impl TimeView {
         {
             let dx = (last - p.x) as i64;
             if dx != 0 {
-                changed |= self.vp.set_scale_offset(self.vp.scale, self.vp.x_offset + dx, tb);
+                changed |= self
+                    .vp
+                    .set_scale_offset(self.vp.scale, self.vp.x_offset + dx, tb);
                 self.analog.pan_last = Some(p.x);
             }
         }
@@ -232,9 +241,15 @@ impl TimeView {
                 && let Ok(order) = usize::try_from(store.ch_order(r.sig.index as i32))
             {
                 let index = analog::hover_index(x as f64, frame);
-                if let Some((v, _, _)) =
-                    analog::point(&store, order, index, &r.geom, r.zero_offset, r.hw_offset, frame)
-                {
+                if let Some((v, _, _)) = analog::point(
+                    &store,
+                    order,
+                    index,
+                    &r.geom,
+                    r.zero_offset,
+                    r.hw_offset,
+                    frame,
+                ) {
                     let text = analog::value_text(
                         &r.geom,
                         (r.hw_offset - v as i32) as f64,
@@ -251,7 +266,14 @@ impl TimeView {
         changed
     }
 
-    fn paint_analog(&self, p: &egui::Painter, s: &Session, area: Rect, rows: &[Row], frame: &Frame) {
+    fn paint_analog(
+        &self,
+        p: &egui::Painter,
+        s: &Session,
+        area: Rect,
+        rows: &[Row],
+        frame: &Frame,
+    ) {
         let o = |x: f32, y: f32| pos2(area.left() + x, area.top() + y);
         let font = egui::FontId::proportional(11.0);
         let fore = Color32::from_gray(200);
@@ -260,13 +282,27 @@ impl TimeView {
         for r in rows {
             // paint_back: the rule at both edges
             let st = Stroke::new(1.0, fore);
-            for (y, major, label) in analog::rule(&r.geom, r.zero_offset, r.map_min, r.map_max, &r.unit) {
+            for (y, major, label) in
+                analog::rule(&r.geom, r.zero_offset, r.map_min, r.map_max, &r.unit)
+            {
                 let len = if major { 10.0 } else { 5.0 };
                 p.line_segment([o(0.0, y), o(len, y)], st);
                 p.line_segment([o(right, y), o(right - len, y)], st);
                 if let Some(t) = label {
-                    p.text(o(15.0, y), egui::Align2::LEFT_CENTER, &t, font.clone(), fore);
-                    p.text(o(right - 15.0, y), egui::Align2::RIGHT_CENTER, &t, font.clone(), fore);
+                    p.text(
+                        o(15.0, y),
+                        egui::Align2::LEFT_CENTER,
+                        &t,
+                        font.clone(),
+                        fore,
+                    );
+                    p.text(
+                        o(right - 15.0, y),
+                        egui::Align2::RIGHT_CENTER,
+                        &t,
+                        font.clone(),
+                        fore,
+                    );
                 }
             }
             // paint_mid
@@ -281,7 +317,10 @@ impl TimeView {
                     Some(Shape::Envelope(rects)) => {
                         let mut mesh = egui::Mesh::default();
                         for (x, y, w, h) in rects {
-                            mesh.add_colored_rect(Rect::from_min_size(o(x, y), vec2(w, h.max(1.0))), r.colour);
+                            mesh.add_colored_rect(
+                                Rect::from_min_size(o(x, y), vec2(w, h.max(1.0))),
+                                r.colour,
+                            );
                         }
                         p.add(egui::Shape::mesh(mesh));
                     }
@@ -300,10 +339,22 @@ impl TimeView {
         if let Some((index, sample, text)) = &self.analog.hover
             && let Some(r) = rows.iter().find(|r| r.sig.index == *index)
             && let Ok(order) = usize::try_from(store.ch_order(*index as i32))
-            && let Some((_, x, y)) = analog::point(&store, order, *sample, &r.geom, r.zero_offset, r.hw_offset, frame)
+            && let Some((_, x, y)) = analog::point(
+                &store,
+                order,
+                *sample,
+                &r.geom,
+                r.zero_offset,
+                r.hw_offset,
+                frame,
+            )
         {
             let (t, b) = r.geom.top_bottom();
-            let text = if y <= t || y >= b { format!("{text}/out") } else { text.clone() };
+            let text = if y <= t || y >= b {
+                format!("{text}/out")
+            } else {
+                text.clone()
+            };
             p.rect_stroke(
                 Rect::from_center_size(o(x, y), vec2(3.0, 3.0)),
                 0.0,
@@ -314,20 +365,32 @@ impl TimeView {
         }
     }
 
-    fn analog_header(&mut self, ui: &mut Ui, s: &Session, header: Rect, area: Rect, rows: &[Row]) -> bool {
+    fn analog_header(
+        &mut self,
+        ui: &mut Ui,
+        s: &Session,
+        header: Rect,
+        area: Rect,
+        rows: &[Row],
+    ) -> bool {
         let mut changed = false;
         for r in rows {
             let zy = r.geom.zero_vpos(r.zero_offset);
             let hr = dso::header_rects(r.geom.y, zy, HEADER_WIDTH as i32);
             let l = hr.label;
-            let rect = Rect::from_min_size(pos2(header.left() + l.x, area.top() + l.y), vec2(l.w, l.h));
+            let rect =
+                Rect::from_min_size(pos2(header.left() + l.x, area.top() + l.y), vec2(l.w, l.h));
             let resp = ui.interact(
                 rect,
                 ui.make_persistent_id(("analog-zero", r.sig.index)),
                 egui::Sense::drag(),
             );
             if resp.drag_started() {
-                self.analog.drag_zero = Some((r.sig.index, resp.interact_pointer_pos().map_or(0.0, |p| p.y), zy));
+                self.analog.drag_zero = Some((
+                    r.sig.index,
+                    resp.interact_pointer_pos().map_or(0.0, |p| p.y),
+                    zy,
+                ));
             }
             if resp.dragged()
                 && let Some((index, y0, zero0)) = self.analog.drag_zero
@@ -338,7 +401,11 @@ impl TimeView {
                 // set_zero_vpos (not while running)
                 let ratio = r.geom.pos2ratio(zero0 + (p.y - y0) as i32);
                 let zero = r.geom.ratio2value(ratio) as u16;
-                s.set_config(key::PROBE_OFFSET, dsview_core::ConfValue::U16(zero), Some(r.pos));
+                s.set_config(
+                    key::PROBE_OFFSET,
+                    dsview_core::ConfValue::U16(zero),
+                    Some(r.pos),
+                );
                 changed = true;
             }
             if resp.drag_stopped() {
@@ -353,7 +420,9 @@ impl TimeView {
         for r in rows {
             let zy = r.geom.zero_vpos(r.zero_offset);
             let hr = dso::header_rects(r.geom.y, zy, HEADER_WIDTH as i32);
-            let ho = |f: dso::FRect| Rect::from_min_size(pos2(header.left() + f.x, area.top() + f.y), vec2(f.w, f.h));
+            let ho = |f: dso::FRect| {
+                Rect::from_min_size(pos2(header.left() + f.x, area.top() + f.y), vec2(f.w, f.h))
+            };
             let cb = ho(hr.colour);
             p.rect_filled(cb, 0.0, r.colour);
             p.text(
@@ -375,7 +444,13 @@ impl TimeView {
                 r.colour,
                 Stroke::NONE,
             ));
-            p.text(l.center(), egui::Align2::CENTER_CENTER, r.sig.index.to_string(), font.clone(), Color32::WHITE);
+            p.text(
+                l.center(),
+                egui::Align2::CENTER_CENTER,
+                r.sig.index.to_string(),
+                font.clone(),
+                Color32::WHITE,
+            );
         }
     }
 }

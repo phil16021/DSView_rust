@@ -3,13 +3,12 @@
 //! the header (V/div dial, probe factor, enable, coupling), the hover value;
 //! wheel zoom steps the timebase.
 
-
 use dsview_core::{ConfValue, channel_type, key};
 use dsview_session::Session;
 use dsview_session::session::Signal;
 use dsview_viewmodel::dso::{self, Geom, IRect, TraceShape, Volts, WheelAccumulator};
-use dsview_viewmodel::layout::{self, LayoutParams, Slot, TraceKind};
 use dsview_viewmodel::input::{self, Mods, WheelAction};
+use dsview_viewmodel::layout::{self, LayoutParams, Slot, TraceKind};
 use dsview_viewmodel::viewport::Timebase;
 use eframe::egui::{self, Color32, Pos2, Rect, Stroke, Ui, pos2, vec2};
 
@@ -38,11 +37,19 @@ impl Default for Chan {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Drag {
-    Pan { last_x: f32 },
+    Pan {
+        last_x: f32,
+    },
     /// The zero line of channel `index` (the header label).
-    Zero { index: u16, y0: f32, zero0: i32 },
+    Zero {
+        index: u16,
+        y0: f32,
+        zero0: i32,
+    },
     /// The trigger level of channel `index`.
-    Trig { index: u16 },
+    Trig {
+        index: u16,
+    },
 }
 
 #[derive(Default)]
@@ -146,7 +153,11 @@ fn channel_views(s: &Session, area_w: i32, area_h: i32, st: &DsoState) -> Vec<Ch
     let ref_max = s.config(key::REF_MAX, None).map(|v| v.get_u32());
     let vdivs = std::sync::Arc::new(vdiv_list(s));
     // `View::signals_changed`: the header rows (and the bands when split)
-    let enabled = |sig: &Signal| chans.iter().any(|c| c.index == sig.index && c.ty == channel_type::DSO && c.enabled);
+    let enabled = |sig: &Signal| {
+        chans
+            .iter()
+            .any(|c| c.index == sig.index && c.ty == channel_type::DSO && c.enabled)
+    };
     let slots: Vec<Slot> = signals
         .iter()
         .map(|x| Slot {
@@ -184,7 +195,10 @@ fn channel_views(s: &Session, area_w: i32, area_h: i32, st: &DsoState) -> Vec<Ch
         let c = &chans[pos];
         let get = |k: i32| s.config(k, Some(pos));
         let mut geom = Geom::new(rect, ref_min, ref_max, bits);
-        let stop = st.chans.get(sig.index as usize).map_or(1.0, |c| c.stop_scale);
+        let stop = st
+            .chans
+            .get(sig.index as usize)
+            .map_or(1.0, |c| c.stop_scale);
         geom.set_scale(rect.h, stop);
         out.push(ChanView {
             pos,
@@ -222,7 +236,11 @@ fn step_vdiv(s: &Session, st: &mut DsoState, c: &ChanView, up: bool) -> bool {
     {
         ch.stop_scale *= (c.vdiv as f64 / v as f64) as f32;
     }
-    s.set_config(key::PROBE_OFFSET, ConfValue::U16(c.zero_offset), Some(c.pos));
+    s.set_config(
+        key::PROBE_OFFSET,
+        ConfValue::U16(c.zero_offset),
+        Some(c.pos),
+    );
     true
 }
 
@@ -256,7 +274,8 @@ impl TimeView {
                     *ch = Chan {
                         stop_scale: 1.0,
                         cap_vdiv: c.vdiv,
-                        data_scale: (c.geom.rect.h as f64 / (c.geom.ref_max - c.geom.ref_min)) as f32,
+                        data_scale: (c.geom.rect.h as f64 / (c.geom.ref_max - c.geom.ref_min))
+                            as f32,
                     };
                 }
             }
@@ -286,7 +305,13 @@ impl TimeView {
         self.paint_dso_fore(&tpainter, area, rect, &tb, &chans);
         self.paint_ruler(&painter, ruler_rect, s, &tb);
         self.paint_cursors(&painter, ruler_rect, area, &tb);
-        self.paint_dso_header(&painter, header, area, &chans, ui.input(|i| i.pointer.hover_pos()));
+        self.paint_dso_header(
+            &painter,
+            header,
+            area,
+            &chans,
+            ui.input(|i| i.pointer.hover_pos()),
+        );
         changed
     }
 
@@ -309,7 +334,8 @@ impl TimeView {
         let store = s.data().dso.lock().unwrap_or_else(|e| e.into_inner());
         let n = store.sample_count() as usize;
         if let Some(buf) = store.get_samples(0, c.sig.index as i32)
-            && let Some(h) = dso::trig_hoff(&buf[..n.min(buf.len())], trig_index, c.trig_value, slope)
+            && let Some(h) =
+                dso::trig_hoff(&buf[..n.min(buf.len())], trig_index, c.trig_value, slope)
         {
             self.vp.trig_hoff = h;
         }
@@ -378,14 +404,18 @@ impl TimeView {
                 Some(Drag::Pan { last_x }) => {
                     let dx = (last_x - p.x) as i64;
                     if dx != 0 {
-                        changed |= self.vp.set_scale_offset(self.vp.scale, self.vp.x_offset + dx, tb);
+                        changed |=
+                            self.vp
+                                .set_scale_offset(self.vp.scale, self.vp.x_offset + dx, tb);
                         self.dso.drag = Some(Drag::Pan { last_x: p.x });
                     }
                 }
                 Some(Drag::Trig { index }) => {
                     if let Some(c) = chans.iter().find(|c| c.sig.index == index) {
                         let ratio = c.geom.pos2ratio(local(p).1 as i32);
-                        let v = c.geom.trig_value_for(ratio, c.zero_offset, is_hardware_logic(s));
+                        let v = c
+                            .geom
+                            .trig_value_for(ratio, c.zero_offset, is_hardware_logic(s));
                         s.set_config(key::TRIGGER_VALUE, ConfValue::Byte(v), Some(c.pos));
                         self.dso.trig_moved = true;
                         changed = true;
@@ -451,7 +481,8 @@ impl TimeView {
         }
         s.select_duration(i);
         let mut tb = timebase(s);
-        tb.dso_view_time = Some(s.config_u64(key::TIMEBASE).unwrap_or(0) as f64 * dso::HDIVS as f64 / 1e9);
+        tb.dso_view_time =
+            Some(s.config_u64(key::TIMEBASE).unwrap_or(0) as f64 * dso::HDIVS as f64 / 1e9);
         self.vp.pre_scale = self.vp.scale;
         self.vp.pre_offset = self.vp.x_offset;
         if let Some(t) = tb.dso_view_time {
@@ -462,10 +493,23 @@ impl TimeView {
     }
 
     fn volts(&self, c: &ChanView) -> Volts {
-        let ch = self.dso.chans.get(c.sig.index as usize).copied().unwrap_or_default();
+        let ch = self
+            .dso
+            .chans
+            .get(c.sig.index as usize)
+            .copied()
+            .unwrap_or_default();
         Volts {
-            vdiv_mv: if ch.cap_vdiv == 0 { c.vdiv } else { ch.cap_vdiv },
-            data_scale: if ch.data_scale == 0.0 { c.geom.scale } else { ch.data_scale },
+            vdiv_mv: if ch.cap_vdiv == 0 {
+                c.vdiv
+            } else {
+                ch.cap_vdiv
+            },
+            data_scale: if ch.data_scale == 0.0 {
+                c.geom.scale
+            } else {
+                ch.data_scale
+            },
             factor: c.factor,
             height: c.geom.rect.h,
         }
@@ -490,7 +534,12 @@ impl TimeView {
         p.rect_stroke(fr, 0.0, Stroke::new(1.0, back_a), egui::StrokeKind::Inside);
         let dashed = Stroke::new(1.0, Color32::from_rgba_unmultiplied(220, 220, 220, 60));
         for &(x0, y0, x1, y1) in &g.dividers {
-            p.extend(egui::Shape::dashed_line(&[o(x0, y0), o(x1, y1)], dashed, 4.0, 2.0));
+            p.extend(egui::Shape::dashed_line(
+                &[o(x0, y0), o(x1, y1)],
+                dashed,
+                4.0,
+                2.0,
+            ));
         }
         for &(x0, y0, x1, y1) in &g.ticks {
             p.line_segment([o(x0, y0), o(x1, y1)], dashed);
@@ -500,7 +549,10 @@ impl TimeView {
             p.line_segment([o(x0, y0), o(x1, y1)], st);
         }
         for b in &g.brackets {
-            p.add(egui::Shape::line(b.iter().map(|&(x, y)| o(x, y)).collect(), st));
+            p.add(egui::Shape::line(
+                b.iter().map(|&(x, y)| o(x, y)).collect(),
+                st,
+            ));
         }
         let (x, y, w, h) = g.shown;
         p.rect_filled(Rect::from_min_size(o(x, y), vec2(w, h)), 0.0, fore);
@@ -556,7 +608,10 @@ impl TimeView {
                     let mut mesh = egui::Mesh::default();
                     for r in rects {
                         mesh.add_colored_rect(
-                            Rect::from_min_size(o(r.x as f32, r.y as f32), vec2(r.w as f32, r.h as f32)),
+                            Rect::from_min_size(
+                                o(r.x as f32, r.y as f32),
+                                vec2(r.w as f32, r.h as f32),
+                            ),
                             col,
                         );
                     }
@@ -583,7 +638,14 @@ impl TimeView {
     }
 
     /// `paint_fore`: zero lines, trigger levels and the hover point.
-    fn paint_dso_fore(&self, p: &egui::Painter, area: Rect, rect: IRect, tb: &Timebase, chans: &[ChanView]) {
+    fn paint_dso_fore(
+        &self,
+        p: &egui::Painter,
+        area: Rect,
+        rect: IRect,
+        tb: &Timebase,
+        chans: &[ChanView],
+    ) {
         let o = |x: f32, y: f32| pos2(area.left() + x, area.top() + y);
         let font = egui::FontId::proportional(12.0);
         let fore = Color32::from_gray(220);
@@ -618,7 +680,13 @@ impl TimeView {
             );
             let volts = self.volts(c);
             let t = volts.text((zy - trigp) as f64, 2, true);
-            p.text(o(rect.w as f32, trigp), egui::Align2::RIGHT_CENTER, t, font.clone(), fore);
+            p.text(
+                o(rect.w as f32, trigp),
+                egui::Align2::RIGHT_CENTER,
+                t,
+                font.clone(),
+                fore,
+            );
             if self.dso.trig_moved
                 && matches!(self.dso.drag, Some(Drag::Trig { index }) if index == c.sig.index)
             {
@@ -653,14 +721,18 @@ impl TimeView {
 
     /// The header: per channel the name, V/div dial, probe factor,
     /// enable and coupling, and the zero-line label to drag.
-    fn dso_header(&mut self, ui: &mut Ui, s: &Session, header: Rect, area: Rect, chans: &[ChanView]) -> bool {
+    fn dso_header(
+        &mut self,
+        ui: &mut Ui,
+        s: &Session,
+        header: Rect,
+        area: Rect,
+        chans: &[ChanView],
+    ) -> bool {
         let mut changed = false;
         let is_file = s.state().device.as_ref().is_some_and(|d| d.is_file());
         let ho = |r: dso::FRect| {
-            Rect::from_min_size(
-                pos2(header.left() + r.x, area.top() + r.y),
-                vec2(r.w, r.h),
-            )
+            Rect::from_min_size(pos2(header.left() + r.x, area.top() + r.y), vec2(r.w, r.h))
         };
         for c in chans {
             let hr = dso::header_rects(c.y, c.zero_y(), HEADER_WIDTH as i32);
@@ -721,7 +793,11 @@ impl TimeView {
                 );
                 changed = true;
             }
-            for (r, f, name) in [(hr.x1, 1u64, "x1"), (hr.x10, 10, "x10"), (hr.x100, 100, "x100")] {
+            for (r, f, name) in [
+                (hr.x1, 1u64, "x1"),
+                (hr.x10, 10, "x10"),
+                (hr.x100, 100, "x100"),
+            ] {
                 if click(ui, r, name) && c.factor != f {
                     s.set_config(key::PROBE_FACTOR, ConfValue::U64(f), Some(c.pos));
                     changed = true;
@@ -754,7 +830,9 @@ impl TimeView {
                 let ratio = c.geom.pos2ratio(y);
                 let zero = c.geom.zero_offset_for(ratio);
                 s.set_config(key::PROBE_OFFSET, ConfValue::U16(zero), Some(c.pos));
-                let tv = c.geom.trig_value_for(trig_delta + c.geom.zero_ratio(zero), zero, hw_logic);
+                let tv =
+                    c.geom
+                        .trig_value_for(trig_delta + c.geom.zero_ratio(zero), zero, hw_logic);
                 s.set_config(key::TRIGGER_VALUE, ConfValue::Byte(tv), Some(c.pos));
                 changed = true;
             }
@@ -777,10 +855,7 @@ impl TimeView {
         let fore = Color32::from_gray(220);
         let fore_back = Color32::from_rgba_unmultiplied(220, 220, 220, 100);
         let ho = |r: dso::FRect| {
-            Rect::from_min_size(
-                pos2(header.left() + r.x, area.top() + r.y),
-                vec2(r.w, r.h),
-            )
+            Rect::from_min_size(pos2(header.left() + r.x, area.top() + r.y), vec2(r.w, r.h))
         };
         let hovered = |r: Rect| pointer.is_some_and(|q| r.contains(q));
         for c in chans {
@@ -812,13 +887,19 @@ impl TimeView {
             for i in 0..count {
                 let (dx, dy) = dso::dial_direction(i as f64 / (count - 1).max(1) as f64);
                 p.line_segment(
-                    [pos2(ctr.x + dx * (r + 3.0), ctr.y + dy * (r + 3.0)), pos2(ctr.x + dx * (r + 8.0), ctr.y + dy * (r + 8.0))],
+                    [
+                        pos2(ctr.x + dx * (r + 3.0), ctr.y + dy * (r + 3.0)),
+                        pos2(ctr.x + dx * (r + 8.0), ctr.y + dy * (r + 8.0)),
+                    ],
                     st,
                 );
             }
             let (dx, dy) = dso::dial_direction(sel as f64 / (count - 1).max(1) as f64);
             p.circle_filled(ctr, 3.0, col);
-            p.line_segment([ctr, pos2(ctr.x + dx * (r - 3.0), ctr.y + dy * (r - 3.0))], Stroke::new(2.0, col));
+            p.line_segment(
+                [ctr, pos2(ctr.x + dx * (r - 3.0), ctr.y + dy * (r - 3.0))],
+                Stroke::new(2.0, col),
+            );
             p.text(
                 pos2(header.left() + HEADER_WIDTH / 2.0, dial.top() - 12.0),
                 egui::Align2::CENTER_CENTER,
@@ -829,7 +910,10 @@ impl TimeView {
             if hovered(dial) && pointer.is_some_and(|q| q.x > ctr.x) {
                 let up = pointer.is_some_and(|q| q.y < ctr.y);
                 p.text(
-                    pos2(dial.right() + 4.0, ctr.y + if up { -r / 2.0 } else { r / 2.0 }),
+                    pos2(
+                        dial.right() + 4.0,
+                        ctr.y + if up { -r / 2.0 } else { r / 2.0 },
+                    ),
                     egui::Align2::LEFT_CENTER,
                     if up { "-" } else { "+" },
                     font.clone(),
@@ -847,7 +931,13 @@ impl TimeView {
                     fore_back
                 };
                 p.rect_filled(rr, 0.0, fill);
-                p.text(rr.center(), egui::Align2::CENTER_CENTER, text, font.clone(), Color32::WHITE);
+                p.text(
+                    rr.center(),
+                    egui::Align2::CENTER_CENTER,
+                    text,
+                    font.clone(),
+                    Color32::WHITE,
+                );
             };
             button(hr.enable, true, if c.enabled { "EN" } else { "DIS" });
             button(
@@ -867,7 +957,13 @@ impl TimeView {
                 let l = ho(hr.label);
                 let zy = area.top() + c.zero_y() as f32;
                 p.add(egui::Shape::convex_polygon(
-                    vec![l.left_top(), l.right_top(), pos2(header.right(), zy), l.right_bottom(), l.left_bottom()],
+                    vec![
+                        l.left_top(),
+                        l.right_top(),
+                        pos2(header.right(), zy),
+                        l.right_bottom(),
+                        l.left_bottom(),
+                    ],
                     col,
                     Stroke::NONE,
                 ));

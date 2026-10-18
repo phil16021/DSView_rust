@@ -961,6 +961,12 @@ impl Session {
         st.trig_pos = pos.clamp(MIN_TRIG_POS, st.trig_pos_max);
     }
 
+    /// `View::set_trig_cursor_posistion`: where the trigger cursor shows.
+    pub fn set_trigger_cursor(&self, index: u64) {
+        self.state().trigger_pos = index;
+        self.notify();
+    }
+
     /// `LogicSignal::set_trig` on every logic signal: `trig` on `channel`,
     /// none elsewhere. False if `channel` has no signal.
     pub fn set_simple_trigger(&self, channel: i32, t: i32) -> bool {

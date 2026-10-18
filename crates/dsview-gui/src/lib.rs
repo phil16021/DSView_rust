@@ -4,6 +4,7 @@
 
 pub mod analogview;
 pub mod app;
+pub mod dsotrigger;
 pub mod dsoview;
 pub mod hooks;
 pub mod protocol;

@@ -33,6 +33,7 @@ pub struct App {
     pub view: TimeView,
     pub bar: SamplingBar,
     pub protocol: ProtocolDock,
+    pub dso_trigger: crate::dsotrigger::DsoTriggerDock,
     pub shared: Shared,
     pub version: String,
     events: Receiver<SessionEvent>,
@@ -67,6 +68,7 @@ impl App {
             view: TimeView::default(),
             bar: SamplingBar::default(),
             protocol: ProtocolDock::default(),
+            dso_trigger: crate::dsotrigger::DsoTriggerDock::default(),
             shared,
             version: version.into(),
             events: rx,
@@ -195,10 +197,19 @@ impl eframe::App for App {
         if devices {
             self.hotplug();
         }
-        // S and I: run/stop and single (MainWindow's shortcuts)
-        let (key_s, key_i) =
-            ctx.input(|i| (i.key_pressed(egui::Key::S), i.key_pressed(egui::Key::I)));
+        // S and I: run/stop and single, T: the trigger dock (MainWindow's
+        // shortcuts)
+        let (key_s, key_i, key_t) = ctx.input(|i| {
+            (
+                i.key_pressed(egui::Key::S),
+                i.key_pressed(egui::Key::I),
+                i.key_pressed(egui::Key::T),
+            )
+        });
         if !ctx.egui_wants_keyboard_input() {
+            if key_t {
+                self.dso_trigger.open = !self.dso_trigger.open;
+            }
             if key_s {
                 self.bar.run_stop(&self.session, false);
             }
@@ -235,6 +246,11 @@ impl eframe::App for App {
                         ui.close();
                     }
                 });
+                ui.menu_button("View", |ui| {
+                    ui.checkbox(&mut self.dso_trigger.open, "Trigger (T)");
+                    ui.checkbox(&mut self.protocol.open, "Protocol (D)");
+                    ui.checkbox(&mut self.view.dso.split, "Split DSO channels");
+                });
                 ui.separator();
                 let dev = self.session.state().device.as_ref().map(|d| d.name.clone());
                 ui.label(dev.unwrap_or_else(|| "no device".into()));
@@ -269,6 +285,18 @@ impl eframe::App for App {
                 .show(ui, |ui| {
                     self.protocol.show(ui, &self.session);
                 });
+        }
+        let dso = self.session.mode() == dsview_core::Mode::Dso as i32;
+        if dso && self.dso_trigger.open {
+            egui::Panel::right("dso-trigger")
+                .resizable(true)
+                .default_size(260.0)
+                .show(ui, |ui| {
+                    self.dso_trigger.show(ui, &self.session);
+                });
+        }
+        if let Some(m) = self.dso_trigger.message.take() {
+            self.message = Some(m);
         }
         if let Some((a, b)) = self.protocol.jump.take() {
             self.view.show_region(&self.session, a, b.max(a + 1));

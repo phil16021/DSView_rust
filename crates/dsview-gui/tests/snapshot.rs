@@ -97,7 +97,8 @@ fn demo_in_mode(mode: dsview_core::Mode) -> Session {
     } else {
         assert!(s.start_capture(true));
     }
-    assert!(s.wait(Duration::from_secs(60), |st| st.ended_seq > 0 && !st.working));
+    assert!(s.wait(Duration::from_secs(60), |st| st.ended_seq > 0
+        && !st.working));
     s
 }
 
@@ -136,6 +137,22 @@ fn analog_demo_view() {
         });
     harness.run();
     harness.snapshot("analog_demo_view");
+    s.exit();
+}
+
+#[test]
+fn dso_trigger_dock() {
+    let s = demo_in_mode(dsview_core::Mode::Dso);
+    let mut dock = dsview_gui::dsotrigger::DsoTriggerDock::default();
+    let s2 = s.clone();
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(280.0, 520.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            dock.show(ui, &s2);
+        });
+    harness.run();
+    harness.snapshot("dso_trigger_dock");
     s.exit();
 }
 
@@ -188,7 +205,9 @@ fn dso_controls() {
     assert!(vdiv(pos1) > v0, "{} > {v0}", vdiv(pos1));
     // the wheel over the traces steps the timebase
     let tb0 = s.config_u64(key::TIMEBASE).unwrap();
-    h.input_mut().events.push(egui::Event::PointerMoved(egui::pos2(600.0, 300.0)));
+    h.input_mut()
+        .events
+        .push(egui::Event::PointerMoved(egui::pos2(600.0, 300.0)));
     h.input_mut().events.push(egui::Event::MouseWheel {
         unit: egui::MouseWheelUnit::Line,
         delta: egui::vec2(0.0, 1.0),
