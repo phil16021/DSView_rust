@@ -281,6 +281,14 @@ impl eframe::App for App {
                             self.view.dso.refs.dialog = Some(0);
                             ui.close();
                         }
+                        if ui.button("Histogram…").clicked() {
+                            self.view.dso.analysis.histogram = Some((0, false));
+                            ui.close();
+                        }
+                        if ui.button("Channel measure…").clicked() {
+                            self.view.dso.analysis.chan_measure = Some((0, 1));
+                            ui.close();
+                        }
                     });
                 });
                 ui.separator();

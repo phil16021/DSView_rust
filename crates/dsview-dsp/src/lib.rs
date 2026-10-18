@@ -6,6 +6,7 @@
 //! * [`spectrum`]: windows and the power spectrum (`SpectrumStack`), on
 //!   realfft instead of FFTW
 
+pub mod analysis;
 pub mod math;
 pub mod measure;
 pub mod spectrum;

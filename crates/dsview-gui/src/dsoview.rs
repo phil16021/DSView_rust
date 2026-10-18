@@ -81,6 +81,8 @@ pub struct DsoState {
     pub xm: Option<dso::XMeasure>,
     /// Persistence of the frames before (`dsoPersistenceMs`).
     pub persist: Persist,
+    /// The histogram and channel measure dialogs.
+    pub analysis: crate::analysisdlg::AnalysisDialogs,
     /// The math trace's header row (`get_y()`), when shown.
     math_y: Option<i32>,
 }
@@ -362,6 +364,9 @@ impl TimeView {
         let mut refs = std::mem::take(&mut self.dso.refs);
         refs.dialog(&ctx, s, &chans);
         self.dso.refs = refs;
+        let mut analysis = std::mem::take(&mut self.dso.analysis);
+        analysis.show(&ctx, s, &chans);
+        self.dso.analysis = analysis;
         self.paint_dso_fore(&tpainter, area, rect, &tb, &chans);
         self.paint_ruler(&painter, ruler_rect, s, &tb);
         self.paint_cursors(&painter, ruler_rect, area, &tb);

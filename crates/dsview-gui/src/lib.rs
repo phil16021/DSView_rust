@@ -3,6 +3,7 @@
 //! The binary is `dsview` (`main.rs`).
 
 pub mod analogview;
+pub mod analysisdlg;
 pub mod app;
 pub mod dsotrigger;
 pub mod dsoview;

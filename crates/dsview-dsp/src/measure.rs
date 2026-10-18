@@ -35,7 +35,7 @@ struct M {
 }
 
 /// `dso_detect_edges`: crossings of the middle level with 5 % hysteresis.
-fn detect_edges(n: usize, val: impl Fn(usize) -> f64) -> (Vec<usize>, Vec<usize>) {
+pub fn detect_edges(n: usize, val: impl Fn(usize) -> f64) -> (Vec<usize>, Vec<usize>) {
     let (mut rising, mut falling) = (Vec::new(), Vec::new());
     if n < 2 {
         return (rising, falling);

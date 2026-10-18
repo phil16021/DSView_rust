@@ -270,6 +270,24 @@ fn dso_reference_view() {
     s.exit();
 }
 
+#[test]
+fn dso_histogram_dialog() {
+    let s = demo_in_mode(dsview_core::Mode::Dso);
+    let mut view = TimeView::default();
+    view.dso.analysis.histogram = Some((0, false));
+    view.dso.analysis.chan_measure = Some((0, 1));
+    let s2 = s.clone();
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(1100.0, 900.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            view.show(ui, &s2);
+        });
+    harness.run();
+    harness.snapshot("dso_analysis_dialogs");
+    s.exit();
+}
+
 fn click(h: &mut Harness<'_>, x: f32, y: f32) {
     let pos = egui::pos2(x, y);
     let ev = &mut h.input_mut().events;
