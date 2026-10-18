@@ -129,6 +129,8 @@ pub struct TimeView {
     pub(crate) dso_is_hardware: bool,
     /// The floating mouse measurement (`_fen_checkBox`).
     pub measure_enabled: bool,
+    /// The search cursor while the search dock shows: position and hit.
+    pub search: Option<(u64, bool)>,
 }
 
 impl Default for TimeView {
@@ -158,6 +160,7 @@ impl Default for TimeView {
             dso_mouse: None,
             dso_is_hardware: false,
             measure_enabled: true,
+            search: None,
         }
     }
 }
@@ -1244,6 +1247,27 @@ impl TimeView {
                 egui::FontId::proportional(10.0),
                 Color32::BLACK,
             );
+        }
+        // the search cursor: blue on a hit, grey otherwise ("S")
+        if let Some((pos, hit)) = self.search {
+            let x = area.left() + self.vp.index_to_pixel(pos, false, tb) as f32;
+            if x >= area.left() && x <= area.right() {
+                let c = if hit {
+                    Color32::from_rgb(17, 133, 209)
+                } else {
+                    Color32::from_rgba_unmultiplied(220, 220, 220, 100)
+                };
+                painter.vline(x, area.y_range(), Stroke::new(1.0, c));
+                let label = Rect::from_center_size(pos2(x, ruler.bottom() - 8.0), vec2(18.0, 14.0));
+                painter.rect_filled(label, 2.0, c);
+                painter.text(
+                    label.center(),
+                    egui::Align2::CENTER_CENTER,
+                    "S",
+                    egui::FontId::proportional(10.0),
+                    Color32::WHITE,
+                );
+            }
         }
     }
 

@@ -36,6 +36,7 @@ pub struct App {
     pub dso_trigger: crate::dsotrigger::DsoTriggerDock,
     pub trigger: crate::triggerdock::TriggerDock,
     pub measure: crate::measuredock::MeasureDock,
+    pub search: crate::searchdock::SearchDock,
     pub fft: crate::fftview::FftState,
     pub shared: Shared,
     pub version: String,
@@ -74,6 +75,7 @@ impl App {
             dso_trigger: crate::dsotrigger::DsoTriggerDock::default(),
             trigger: crate::triggerdock::TriggerDock::default(),
             measure: crate::measuredock::MeasureDock::default(),
+            search: crate::searchdock::SearchDock::default(),
             fft: crate::fftview::FftState::default(),
             shared,
             version: version.into(),
@@ -203,15 +205,16 @@ impl eframe::App for App {
         if devices {
             self.hotplug();
         }
-        // S and I: run/stop and single; T, D, M: the trigger, protocol and
-        // measure docks (MainWindow's shortcuts)
-        let (key_s, key_i, key_t, key_d, key_m) = ctx.input(|i| {
+        // S and I: run/stop and single; T, D, M, R: the trigger, protocol,
+        // measure and search docks (MainWindow's shortcuts)
+        let (key_s, key_i, key_t, key_d, key_m, key_r) = ctx.input(|i| {
             (
                 i.key_pressed(egui::Key::S),
                 i.key_pressed(egui::Key::I),
                 i.key_pressed(egui::Key::T),
                 i.key_pressed(egui::Key::D),
                 i.key_pressed(egui::Key::M),
+                i.key_pressed(egui::Key::R),
             )
         });
         if !ctx.egui_wants_keyboard_input() {
@@ -223,6 +226,9 @@ impl eframe::App for App {
             }
             if key_m {
                 self.measure.open = !self.measure.open;
+            }
+            if key_r {
+                self.search.open = !self.search.open;
             }
             if key_s {
                 self.bar.run_stop(&self.session, false);
@@ -264,6 +270,7 @@ impl eframe::App for App {
                     ui.checkbox(&mut self.dso_trigger.open, "Trigger (T)");
                     ui.checkbox(&mut self.protocol.open, "Protocol (D)");
                     ui.checkbox(&mut self.measure.open, "Measure (M)");
+                    ui.checkbox(&mut self.search.open, "Search (R)");
                     ui.checkbox(&mut self.view.dso.split, "Split DSO channels");
                     ui.horizontal(|ui| {
                         let l = ui.label("DSO persistence");
@@ -313,6 +320,18 @@ impl eframe::App for App {
             self.bar.show(ui, &self.session);
         });
         let dso_mode = self.session.mode() == dsview_core::Mode::Dso as i32;
+        let logic_mode = self.session.mode() == dsview_core::Mode::Logic as i32;
+        if logic_mode && self.search.open {
+            egui::Panel::bottom("search").show(ui, |ui| {
+                self.search.show(ui, &self.session, &mut self.view);
+            });
+        } else if !self.search.open {
+            self.view.search = None;
+        }
+        self.search.poll(&ctx, &self.session, &mut self.view);
+        if let Some(m) = self.search.message.take() {
+            self.message = Some(m);
+        }
         egui::Panel::bottom("status").show(ui, |ui| {
             if dso_mode {
                 self.view.dso_measure_bar(ui, &self.session);
@@ -399,6 +418,9 @@ impl eframe::App for App {
                 ui.scope_builder(egui::UiBuilder::new().max_rect(bottom), |ui| {
                     self.fft.show(ui, &self.session);
                 });
+            } else if self.search.busy() {
+                // the search holds the logic store; the view waits for it
+                ui.centered_and_justified(|ui| ui.label("Searching…"));
             } else {
                 self.view.show(ui, &self.session);
             }

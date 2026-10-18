@@ -14,6 +14,7 @@ pub mod mathview;
 pub mod measuredock;
 pub mod protocol;
 pub mod refview;
+pub mod searchdock;
 pub mod soak;
 pub mod timeview;
 pub mod toolbar;

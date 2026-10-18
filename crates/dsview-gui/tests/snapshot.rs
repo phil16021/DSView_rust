@@ -461,6 +461,43 @@ fn measure_dock() {
     s.exit();
 }
 
+/// Next and previous find the rising edges of channel 0 in protocol.demo.
+#[test]
+fn search_dock() {
+    let s = demo_session();
+    let mut dock = dsview_gui::searchdock::SearchDock::default();
+    let mut view = TimeView::default();
+    view.search = Some((0, false));
+    dock.pattern.insert(0, b'R');
+    let ctx = egui::Context::default();
+    let mut run =
+        |dock: &mut dsview_gui::searchdock::SearchDock, view: &mut TimeView, next: bool| {
+            dock.search(&s, view, next);
+            let t0 = std::time::Instant::now();
+            while dock.busy() {
+                assert!(t0.elapsed() < Duration::from_secs(30));
+                let mut out = ctx.run_ui(Default::default(), |ui| dock.poll(ui.ctx(), &s, view));
+                out.textures_delta.clear();
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            view.search.unwrap()
+        };
+    let (a, hit) = run(&mut dock, &mut view, true);
+    assert!(hit);
+    let (b, _) = run(&mut dock, &mut view, true);
+    assert!(b > a, "{b} > {a}");
+    // both are rising edges of channel 0
+    let store = s.data().logic.lock().unwrap();
+    for p in [a, b] {
+        assert!(store.get_sample(p, 0) && !store.get_sample(p - 1, 0), "{p}");
+    }
+    drop(store);
+    let (c, _) = run(&mut dock, &mut view, false);
+    assert_eq!(c, a);
+    assert_eq!(dock.message.take(), None);
+    s.exit();
+}
+
 #[test]
 fn protocol_dock() {
     let s = demo_session();
