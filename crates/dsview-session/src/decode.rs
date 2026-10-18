@@ -295,6 +295,9 @@ pub struct DecoderStack {
     /// decoder options' show buttons): decoder and row overrides.
     dec_shown: Mutex<HashMap<usize, bool>>,
     row_shown: Mutex<HashMap<usize, bool>>,
+    /// `_mark_index`: the middle sample of the annotation chosen in the
+    /// protocol list, -1 for none.
+    mark: std::sync::atomic::AtomicI64,
 }
 
 fn load_index(info: &DecoderInfo) -> usize {
@@ -362,6 +365,7 @@ impl DecoderStack {
             list_shown: Mutex::new(HashMap::new()),
             dec_shown: Mutex::new(HashMap::new()),
             row_shown: Mutex::new(HashMap::new()),
+            mark: std::sync::atomic::AtomicI64::new(-1),
         }
     }
 
@@ -494,8 +498,19 @@ impl DecoderStack {
         self.stop.store(true, Ordering::SeqCst);
     }
 
+    /// `set_mark_index`
+    pub fn set_mark(&self, index: i64) {
+        self.mark.store(index, Ordering::Relaxed);
+    }
+
+    /// `get_mark_index`
+    pub fn mark(&self) -> i64 {
+        self.mark.load(Ordering::Relaxed)
+    }
+
     /// `DecoderStack::clear()`/`init()`: drops the results (progress stays).
     pub fn clear(&self) {
+        self.set_mark(-1);
         let mut r = self.results();
         let n = r.rows.len();
         r.rows = vec![RowData::default(); n];

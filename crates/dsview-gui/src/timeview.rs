@@ -176,6 +176,56 @@ impl HeaderDrag {
     }
 }
 
+/// A mark on a logic channel (`LogicSignal::paint_mark`): the channel,
+/// the annotation's pixel span, the channel type's kind (`type / 100`:
+/// 0 clock, 1 serial data, 2 another data line) and its fill colour.
+#[derive(Clone, Copy, Debug)]
+struct ChannelMark {
+    channel: u16,
+    x0: f64,
+    x1: f64,
+    kind: i32,
+    colour: Color32,
+}
+
+/// `DecodeTrace::draw_annotation` for a type-2xx annotation: a mark on each
+/// bound channel whose type matches it (`type % 100`, or 0 for any).
+fn channel_marks(
+    st: &dsview_session::decode::DecoderStack,
+    ann_ty: i32,
+    x0: f64,
+    x1: f64,
+    colour: Color32,
+) -> Vec<ChannelMark> {
+    let mut out = Vec::new();
+    for d in st.decoders() {
+        for (id, index) in d.bound_probes() {
+            let Some(ty) = d
+                .info
+                .channels
+                .iter()
+                .chain(&d.info.opt_channels)
+                .find(|c| c.id == id)
+                .map(|c| c.ty)
+            else {
+                continue;
+            };
+            // SRD_CHANNEL_COMMON, or another kind of data
+            if ty == -1 || (ty % 100 != ann_ty % 100 && ty % 100 != 0) {
+                continue;
+            }
+            out.push(ChannelMark {
+                channel: index as u16,
+                x0,
+                x1,
+                kind: ty / 100,
+                colour,
+            });
+        }
+    }
+    out
+}
+
 impl Default for TimeView {
     fn default() -> Self {
         TimeView {
@@ -485,9 +535,17 @@ impl TimeView {
             self.paint_header(&painter, header, area, &rows, &font_id);
             return changed;
         }
+        let mut marks = Vec::new();
         for row in &rows {
             if let Some((t, drows)) = &row.dec {
-                self.paint_decoder(&tpainter, area, row, t, drows, l.signal_height as f32);
+                marks.extend(self.paint_decoder(
+                    &tpainter,
+                    area,
+                    row,
+                    t,
+                    drows,
+                    l.signal_height as f32,
+                ));
                 continue;
             }
             let Some(sig) = &row.sig else { continue };
@@ -530,6 +588,44 @@ impl TimeView {
             }
         }
         drop(store);
+        // `LogicSignal::paint_mark`: the type-2xx annotations' marks on the
+        // channels they belong to
+        for m in marks {
+            let Some(r) = rows.iter().find(|r| {
+                matches!(r.r, TraceRef::Signal { index, ty } if index == m.channel && ty == channel_type::LOGIC)
+            }) else {
+                continue;
+            };
+            let y = area.top() + r.y - self.v_scroll;
+            let at = |x: f64| area.left() + x as f32;
+            match m.kind {
+                // SRD_CHANNEL_SCLK: a small triangle
+                0 => {
+                    let x = at(m.x0).round();
+                    tpainter.add(egui::Shape::convex_polygon(
+                        vec![
+                            pos2(x, y - 2.5),
+                            pos2(x + 3.5, y + 1.5),
+                            pos2(x - 3.5, y + 1.5),
+                        ],
+                        m.colour,
+                        Stroke::NONE,
+                    ));
+                }
+                1 => {
+                    tpainter.circle(pos2(at(m.x0), y), 3.0, m.colour, Stroke::new(1.0, m.colour));
+                }
+                2 => {
+                    tpainter.circle(
+                        pos2(at((m.x0 + m.x1) / 2.0), y),
+                        3.0,
+                        m.colour,
+                        Stroke::new(1.0, m.colour),
+                    );
+                }
+                _ => {}
+            }
+        }
 
         self.paint_ruler(&painter, ruler_rect, s, &tb);
         self.paint_cursors(&painter, s, ruler_rect, area, &tb);
@@ -698,7 +794,8 @@ impl TimeView {
         t: &DecodeTrace,
         drows: &[DecRow],
         h: f32,
-    ) {
+    ) -> Vec<ChannelMark> {
+        let mut marks = Vec::new();
         let st = &t.stack;
         let rate = (st.sample_rate() as f64).max(1.0);
         let spp = rate * self.vp.scale;
@@ -744,9 +841,12 @@ impl TimeView {
                 font,
                 Color32::from_rgb(0xEF, 0x29, 0x29),
             );
-            return;
+            return marks;
         }
         let grey = Color32::from_gray(170);
+        let mark = st.mark();
+        let bottom = area.top() + row.y - self.v_scroll + row.height / 2.0 + 1.0;
+        let blue = Color32::from_rgb(17, 133, 209);
         let x0 = area.left();
         for dr in drows {
             match dr {
@@ -785,6 +885,29 @@ impl TimeView {
                             let rgb = |c: [u8; 3]| Color32::from_rgb(c[0], c[1], c[2]);
                             let (fill_c, out_c) = (rgb(fill), rgb(outline));
                             let text_c = rgb(vdec::text_colour(fill));
+                            let px = |smp: u64| smp as f64 / spp - off as f64;
+                            // the annotation chosen in the protocol list: a
+                            // blue triangle under the trace
+                            if !matches!(shape, AnnShape::None)
+                                && mark == ((a.start + a.end) / 2) as i64
+                            {
+                                let x = (x0 as f64 + (px(a.start) + px(a.end)) / 2.0) as f32;
+                                painter.add(egui::Shape::convex_polygon(
+                                    vec![
+                                        pos2(x, bottom),
+                                        pos2(x + 2.5, bottom + 2.5),
+                                        pos2(x - 2.5, bottom + 2.5),
+                                    ],
+                                    blue,
+                                    Stroke::NONE,
+                                ));
+                            }
+                            if let AnnShape::Range { start, end, .. } = &shape
+                                && a.ty / 100 == 2
+                                && end - start > 20.0
+                            {
+                                marks.extend(channel_marks(st, a.ty, *start, px(a.end), fill_c));
+                            }
                             match shape {
                                 AnnShape::None => {}
                                 AnnShape::Line { x } => {
@@ -887,6 +1010,7 @@ impl TimeView {
             }
             y += h;
         }
+        marks
     }
 
     fn row_at(&self, rows: &[Row], area: Rect, y: f32) -> Option<Row> {

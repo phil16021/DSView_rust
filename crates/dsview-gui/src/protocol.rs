@@ -476,6 +476,14 @@ impl ProtocolDock {
         ui.separator();
         if let Some(t) = traces.get(self.table) {
             self.table_ui(ui, s, t);
+            // the annotation jumped to is marked on its trace
+            // (`set_mark_index`), the others' marks cleared
+            if let Some((a, b)) = self.jump {
+                for x in &traces {
+                    x.stack.set_mark(-1);
+                }
+                t.stack.set_mark(((a + b) / 2) as i64);
+            }
         }
         self.add_dialog(ui.ctx(), s);
         self.list_options(ui.ctx(), &traces);

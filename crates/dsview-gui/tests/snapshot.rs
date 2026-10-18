@@ -1064,3 +1064,36 @@ fn mouse_measure_popup() {
     harness.snapshot("mouse_measure_popup");
     s.exit();
 }
+
+/// A click on an annotation in the protocol list marks it on its trace
+/// (`set_mark_index`) and asks the view to show it.
+#[test]
+fn protocol_table_marks_annotation() {
+    use egui_kittest::kittest::Queryable;
+    let s = demo_session();
+    let mut dock = dsview_gui::protocol::ProtocolDock::default();
+    let s2 = s.clone();
+    let jumps = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let j2 = jumps.clone();
+    let mut harness = Harness::builder()
+        .with_size(egui::vec2(520.0, 640.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            dock.show(ui, &s2);
+            if let Some(j) = dock.jump.take() {
+                j2.lock().unwrap().push(j);
+            }
+        });
+    harness.run();
+    let t = s.state().decoders[0].clone();
+    assert_eq!(t.stack.mark(), -1);
+    harness
+        .get_all_by_label("Address write: 62")
+        .next()
+        .unwrap()
+        .click();
+    harness.run();
+    let (a, b) = jumps.lock().unwrap()[0];
+    assert_eq!(t.stack.mark(), ((a + b) / 2) as i64);
+    s.exit();
+}
