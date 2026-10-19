@@ -13,6 +13,7 @@ use dsview_control::server::Server;
 use dsview_session::{Paths, Session};
 
 mod cmds;
+mod matrix;
 mod soak;
 
 /// DSView's version (the workspace version; CMakeLists.txt reads it as
@@ -34,6 +35,7 @@ usage: dsview-cli serve --mcp [options]
                          [--json]
        dsview-cli verify-counter [--device D] [--samples N] [--timeout S]
        dsview-cli selftest [--timeout S] --out DIR
+       dsview-cli hwmatrix [--cycles N] [--quick] [--out REPORT.json]
 
 Runs DSView's capture session without a GUI behind the control socket
 (DSVIEW_MCP_SOCKET, else $XDG_RUNTIME_DIR/dsview/mcp.sock).
@@ -53,6 +55,10 @@ commands take the first hardware device, else the active one.
 verify-counter: the DSLogic's internal test mode; every sample must count up.
 selftest: for owners of devices the developers do not have (DSCope, MSO-E8):
 a capture per hardware device, the settings and the full log in DIR.
+
+hwmatrix: the DSLogic hardware matrix: the test counter, buffer and stream at
+every rate of every channel mode, triggers, stops, and N start/stop cycles
+(default 1000); --quick tries three rates per mode.
 
 soak: captures for N minutes (default 60) in loop mode (one endless capture
 into the ring buffer; the demo's random pattern) or repeat mode (one capture
@@ -86,6 +92,7 @@ fn main() {
         "decode",
         "verify-counter",
         "selftest",
+        "hwmatrix",
     ];
     if cmd != "serve" && cmd != "soak" && !ONESHOT.contains(&cmd) {
         eprint!("{USAGE}");
@@ -99,6 +106,7 @@ fn main() {
     let (mut socket, mut data_dir, mut decoders) = (None, None, None);
     let (mut mode, mut minutes, mut device) = (None, 60.0f64, None);
     let mut samples_file = None;
+    let (mut cycles, mut quick) = (1000u32, false);
     let mut level = 3;
     let mut o = cmds::Opts {
         timeout_s: 60.0,
@@ -130,6 +138,8 @@ fn main() {
             "--out" => o.out = Some(val()),
             "--decoder" => o.decoders.push(val()),
             "--json" => o.json = true,
+            "--cycles" => cycles = num(val()) as u32,
+            "--quick" => quick = true,
             "-h" | "--help" => {
                 print!("{USAGE}");
                 return;
@@ -210,6 +220,11 @@ fn main() {
         Arc::new(dsview_usb::nusb_backend::NusbBackend),
     );
     session.set_default_device();
+    if cmd == "hwmatrix" {
+        let code = matrix::run(&session, DSVIEW_VERSION, cycles, quick, o.out.as_deref());
+        session.exit();
+        std::process::exit(code);
+    }
     if ONESHOT.contains(&cmd) {
         let code = cmds::run(cmd, &session, DSVIEW_VERSION, &o);
         session.exit();

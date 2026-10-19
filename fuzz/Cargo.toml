@@ -9,8 +9,16 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+dsview-control = { path = "../crates/dsview-control", default-features = false }
+dsview-core = { path = "../crates/dsview-core" }
+dsview-decode = { path = "../crates/dsview-decode" }
+dsview-drivers = { path = "../crates/dsview-drivers" }
 dsview-formats = { path = "../crates/dsview-formats" }
+dsview-session = { path = "../crates/dsview-session" }
 dsview-store = { path = "../crates/dsview-store" }
+dsview-usb = { path = "../crates/dsview-usb", default-features = false }
+serde_json = "1"
+zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [[bin]]
 name = "header"
@@ -29,6 +37,62 @@ bench = false
 [[bin]]
 name = "stores"
 path = "fuzz_targets/stores.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "usb_header"
+path = "fuzz_targets/usb_header.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dso_status_block"
+path = "fuzz_targets/dso_status_block.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pcapng_reader"
+path = "fuzz_targets/pcapng_reader.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "jsonrpc_request"
+path = "fuzz_targets/jsonrpc_request.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "srzip"
+path = "fuzz_targets/srzip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dsc_json"
+path = "fuzz_targets/dsc_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "decoders_json"
+path = "fuzz_targets/decoders_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "demo"
+path = "fuzz_targets/demo.rs"
 test = false
 doc = false
 bench = false

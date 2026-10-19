@@ -7,7 +7,7 @@
 | 2 Decoder engine | **done**: Rust/PyO3 engine behind `DSVIEW_IMPL_DECODE`; Rust becomes the default after one release of A/B | See "Phase 2" below |
 | 3 Drivers | **done except hardware steps**: 3a demo, 3b file, 3c USB layer, 3d DSLogic (replug tests passed 2026-10-18), 3e DSCope/MSO-E8 (`DSVIEW_IMPL_DRV_DEMO` / `_FILE` / `_DSLOGIC` / `_DSCOPE`). Open: a firmware upload from the host, the nightly runs, one DSCope/E8 hardware confirmation | See "Phase 3" below |
 | 4 Session + control API | **done**: 4a acquisition library in Rust behind `DSVIEW_IMPL_ACQ`; 4b capture session, control server, `dsview-cli serve --mcp` (transcript identical to the Qt GUI, 1 h soaks passed) | See "Phase 4" below |
-| 5 Rust GUI | **in progress**: M6.0, M6a-M6f done; the Rust GUI is the default on Linux (`DSVIEW_RUST_GUI`, Qt kept as `DSView-qt` for one release); M6g hardening in progress (steps 1-3 done) | PARITY.md 52 of 52 (2026-10-19); AccessKit live over AT-SPI |
+| 5 Rust GUI | **in progress**: M6.0, M6a-M6f done; the Rust GUI is the default on Linux (`DSVIEW_RUST_GUI`, Qt kept as `DSView-qt` for one release); M6g done 2026-10-19; next release R1 | PARITY.md 52 of 52 (2026-10-19); AccessKit live over AT-SPI |
 | 6 Removal + packaging | planned after release R1: M7a removal and packaging, M7b post-parity fixes | PLAN.md (revised 2026-10-18): M6f → M6g → R1 → M7a/M7b |
 
 ## Phase 0 deliverables
@@ -54,9 +54,12 @@ sources:
   unplug during a capture, and internal test-counter mode.
   - Since then:
     - unplug during a stream capture was tested with both drivers on 2026-10-18 (Phase 3d, "Replug
-      tests"), but its traces are not in the manifest yet (PLAN M6g);
+      tests"). It was checked by behaviour, not recorded as pcapng: a recording needs someone to
+      pull the cable during `usb record`. That is on the R1 manual checklist;
     - firmware upload cannot be tested with this device (follow-on);
-    - test-counter traces under the C driver are M6g.
+    - the test-counter mode is checked through the Rust driver by `dsview-cli verify-counter` and
+      `hwmatrix` (M6g step 4). A C trace of it is dropped: Qt's control API cannot select the
+      operation mode, and the Rust check needs no reference.
 
 **CI:** `.github/workflows/rust.yml` runs lint, tests, cargo-deny, golden check and a portability check.
 
@@ -1104,7 +1107,7 @@ the demo transcript is unchanged.
 - **PARITY.md is at 52 of 52.** The command-line row is ticked: `-l`, `-v`, `-s`, `--mcp` and the
   file argument have been in place since step 2.
 
-### M6g hardening: in progress
+### M6g hardening: done 2026-10-19
 **Step 1, runtime (done 2026-10-19):**
 - **Bundled Python:**
   - `dsview` and `dsview-cli` carry the RUNPATH `$ORIGIN/../lib/dsview`;
@@ -1193,4 +1196,95 @@ the demo transcript is unchanged.
   - All of it ran with their own XDG directories, and the user's profile stayed unchanged.
 - **Tests:** `tests/oneshot.rs` runs the binary on the demo: devices, capture, export to srzip,
   UART decode, and the error paths. Plus the channel list parser.
+
+**Step 4, the DSLogic hardware matrix (done 2026-10-19):**
+- **`dsview-cli hwmatrix [--cycles N] [--quick] [--out REPORT.json]`** runs PLAN §3 item 6 through
+  the session and the control API, as the GUI drives them. It puts the device's settings back
+  afterwards.
+- **On the DSLogic Plus** (firmware 2.2, own XDG directories): **132 of 132 passed in 480 s**.
+  - **Test counter:** 1, 4, 8 and 16 channels × 4 M samples, 0 breaks.
+    - The internal test mode always runs at 100 MHz. It takes the channel and sample count, but
+      not the rate, so "every rate" is covered by the next two rows instead.
+  - **Buffer mode:** 54 captures, every rate of the three channel modes (16 ch to 100 MHz, 8 ch to
+    200 MHz, 4 ch to 400 MHz). Each reached the sample count the device took.
+  - **Stream mode:** 62 captures, every rate of the four channel modes (16 ch to 20 MHz, 12 to
+    25, 6 to 50, 3 to 100 MHz).
+  - **Triggers on the counter**, each at 0, 50 and 100 %:
+    - simple (ch15 rising): ch15 rises exactly at the reported trigger sample;
+    - advanced, two stages (ch15 rising, then ch14 rising): fires at 0xC000 (49152) with ch14
+      rising there;
+    - serial (start ch15 rising, stop ch15 falling, clock ch0, data ch1, 4 bits): fires 7 samples
+      after the start, at the fourth clock edge.
+    - With an all-X start condition the FPGA never fires the serial trigger.
+    - On the counter, the trigger position cannot move the event, because it comes 32768 samples
+      after the start. So 50 % and 100 % trigger at the same sample.
+  - **Stops:** while the trigger waits (an open input) and in the middle of a 10 MHz stream. Both
+    ended about 100 ms after the stop.
+  - **1000 start/stop cycles** at random rates, buffer or stream, run to the end or stopped after
+    0-600 ms: all ended, 450 s.
+- **The 10-minute stream:** `dsview-cli soak --mode loop --device dslogic --minutes 10` (release
+  build). One endless loop capture ran 10 minutes, and the resident set stayed at 49 056 KiB
+  throughout: trend +0.00 % over 61 samples.
+
+**Step 5, tests and CI (done 2026-10-19):**
+- **Fuzzing:**
+  - Eight new targets: `usb_header` and `dso_status_block` (the DSLogic and DSCope drivers on a
+    simulated device whose bulk IN data comes from the fuzzer), `pcapng_reader`,
+    `jsonrpc_request`, `srzip`, `dsc_json`, `decoders_json` (on one demo session with every
+    decoder) and `demo`.
+  - Each ran 30-60 s here. The `pcapng_reader` target found a panic on blocks too short for
+    their type; fixed, with a regression test, and 13 M runs since are clean.
+  - The old `stores` target no longer compiled (the DSO store's `samplerate_tog`); fixed. The
+    CI fuzz smoke job would have failed on it.
+  - `dsview-usb`'s nusb backend is now a default feature: nusb 0.2.8's own `cfg(fuzzing)` code
+    does not compile, and the fuzz build does not need real devices.
+  - The USB targets capture 4096 samples, so one input reaches many headers and frames. The
+    DSCope target went from 8 to about 10 000 runs in 30 s.
+- **CI (`rust.yml`):**
+  - `e2e-mcp`: the MCP suite on `dsview-cli` plus the one-shot command test;
+  - fuzz smoke over every target (`cargo fuzz list`);
+  - the test job on Ubuntu 22.04 and 24.04 (Python 3.10 and 3.12);
+  - the portability job checks every crate but the oracle on Linux and macOS;
+  - `libfftw3-dev` in `ORACLE_DEPS`.
+- **`fuzz-nightly.yml`:** every target for an hour per night, with the corpus cached, which reaches
+  24 h on the third night. Crashes are uploaded. Leak detection is off, because the JSON targets
+  keep their interpreter on purpose.
+- **Property tests:** `dsview-viewmodel/tests/viewport_props.rs`, for any rate, length, width and
+  zoom path:
+  - index→pixel→index round-trips within one sample, and keeps order;
+  - zoom stays inside the scale and offset limits;
+  - zoom keeps the sample under the pointer, within the integer offset's pixel (F27).
+- **Chunking invariance:** `dsview-decode/tests/chunking.rs`, UART and I²C in chunks of 2 to 4096
+  samples. It found F32: libsigrokdecode's chunk-edge shift, the same in C. Covered up to that one
+  sample.
+- **Miri** on the store's `unsafe` code (leaf blocks, raw block pointers):
+  `single_channel_roundtrip_and_edges` and `leaf_words_match_cpp_leaf_block_space` are clean
+  (473 s). The full suite does not finish in 30 min under Miri, because of its proptests. A CI
+  `miri` job runs the two tests.
+- **`cargo xtask golden bless`** writes the goldens from the Rust side: the reader summary and
+  `rust-decode`. No C code runs. Its use is for intentional changes, once they are in
+  DEVIATIONS.
+- **M6c's exit checks:**
+  - **100k+ rows:** `dsview-gui/tests/protocol_large.rs` decodes a 4 M-sample clock with `timing`
+    into 262 142 rows.
+    - With the protocol table shown, a frame takes 1.1 ms in release and 22 ms in debug.
+    - The dock now caches the sorted columns per result set (trace, listed rows, results run and
+      count, length, format). Collecting and sorting them took 9 ms on every frame before.
+    - `DecoderStack::generation` counts clears, so a new run with the same count is not mistaken
+      for the old one.
+  - **Table and export against Qt:** not automated. Qt's protocol export exists only in its
+    dialog, and Qt's control API has no method for it. The rows come from decoder results that
+    `decode-diff` shows identical, and the writer follows `ProtocolExp::save_proc`. A
+    side-by-side export on `protocol.demo` is on the R1 manual A/B checklist.
+
+**Step 6, documentation (done 2026-10-19):**
+- The Phase 0 note on the unplug traces now says what was checked (behaviour, both drivers) and
+  that the pcapng needs a manual unplug: it is on the R1 checklist.
+- DEVIATIONS:
+  - F31 (runtime) and F32 (decoder chunk edges);
+  - rows for the missing bitstream, srzip chunk names and GLib escaping;
+  - decoder options from files ✔;
+  - the USB stop/abort row was already ticked.
+- PARITY: the export row lists srzip.
+- PLAN: §5.6 marked done; R1 gets the Python layout and a manual A/B checklist; §6 points at R1.
 

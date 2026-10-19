@@ -10,6 +10,7 @@
 //! Every call has a timeout; bulk IN is a queue of submitted transfers that
 //! complete in order, which can be cancelled as a whole.
 
+#[cfg(feature = "nusb")]
 pub mod nusb_backend;
 pub mod replay;
 pub mod sim;

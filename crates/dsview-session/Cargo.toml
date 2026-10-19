@@ -10,7 +10,7 @@ publish.workspace = true
 [dependencies]
 dsview-core = { path = "../dsview-core" }
 dsview-drivers = { path = "../dsview-drivers" }
-dsview-usb = { path = "../dsview-usb" }
+dsview-usb = { path = "../dsview-usb", default-features = false }
 dsview-decode = { path = "../dsview-decode" }
 dsview-formats = { path = "../dsview-formats" }
 dsview-store = { path = "../dsview-store" }
@@ -19,4 +19,6 @@ libc = "0.2"
 serde = "1"
 
 [dev-dependencies]
+# the examples drive real devices
+dsview-usb = { path = "../dsview-usb" }
 zip = { version = "9", default-features = false, features = ["deflate"] }

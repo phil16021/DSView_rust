@@ -255,6 +255,16 @@ impl AddDialog {
     }
 }
 
+/// What the cached table columns depend on: the trace, its listed rows,
+/// its results (run and count), the capture length and the number format.
+type ColsKey = (
+    usize,
+    Vec<usize>,
+    (u64, u64),
+    u64,
+    dsview_session::numfmt::Format,
+);
+
 pub struct ProtocolDock {
     pub open: bool,
     search: String,
@@ -267,6 +277,9 @@ pub struct ProtocolDock {
     matches: Vec<usize>,
     cur_match: usize,
     filtered_for: (usize, usize, String, u64),
+    /// The table's columns, sorted, until the trace, its listed rows or
+    /// its results change (100k+ rows stay interactive).
+    cols_cache: Option<(ColsKey, Arc<Vec<Vec<Ann>>>)>,
     export: Option<Export>,
     pub message: Option<String>,
     /// The annotation clicked: the view jumps to it.
@@ -374,6 +387,7 @@ impl Default for ProtocolDock {
             matches: Vec::new(),
             cur_match: 0,
             filtered_for: (usize::MAX, 0, String::new(), 0),
+            cols_cache: None,
             export: None,
             message: None,
             jump: None,
@@ -832,10 +846,25 @@ impl ProtocolDock {
             return;
         }
         self.filter_col = self.filter_col.min(rows.len() - 1);
-        let cols: Vec<Vec<Ann>> = rows
-            .iter()
-            .map(|(i, _)| t.stack.row_sorted(*i, sample_count))
-            .collect();
+        let key: ColsKey = (
+            Arc::as_ptr(t) as usize,
+            rows.iter().map(|(i, _)| *i).collect(),
+            (t.stack.generation(), t.stack.result_count()),
+            sample_count,
+            t.stack.format(),
+        );
+        let cols = match &self.cols_cache {
+            Some((k, c)) if *k == key => c.clone(),
+            _ => {
+                let c: Arc<Vec<Vec<Ann>>> = Arc::new(
+                    rows.iter()
+                        .map(|(i, _)| t.stack.row_sorted(*i, sample_count))
+                        .collect(),
+                );
+                self.cols_cache = Some((key, c.clone()));
+                c
+            }
+        };
         let n = cols.iter().map(Vec::len).max().unwrap_or(0);
 
         // search in the chosen column (case-sensitive, as Qt's filter)
@@ -938,7 +967,7 @@ impl ProtocolDock {
                     row.col(|ui| {
                         ui.label((i + 1).to_string());
                     });
-                    for col in &cols {
+                    for col in cols.iter() {
                         row.col(|ui| {
                             if let Some(a) = col.get(i)
                                 && ui

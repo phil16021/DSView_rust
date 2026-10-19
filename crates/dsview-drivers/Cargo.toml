@@ -10,7 +10,9 @@ publish.workspace = true
 [dependencies]
 dsview-core = { path = "../dsview-core" }
 dsview-formats = { path = "../dsview-formats" }
-dsview-usb = { path = "../dsview-usb" }
+dsview-usb = { path = "../dsview-usb", default-features = false }
 
 [dev-dependencies]
+# the examples drive real devices
+dsview-usb = { path = "../dsview-usb" }
 serde_json.workspace = true

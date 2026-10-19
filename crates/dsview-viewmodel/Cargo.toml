@@ -9,3 +9,6 @@ publish.workspace = true
 
 [dependencies]
 dsview-store = { path = "../dsview-store" }
+
+[dev-dependencies]
+proptest = "1"

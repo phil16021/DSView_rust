@@ -485,6 +485,19 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
   sample rate, so a V/div changed after a capture stretches the trace and keeps its voltages.
   The control API now does the same (row below).
 
+### F32. Decoder chunk edges (M6g)
+- **libsigrokdecode's results depend on the chunks.** The new chunking-invariance test found:
+  - An annotation can move by one sample when its decoder's `wait()` ends on the first sample of
+    a chunk. On `protocol.demo` with 64-sample chunks, 43 of 9337 output lines move: CAN-FD and
+    UART, start and/or end by one.
+  - Chunks of a single sample decode nothing.
+- **The C engine does the same:** `oracle-decode` and `rust-decode` agree line for line at every
+  chunk size tried (whole, 64, 1). So the Rust engine keeps C's behaviour, as Phase 2 required.
+- DSView's own chunks (the decoder thread's blocks) are far larger than one sample, so the empty
+  case never happens in the application. The ±1 shift does.
+- **Plan:** the fix belongs to M7b, with the other post-parity fixes. `tests/chunking.rs` checks
+  invariance up to that one sample for chunks of 2 samples and more.
+
 ## Planned behaviour deviations (Rust intentionally differs)
 
 | Area | C behaviour | Rust behaviour | Phase |

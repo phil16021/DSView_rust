@@ -308,10 +308,29 @@ fn verify_counter(c: &Ctl, s: &Session, o: &Opts) -> Result<(), String> {
         .map_or(1, |v| v.get_i16());
     s.set_config(key::OPERATION_MODE, ConfValue::I16(2), None);
     let r = (|| {
-        if let Some(n) = o.samples {
-            c.call("set_sampling", json!({ "samples": n }))?;
+        let mut p = Map::new();
+        if let Some(r) = o.samplerate {
+            p.insert("samplerate".into(), r.into());
         }
-        c.call("start_capture", json!({ "timeout_s": o.timeout_s }))?;
+        if let Some(n) = o.samples {
+            p.insert("samples".into(), n.into());
+        }
+        if !p.is_empty() {
+            c.call("set_sampling", Value::Object(p))?;
+        }
+        if let Some(spec) = &o.channels {
+            let on = channel_list(spec)?;
+            let all: Vec<Value> = s
+                .channels()
+                .iter()
+                .map(|ch| json!({"index": ch.index, "enabled": on.contains(&i64::from(ch.index))}))
+                .collect();
+            c.call("set_channels", json!({ "channels": all }))?;
+        }
+        let info = c.call("start_capture", json!({ "timeout_s": o.timeout_s }))?;
+        if o.json {
+            print(&info);
+        }
         let store = s.data().logic.lock().unwrap_or_else(|e| e.into_inner());
         let chans: Vec<i32> = store
             .channel_indexes()

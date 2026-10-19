@@ -4,6 +4,9 @@
 //!   cargo xtask corpus verify    check every corpus file against its hash
 //!   cargo xtask golden gen       (re)generate goldens with the C oracle
 //!   cargo xtask golden check     regenerate in memory and diff against the stored goldens
+//!   cargo xtask golden bless     write the goldens from the Rust implementation (the
+//!                                reader summary and rust-decode), for intentional
+//!                                changes once they are in DEVIATIONS.md
 //!   cargo xtask control record   run the demo scenario against `DSView --mcp`, store the transcript
 //!   cargo xtask control check    run it again and compare with the stored transcript
 //!   cargo xtask control dump OUT  run it and write the transcript to OUT (A/B of two DSViews)
@@ -40,6 +43,7 @@ fn main() -> Result<()> {
         }
         ["golden", "gen"] => golden_run(&root, Mode::Generate),
         ["golden", "check"] => golden_run(&root, Mode::Check),
+        ["golden", "bless"] => golden_run(&root, Mode::Bless),
         ["control", "record"] => control_run(&root, Mode::Generate),
         ["control", "check"] => control_run(&root, Mode::Check),
         ["control", "dump", out] => control_dump(Path::new(out)),
@@ -52,7 +56,7 @@ fn main() -> Result<()> {
         ["gen-header", "--check"] => gen_header(&root, true),
         _ => {
             eprintln!(
-                "usage: cargo xtask <corpus init|corpus verify|golden gen|golden check|control record|control check|control ab|mcp suite BIN [OUT]|mcp compare A B|gen-header [--check]|usb record>"
+                "usage: cargo xtask <corpus init|corpus verify|golden gen|golden check|golden bless|control record|control check|control ab|mcp suite BIN [OUT]|mcp compare A B|gen-header [--check]|usb record>"
             );
             std::process::exit(2);
         }
@@ -94,6 +98,8 @@ fn corpus_init(root: &Path) -> Result<()> {
 enum Mode {
     Generate,
     Check,
+    /// Generate from the Rust side: no C code runs.
+    Bless,
 }
 
 fn oracle_bin(root: &Path, name: &str) -> Result<PathBuf> {
@@ -136,14 +142,26 @@ fn golden_run(root: &Path, mode: Mode) -> Result<()> {
         let input = root.join(&entry.path);
         let input = input.to_str().context("non-UTF-8 path")?;
 
+        let dsl_text = if mode == Mode::Bless {
+            // oracle-dsl's output, from the Rust reader
+            let summary = dsview_testkit::dsl_summary::summary(&root.join(&entry.path));
+            format!("{}\n", serde_json::to_string_pretty(&summary)?)
+        } else {
+            run(&dsl, &[input])?
+        };
         let mut outputs = vec![(
             root.join(format!("testdata/golden/dsl/{name}.json")),
-            run(&dsl, &[input])?,
+            dsl_text,
             "",
         )];
         if entry.decode {
             let golden = root.join(format!("testdata/golden/decode/{name}.jsonl.gz"));
-            outputs.push((golden.clone(), run(&decode, &[input])?, ""));
+            let engine = if mode == Mode::Bless {
+                &rust_decode
+            } else {
+                &decode
+            };
+            outputs.push((golden.clone(), run(engine, &[input])?, ""));
             // the Rust decoder engine must reproduce the same golden
             if mode == Mode::Check {
                 outputs.push((
@@ -182,7 +200,7 @@ fn golden_run(root: &Path, mode: Mode) -> Result<()> {
             let rel = path.strip_prefix(root)?.display().to_string();
             let gz = rel.ends_with(".gz");
             match mode {
-                Mode::Generate => {
+                Mode::Generate | Mode::Bless => {
                     if gz {
                         golden::write_gz(&path, &text)?;
                     } else {
@@ -323,7 +341,8 @@ fn control_run(root: &Path, mode: Mode) -> Result<()> {
 
     let path = root.join("testdata/control/demo-scenario.json");
     match mode {
-        Mode::Generate => {
+        // the transcript is recorded against Qt's GUI either way
+        Mode::Generate | Mode::Bless => {
             std::fs::create_dir_all(path.parent().unwrap())?;
             std::fs::write(&path, serde_json::to_string_pretty(&transcript)? + "\n")?;
             println!(

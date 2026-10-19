@@ -128,11 +128,12 @@ fn dso(inp: &mut Input) {
         let n = (inp.u32() % 50_000) as u64;
         let len = (inp.u32() % 8192) as usize;
         let pkt = inp.bytes(len).to_vec();
+        let tog = inp.byte() & 1 != 0;
         if first {
-            s.first_payload(&pkt, n, total, &chans, instant, file);
+            s.first_payload(&pkt, n, total, &chans, instant, file, tog);
             first = false;
         } else {
-            s.append_payload(&pkt, n);
+            s.append_payload(&pkt, n, tog);
         }
         for ch in 0..3 {
             let _ = s.get_samples(n / 2, ch);

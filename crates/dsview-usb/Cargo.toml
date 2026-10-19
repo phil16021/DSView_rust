@@ -7,7 +7,18 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+default = ["nusb"]
+# The real devices (`nusb_backend`). Off for builds that only simulate or
+# replay, such as the fuzz targets (nusb 0.2.8's `cfg(fuzzing)` code does
+# not compile).
+nusb = ["dep:nusb", "dep:futures-core"]
+
 [dependencies]
-nusb = "0.2"
+nusb = { version = "0.2", optional = true }
 # nusb's hotplug stream (already in its dependencies)
-futures-core = "0.3"
+futures-core = { version = "0.3", optional = true }
+
+[[bin]]
+name = "usb-probe"
+required-features = ["nusb"]

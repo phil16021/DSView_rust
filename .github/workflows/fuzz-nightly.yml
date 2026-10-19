@@ -1,0 +1,50 @@
+# Nightly fuzzing: every target for an hour per night, with the corpus kept
+# between runs in the cache. With the 11 targets that is 11 h a night; the
+# 24 h of PLAN §5.6 are reached on the third night. Crashes are uploaded.
+# Leak reports are off: the JSON targets keep one Python interpreter and
+# session for the whole run on purpose.
+
+name: Fuzz (nightly)
+
+on:
+  schedule:
+    - cron: "17 1 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [header, dsl_reader, stores, usb_header, dso_status_block, pcapng_reader,
+                 jsonrpc_request, srzip, dsc_json, decoders_json, demo]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v6
+      - name: Dependencies, nightly and cargo-fuzz
+        run: |
+          sudo apt-get update && sudo apt-get install -y python3-dev libusb-1.0-0-dev
+          rustup toolchain install nightly --profile minimal
+          cargo install --locked cargo-fuzz
+      - name: Corpus
+        uses: actions/cache@v4
+        with:
+          path: fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ matrix.target }}-
+      - name: Fuzz for an hour
+        working-directory: fuzz
+        run: |
+          mkdir -p "corpus/${{ matrix.target }}" "seeds/${{ matrix.target }}"
+          cargo +nightly fuzz run "${{ matrix.target }}" "corpus/${{ matrix.target }}" \
+            "seeds/${{ matrix.target }}" -- -max_total_time=3600 -rss_limit_mb=2048 -detect_leaks=0
+      - name: Crashes
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts/${{ matrix.target }}

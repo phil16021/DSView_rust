@@ -268,6 +268,8 @@ struct Results {
     /// Per row of [`DecoderStack::rows`].
     rows: Vec<RowData>,
     count: u64,
+    /// Counts the clears: with `count`, which results a view has seen.
+    generation: u64,
     progress: i32,
     error: String,
     samplerate: f64,
@@ -450,6 +452,11 @@ impl DecoderStack {
         self.results().progress
     }
 
+    /// Changes with every clear (a new run, region or capture).
+    pub fn generation(&self) -> u64 {
+        self.results().generation
+    }
+
     /// `get_result_count()`: annotations received in the last run.
     pub fn result_count(&self) -> u64 {
         self.results().count
@@ -515,6 +522,7 @@ impl DecoderStack {
         let n = r.rows.len();
         r.rows = vec![RowData::default(); n];
         r.count = 0;
+        r.generation += 1;
         r.error.clear();
         r.texts.clear();
     }

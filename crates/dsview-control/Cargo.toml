@@ -24,4 +24,4 @@ dsview-store = { path = "../dsview-store", optional = true }
 
 [dev-dependencies]
 dsview-testkit = { path = "../../dev/dsview-testkit" }
-dsview-usb = { path = "../dsview-usb" }
+dsview-usb = { path = "../dsview-usb", default-features = false }

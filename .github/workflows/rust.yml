@@ -16,7 +16,7 @@ env:
   CARGO_TERM_COLOR: always
   # The oracle compiles the original C/C++ sources against these (Qt Core for
   # the pv::data snapshot classes).
-  ORACLE_DEPS: pkg-config libglib2.0-dev python3-dev libusb-1.0-0-dev zlib1g-dev qt6-base-dev
+  ORACLE_DEPS: pkg-config libglib2.0-dev python3-dev libusb-1.0-0-dev zlib1g-dev qt6-base-dev libfftw3-dev
 
 jobs:
   lint:
@@ -33,7 +33,13 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   test:
-    runs-on: ubuntu-24.04
+    # Python 3.10 (Ubuntu 22.04) and 3.12 (24.04): the interpreters the
+    # packages are built against.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
       - name: Install oracle build dependencies
@@ -67,12 +73,33 @@ jobs:
         run: |
           rustup toolchain install nightly --profile minimal
           cargo install --locked cargo-fuzz
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y python3-dev libusb-1.0-0-dev
       - name: Fuzz each target for 60 s
         working-directory: fuzz
         run: |
-          for t in header dsl_reader stores; do
-            cargo +nightly fuzz run "$t" "corpus/$t" "seeds/$t" -- -max_total_time=60 -rss_limit_mb=2048
+          for t in $(cargo +nightly fuzz list); do
+            mkdir -p "corpus/$t" "seeds/$t"
+            cargo +nightly fuzz run "$t" "corpus/$t" "seeds/$t" -- -max_total_time=60 -rss_limit_mb=2048 -detect_leaks=0
           done
+
+  e2e-mcp:
+    # Every dsview-mcp tool against the headless dsview-cli on the demo
+    # devices (the transcript the Qt and Rust GUIs pass too).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y python3-dev libusb-1.0-0-dev
+      - name: MCP suite on dsview-cli
+        env:
+          DSVIEW_ARGS: --data-dir ${{ github.workspace }}/DSView
+        run: |
+          rustup show
+          cargo build --locked -p dsview-cli -p dsview-mcp
+          cargo xtask mcp suite "$PWD/target/debug/dsview-cli"
+      - name: One-shot commands on the demo
+        run: cargo test --locked -p dsview-cli --test oneshot
 
   oracle-asan:
     # The store differential tests with the C++ oracle under ASan/UBSan: the
@@ -95,6 +122,19 @@ jobs:
             (cd dev/dsview-oracle && LD_PRELOAD="$(gcc -print-file-name=libasan.so)" "../../$bin")
           done
 
+  miri:
+    # The store's unsafe code (leaf blocks, raw block pointers) under Miri,
+    # on the tests that reach it with small data (the proptests take hours).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Nightly with Miri
+        run: rustup toolchain install nightly --profile minimal --component miri,rust-src
+      - name: Store tests under Miri
+        env:
+          MIRIFLAGS: -Zmiri-disable-isolation
+        run: cargo +nightly miri test --locked -p dsview-store --lib -- single_channel_roundtrip_and_edges leaf_words
+
   supply-chain:
     runs-on: ubuntu-24.04
     steps:
@@ -106,17 +146,22 @@ jobs:
           cargo deny check
 
   portability:
-    # The core crates must keep building on Windows and macOS (Linux first, portable design).
+    # Every crate but the C oracle builds on Linux and macOS (Windows is a
+    # later port: PLAN, follow-on).
     strategy:
+      fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
+        os: [ubuntu-24.04, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y python3-dev libusb-1.0-0-dev
       - name: cargo check
         run: |
           rustup show
-          cargo check --locked -p dsview-ffi
+          cargo check --locked --workspace --all-targets --exclude dsview-oracle
 
   cpp-with-rust-core:
     # The Qt application linking the Rust core (DSVIEW_RUST_CORE=ON), next to

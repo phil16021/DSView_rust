@@ -549,7 +549,7 @@ offline registry.
 **Exit:** PARITY.md 52/52; `tests/app_flow.rs` cases for settings import, shortcuts, docks per mode
 and the language switch; snapshots per theme and for Chinese.
 
-#### 5.6 M6g hardening (before release R1)
+#### 5.6 M6g hardening (before release R1) — done 2026-10-19 (STATUS.md, M6g)
 1. **Runtime.**
    - **Bundled Python:** `dsview-decode::init` sets `PYTHONHOME`/`PYTHONPATH` for the bundled layout
      (`<prefix>/lib/dsview/python3.X`) before `Python::initialize`. The binaries get a
@@ -615,6 +615,15 @@ subsystem at once.*
   - the Windows job stays as it is. It makes the last Qt Windows build.
 - **Release:** merge `philipp` into `master` and tag it (e.g. v1.7.0). The release notes list the
   deviations, the Qt fallback, and that Windows ends with this release.
+- **Python in the packages:** `tools/package/bundle-python.sh` lays out `usr/lib/dsview`; the
+  Rust binaries find it through their RUNPATH and `dsview_decode::python`, so they need no
+  wrapper script (M6g).
+- **Manual A/B checklist** (by hand, both GUIs on the same machine):
+  - the protocol table and its export on `protocol.demo` against Qt's export dialog;
+  - unplug during a stream capture, recorded with `cargo xtask usb record` (pin the pcapng in the
+    manifest);
+  - a first start without settings (driver note, document hint), and one with an older Qt
+    `DSView.conf`.
 - **Exit:**
   - the packages install and run on Ubuntu 22.04, 24.04 and 26.04: the Rust GUI starts with the
     bundled Python, the demo decodes, and the DSLogic captures;
@@ -856,13 +865,17 @@ alongside M6f.
 | Missing crates offline (nusb, pyo3, egui_dock, cbindgen, criterion not cached) | First fetch needs network; optionally `cargo vendor` |
 
 ## 6. Immediate next step
-*Updated 2026-10-19: Phases 0-4 and M6.0-M6f are done (STATUS.md); PARITY.md stands at 52 of 52.*
+*Updated 2026-10-19: Phases 0-4 and M6.0-M6g are done (STATUS.md); PARITY.md stands at 52 of 52.*
 
-**M6g hardening (§5.6)**, starting with its offline items: libpython RUNPATH and `PYTHONHOME`,
-missing-firmware errors, the srzip port, the `dsview-cli` subcommands. Its hardware steps follow on
-the DSLogic Plus.
+**Release R1 (the A/B release)**:
+- Rust becomes the default for every `DSVIEW_IMPL_*` subsystem inside `DSView-qt`.
+- `build.yml` gets a Rust toolchain and packages both GUIs with the bundled Python.
+- The manual A/B checklist.
 
-After M6g come release R1, then Phase 6 (M7a, with M7b alongside).
+The merge into `master`, the tag and the release are outward-facing steps; the user decides
+them.
+
+After R1 comes Phase 6 (M7a, with M7b alongside).
 
 Each milestone ends with a commit, STATUS/DEVIATIONS updates, and a report before the next one
 starts. Steps that need the network (`accesskit_winit`, cargo-deb, loom) are asked for when they

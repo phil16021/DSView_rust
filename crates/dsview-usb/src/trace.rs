@@ -96,6 +96,16 @@ pub fn parse(buf: &[u8]) -> Result<Vec<Urb>, TraceError> {
             return Err(bad(format!("block at {pos} has length {len}")));
         }
         let body = &buf[pos + 8..pos + len - 4];
+        // the fixed fields of each block type this reader looks at
+        let need = match ty {
+            0x0A0D_0D0A => 4,
+            1 => 2,
+            6 => 20,
+            _ => 0,
+        };
+        if body.len() < need {
+            return Err(bad(format!("block at {pos} is too short for its type")));
+        }
         match ty {
             0x0A0D_0D0A => {
                 if u32le(body, 0) != 0x1A2B_3C4D {
@@ -118,7 +128,7 @@ pub fn parse(buf: &[u8]) -> Result<Vec<Urb>, TraceError> {
                 let hdr = *ifaces
                     .get(iface)
                     .ok_or_else(|| bad("packet before its interface"))?;
-                if 20 + cap > body.len() {
+                if cap > body.len() - 20 {
                     return Err(bad("packet longer than its block"));
                 }
                 out.push(urb(&body[20..20 + cap], hdr)?);
@@ -166,6 +176,23 @@ fn urb(p: &[u8], hdr: usize) -> Result<Urb, TraceError> {
         status: le32(28),
         length: le32(32) as u32,
         data: p.get(data_at..).map(<[u8]>::to_vec).unwrap_or_default(),
-        ts_us: i64::from_le_bytes(p[16..24].try_into().unwrap()) * 1_000_000 + le32(24) as i64,
+        ts_us: i64::from_le_bytes(p[16..24].try_into().unwrap())
+            .wrapping_mul(1_000_000)
+            .wrapping_add(le32(24) as i64),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    /// Blocks too short for their type (found by the `pcapng_reader` fuzz
+    /// target) are errors, not panics.
+    #[test]
+    fn short_blocks_are_errors() {
+        let interface = [1, 0, 0, 0, 12, 0, 0, 0, 0, 12, 0, 0, 0, 0x2e, 0, 0, 3, 3];
+        assert!(super::parse(&interface).is_err());
+        let section = [0x0A, 0x0D, 0x0D, 0x0A, 12, 0, 0, 0, 12, 0, 0, 0];
+        assert!(super::parse(&section).is_err());
+        let packet = [6, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 16, 0, 0, 0];
+        assert!(super::parse(&packet).is_err());
+    }
 }

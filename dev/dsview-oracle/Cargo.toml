@@ -14,7 +14,7 @@ dsview-drivers = { path = "../../crates/dsview-drivers" }
 # the C build has DSVIEW_RUST_CORE set: rs_driver.c etc. call into dsv_*
 dsview-ffi = { path = "../../crates/dsview-ffi" }
 dsview-formats = { path = "../../crates/dsview-formats" }
-dsview-usb = { path = "../../crates/dsview-usb" }
+dsview-usb = { path = "../../crates/dsview-usb", default-features = false }
 anyhow.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
