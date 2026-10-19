@@ -46,8 +46,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
-      - name: Build dependencies
-        run: sudo apt-get update && sudo apt-get install -y $RUST_DEPS
+      # the GUI snapshot tests render with wgpu on Mesa's software drivers
+      # (lavapipe, llvmpipe); the Qt packages used to pull them in
+      - name: Build dependencies and software rendering
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y $RUST_DEPS mesa-vulkan-drivers libgl1-mesa-dri libegl1
       - name: Toolchain and nextest
         run: |
           rustup show
