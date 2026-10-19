@@ -45,11 +45,12 @@ jobs:
       - name: Install oracle build dependencies
         run: sudo apt-get update && sudo apt-get install -y $ORACLE_DEPS
       # The oracle zeroes the C drivers' uninitialised fields with
-      # -ftrivial-auto-var-init (DEVIATIONS F20, F22), which GCC 11 lacks.
-      - name: GCC 12 on Ubuntu 22.04
+      # -ftrivial-auto-var-init (DEVIATIONS F20, F22), which GCC 11 lacks;
+      # its Qt 6.2 has no pkg-config files, so the oracle takes Qt5Core.
+      - name: GCC 12 and Qt 5 Core on Ubuntu 22.04
         if: matrix.os == 'ubuntu-22.04'
         run: |
-          sudo apt-get install -y gcc-12 g++-12
+          sudo apt-get install -y gcc-12 g++-12 qtbase5-dev
           echo "CC=gcc-12" >> "$GITHUB_ENV"
           echo "CXX=g++-12" >> "$GITHUB_ENV"
       - name: Toolchain, nextest and cbindgen

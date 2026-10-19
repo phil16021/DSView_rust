@@ -1851,7 +1851,12 @@ impl Device for Demo {
             }
             key::PROBE_EN => self.ch_mut(ch)?.enabled = data.get_bool(),
             key::PROBE_VDIV => {
-                self.ch_mut(ch)?.vdiv = data.get_u64();
+                // C stores 0 and divides by it when the DSO data is scaled
+                let vdiv = data.get_u64();
+                if vdiv == 0 {
+                    return Err(SrError::Arg);
+                }
+                self.ch_mut(ch)?.vdiv = vdiv;
                 if self.mode == Mode::Dso {
                     if let Some(pb) = self.packet_buffer.as_mut() {
                         pb.post_len = 0;

@@ -279,6 +279,8 @@ Found while porting, identical in Rust unless noted:
   copy.
 - **NULL channel crash.** Channel keys (`PROBE_EN`, `PROBE_VDIV`, …) with no channel dereference
   NULL in both drivers. Rust returns SR_ERR_ARG. The GUI always passes a channel.
+- **V/div 0** (found by the `demo` fuzz target, R1). C stores it and divides by it when it scales
+  the DSO data. Rust refuses it with SR_ERR_ARG; the GUI only offers the listed V/div values.
 - **Two SR_DF_END packets per demo DSO capture.** The source callback sends one when it stops, and
   `dev_acquisition_stop` sends another. Same in Rust.
 - **Pattern files.** Any name containing ".demo" counts, losing its last five characters. The
@@ -515,6 +517,18 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
   - Unsanitized, `store_ad_diff` keeps feeding such inputs and compares the results.
   - Under ASan (`ORACLE_SANITIZE=1`, `cfg(oracle_sanitize)`) it uses whole 16-sample totals,
     and no packets past the ring (F12). The C++ code stays memory-clean on everything else.
+
+### F34. `ds_lib_exit()` leaves a dangling active device (R1, first CI run)
+- **Found by** the golden check on the GitHub runner: `oracle-dsl` crashed there, and valgrind
+  and ASan show the same read locally.
+- **The defect:** `ds_lib_exit()` destroys every device, including the active one. It does not
+  clear `lib_ctx.actived_device_instance`. After a second `ds_lib_init()` in the same process,
+  the next `ds_active_device()` reads the freed instance (`lib_main.c:495`).
+- **Reach:** DSView starts the library once per process, so the application never hits it. The
+  oracle did: it ran the library twice per file.
+- **Rust:** `dsview_session::Library` owns its devices, so there is nothing to dangle.
+- The oracle now starts the library once per process and opens the next file as DSView does
+  (`csrc/oracle_dsl.c`). The goldens are unchanged.
 
 ## Planned behaviour deviations (Rust intentionally differs)
 

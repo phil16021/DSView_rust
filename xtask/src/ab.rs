@@ -300,8 +300,9 @@ pub fn run(root: &Path, args: &[&str]) -> Result<()> {
         } else {
             diffs += 1;
             println!(
-                "FAIL {}\n  c:    {}\n  rust: {}",
+                "FAIL {}\n  first difference: {}\n  c:    {}\n  rust: {}",
                 e.path,
+                first_diff(a, b, ""),
                 truncate(a),
                 truncate(b)
             );
@@ -311,6 +312,37 @@ pub fn run(root: &Path, args: &[&str]) -> Result<()> {
         bail!("{diffs} capture(s) differ between DSVIEW_IMPL=c and rust");
     }
     Ok(())
+}
+
+/// Where `a` and `b` first differ, as a path with both values there.
+fn first_diff(a: &Value, b: &Value, path: &str) -> String {
+    match (a, b) {
+        (Value::Object(x), Value::Object(y)) => {
+            let mut keys: Vec<&String> = x.keys().chain(y.keys()).collect();
+            keys.sort();
+            keys.dedup();
+            keys.into_iter()
+                .find(|k| x.get(*k) != y.get(*k))
+                .map(|k| {
+                    let (u, v) = (
+                        &x.get(k).cloned().unwrap_or(Value::Null),
+                        &y.get(k).cloned().unwrap_or(Value::Null),
+                    );
+                    first_diff(u, v, &format!("{path}.{k}"))
+                })
+                .unwrap_or_default()
+        }
+        (Value::Array(x), Value::Array(y)) => {
+            match (0..x.len().max(y.len())).find(|&i| x.get(i) != y.get(i)) {
+                Some(i) if i < x.len() && i < y.len() => {
+                    first_diff(&x[i], &y[i], &format!("{path}[{i}]"))
+                }
+                Some(i) => format!("{path}: lengths {} and {} (from [{i}])", x.len(), y.len()),
+                None => String::new(),
+            }
+        }
+        _ => format!("{path}: c {} / rust {}", truncate(a), truncate(b)),
+    }
 }
 
 fn truncate(v: &Value) -> String {

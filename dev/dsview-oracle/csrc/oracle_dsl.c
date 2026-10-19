@@ -70,6 +70,12 @@ static gboolean get_u64(int key, uint64_t *out)
     return TRUE;
 }
 
+/* The library is started once per process and never exited: ds_lib_exit()
+ * frees the active device but keeps lib_ctx's pointer to it, so a second
+ * ds_lib_init() reads freed memory on the next activation (DEVIATIONS F34).
+ * A second run opens the next file, as DSView does. */
+static gboolean g_lib_ready;
+
 int oracle_dsl_run(const char *path, int log_level, struct oracle_dsl_info *info,
                    oracle_packet_cb cb, void *user)
 {
@@ -83,8 +89,11 @@ int oracle_dsl_run(const char *path, int log_level, struct oracle_dsl_info *info
     ds_log_level(log_level);
     ds_set_datafeed_callback(on_datafeed);
     ds_set_event_callback(on_event);
-    if (ds_lib_init() != SR_OK)
-        return -1;
+    if (!g_lib_ready) {
+        if (ds_lib_init() != SR_OK)
+            return -1;
+        g_lib_ready = TRUE;
+    }
 
     if (ds_device_from_file(path) != SR_OK)
         goto out;
@@ -123,7 +132,5 @@ int oracle_dsl_run(const char *path, int log_level, struct oracle_dsl_info *info
     ret = finished ? 0 : -2;
 
 out:
-    ds_release_actived_device();
-    ds_lib_exit();
     return ret;
 }

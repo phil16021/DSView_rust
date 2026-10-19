@@ -120,9 +120,10 @@ fn run(bin: &Path, args: &[&str]) -> Result<String> {
         .with_context(|| format!("run {}", bin.display()))?;
     if !out.status.success() {
         bail!(
-            "{} {:?} failed:\n{}",
+            "{} {:?} failed ({}):\n{}",
             bin.display(),
             args,
+            out.status,
             String::from_utf8_lossy(&out.stderr)
         );
     }

@@ -168,3 +168,25 @@ fn dso_runs_until_stopped_and_ends_twice_like_c() {
     // the source callback and dev_acquisition_stop both send END in C
     assert_eq!(ends, 2);
 }
+
+#[test]
+fn zero_vdiv_is_refused() {
+    // found by the `demo` fuzz target: C stores V/div 0 and divides by it
+    // when it scales the DSO data
+    let _g = setup();
+    let mut d = demo::scan().remove(0);
+    d.open().unwrap();
+    assert_eq!(
+        d.config_set(key::PROBE_VDIV, &ConfValue::U64(0), Some(0)),
+        Err(SrError::Arg)
+    );
+    assert_eq!(
+        d.config_get(key::PROBE_VDIV, Some(0)).unwrap(),
+        Some(ConfValue::U64(1000))
+    );
+    assert!(
+        capture(&mut d, 5)
+            .iter()
+            .any(|p| matches!(p.body, Body::Dso { .. }))
+    );
+}
