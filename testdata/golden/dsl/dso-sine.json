@@ -1,0 +1,27 @@
+{
+  "channels": [
+    {
+      "enabled": true,
+      "index": 0,
+      "name": "0",
+      "type": "dso"
+    },
+    {
+      "enabled": true,
+      "index": 1,
+      "name": "1",
+      "type": "dso"
+    }
+  ],
+  "limit_samples": 10000,
+  "mode": "dso",
+  "packets": {
+    "analog": 0,
+    "dso": 1,
+    "end": 1,
+    "logic": 0
+  },
+  "raw_samples": 10000,
+  "raw_sha256": "15122216022eaa44341f86c0152739dbab87c6945bf0a8a63fd3c4db6652872c",
+  "samplerate": 100000000
+}

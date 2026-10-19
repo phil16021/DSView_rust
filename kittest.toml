@@ -1,0 +1,5 @@
+# egui_kittest's snapshot comparison (crates/dsview-gui/tests). The DSO and
+# Lissajous traces come from libm results and are anti-aliased by the software
+# renderer: another glibc or Mesa (CI's Ubuntu 24.04 against the 26.04 the
+# snapshots were made on) moves 1-3 pixels past the colour threshold.
+max_failed_pixels = 4

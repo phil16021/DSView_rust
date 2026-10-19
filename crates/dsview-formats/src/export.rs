@@ -1,0 +1,498 @@
+//! CSV and VCD export, byte-compatible with libsigrok4DSL's output modules
+//! (`output/csv.c`, `output/vcd.c`). The exporter is fed the same packets
+//! `StoreSession::export_exec` sends to the C modules and returns the text
+//! each packet produces.
+//!
+//! Intentional differences (DEVIATIONS.md): no buffer over-reads, no
+//! undefined behaviour with 32+ logic channels or more than 8 analog
+//! channels, and numbers never use a locale decimal comma.
+
+use crate::cfmt::{fmt_f, fmt_g, period_string, samplecount_string, samplerate_string};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChannelKind {
+    Logic,
+    Dso,
+    Analog,
+    Other,
+}
+
+/// A device channel as the output modules see it (`struct sr_channel`).
+#[derive(Debug, Clone)]
+pub struct ExportChannel {
+    pub index: u16,
+    pub kind: ChannelKind,
+    pub enabled: bool,
+    pub name: String,
+    pub vdiv: u64,
+    pub vfactor: u64,
+    pub hw_offset: u16,
+    pub map_max: f64,
+    pub map_min: f64,
+    pub map_unit: String,
+}
+
+/// One datafeed packet, as passed to an output module.
+#[derive(Debug)]
+pub enum ExportPacket<'a> {
+    Meta {
+        samplerate: Option<u64>,
+        limit_samples: Option<u64>,
+        ref_min: Option<u32>,
+        ref_max: Option<u32>,
+    },
+    /// `unitsize` bytes per sample, bit k = k-th exported logic channel.
+    Logic {
+        data: &'a [u8],
+        unitsize: usize,
+        export_original: bool,
+    },
+    /// u8 samples interleaved over the enabled channels.
+    Dso {
+        data: &'a [u8],
+        num_samples: usize,
+    },
+    Analog {
+        data: &'a [u8],
+        num_samples: usize,
+    },
+    End,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Format {
+    Csv,
+    Vcd,
+    /// Written by [`crate::srzip::SrzipWriter`], not by [`Exporter`].
+    Srzip,
+}
+
+impl Format {
+    pub fn from_id(id: &str) -> Option<Format> {
+        match id {
+            "csv" => Some(Format::Csv),
+            "vcd" => Some(Format::Vcd),
+            "srzip" => Some(Format::Srzip),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ExportError {
+    #[error("VCD only supports 94 channels")]
+    TooManyChannels,
+    #[error("VCD exports logic data only")]
+    NotLogic,
+    #[error("srzip is written by SrzipWriter")]
+    NotText,
+}
+
+pub struct Exporter {
+    format: Format,
+    kind: ChannelKind,
+    channels: Vec<ExportChannel>,
+    /// Indexes into `channels` of the enabled channels of `kind`.
+    enabled: Vec<usize>,
+    samplerate: u64,
+    limit_samples: u64,
+    ref_min: u32,
+    ref_max: u32,
+    header_done: bool,
+    /// Text for "sampled on ..." (CSV) / "$date ..." (VCD), set by the caller.
+    pub time_string: String,
+    pub date_string: String,
+    // CSV
+    index: u64,
+    pre_data: u64,
+    // VCD
+    prevsample: Vec<u8>,
+    samplecount: u64,
+    period: u64,
+}
+
+impl Exporter {
+    /// `kind` is the export's channel type (the "type" option); `start_index`
+    /// is `sr_output.start_sample_index`.
+    pub fn new(
+        format: Format,
+        kind: ChannelKind,
+        channels: Vec<ExportChannel>,
+        start_index: u64,
+    ) -> Result<Self, ExportError> {
+        if format == Format::Srzip {
+            return Err(ExportError::NotText);
+        }
+        let enabled: Vec<usize> = channels
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| {
+                c.enabled
+                    && c.kind
+                        == if format == Format::Vcd {
+                            ChannelKind::Logic
+                        } else {
+                            kind
+                        }
+            })
+            .map(|(i, _)| i)
+            .collect();
+        if format == Format::Vcd && enabled.len() > 94 {
+            return Err(ExportError::TooManyChannels);
+        }
+        Ok(Exporter {
+            format,
+            kind,
+            channels,
+            enabled,
+            samplerate: 0,
+            limit_samples: 0,
+            ref_min: 0,
+            ref_max: 0,
+            header_done: false,
+            time_string: String::new(),
+            date_string: String::new(),
+            index: start_index,
+            pre_data: 0,
+            prevsample: Vec::new(),
+            samplecount: 0,
+            period: 0,
+        })
+    }
+
+    /// Text produced by one packet (`None` where the C module sets no output).
+    pub fn receive(&mut self, p: &ExportPacket<'_>) -> Result<Option<String>, ExportError> {
+        match self.format {
+            Format::Csv => Ok(self.csv(p)),
+            Format::Vcd => self.vcd(p),
+            Format::Srzip => Err(ExportError::NotText),
+        }
+    }
+
+    // ------------------------------------------------------------ CSV
+
+    fn csv_header(&self) -> String {
+        let mut h = format!(
+            "; CSV, generated by DSView, sampled on {}\n",
+            self.time_string
+        );
+        let num_channels = if self.kind == ChannelKind::Logic {
+            self.channels.len()
+        } else {
+            self.enabled.len()
+        };
+        h += &format!("; Channels ({}/{})\n", self.enabled.len(), num_channels);
+        h += &format!("; Sample rate: {}\n", samplerate_string(self.samplerate));
+        h += &format!(
+            "; Sample count: {}\n",
+            samplecount_string(self.limit_samples)
+        );
+        if self.kind == ChannelKind::Logic {
+            h += "Time(s),";
+        }
+        for &ci in &self.enabled {
+            let ch = &self.channels[ci];
+            match self.kind {
+                ChannelKind::Dso => {
+                    let unit = match dso_unit(ch).0 {
+                        u if u >= 1_000_000 => "kV",
+                        u if u >= 1000 => "V",
+                        _ => "mV",
+                    };
+                    h += &format!(" {} (Unit: {unit}),", ch.name);
+                }
+                ChannelKind::Analog => h += &format!(" {} (Unit: {}),", ch.name, ch.map_unit),
+                _ => h += &format!(" {},", ch.name),
+            }
+        }
+        if !self.channels.is_empty() {
+            h.pop();
+        }
+        h.push('\n');
+        h
+    }
+
+    fn csv_begin(&mut self) -> String {
+        if self.header_done {
+            String::new()
+        } else {
+            self.header_done = true;
+            self.csv_header()
+        }
+    }
+
+    fn csv(&mut self, p: &ExportPacket<'_>) -> Option<String> {
+        match *p {
+            ExportPacket::Meta {
+                samplerate,
+                limit_samples,
+                ref_min,
+                ref_max,
+            } => {
+                self.samplerate = samplerate.unwrap_or(self.samplerate);
+                self.limit_samples = limit_samples.unwrap_or(self.limit_samples);
+                self.ref_min = ref_min.unwrap_or(self.ref_min);
+                self.ref_max = ref_max.unwrap_or(self.ref_max);
+                None
+            }
+            ExportPacket::Logic {
+                data,
+                unitsize,
+                export_original,
+            } => {
+                let mut out = self.csv_begin();
+                let n = self.enabled.len();
+                let mask = if n >= 64 { u64::MAX } else { (1u64 << n) - 1 };
+                if unitsize == 0 {
+                    return Some(out);
+                }
+                for sample in data.chunks_exact(unitsize) {
+                    self.index += 1;
+                    let mut word = [0u8; 8];
+                    let take = sample.len().min(8);
+                    word[..take].copy_from_slice(&sample[..take]);
+                    let masked = u64::from_le_bytes(word) & mask;
+                    if !export_original && self.index > 1 && masked == self.pre_data {
+                        continue;
+                    }
+                    out += &fmt_g((self.index - 1) as f64 / self.samplerate as f64, 15);
+                    for j in 0..n {
+                        let bit = sample.get(j / 8).is_some_and(|b| b & (1 << (j % 8)) != 0);
+                        out.push(',');
+                        out.push(if bit { '1' } else { '0' });
+                    }
+                    out.push('\n');
+                    self.pre_data = masked;
+                }
+                Some(out)
+            }
+            ExportPacket::Dso { data, num_samples } => {
+                let mut out = self.csv_begin();
+                let n = self.enabled.len();
+                let ref_range = self.ref_max.wrapping_sub(self.ref_min) as f32;
+                for i in 0..num_samples {
+                    for &ci in &self.enabled {
+                        let ch = &self.channels[ci];
+                        // csv.c: channel *index* (not position) selects the byte when >1 channel.
+                        let at = i * n + usize::from(ch.index) * usize::from(n > 1);
+                        let code = i32::from(data.get(at).copied().unwrap_or(0));
+                        let scale = dso_unit(ch).1;
+                        let v = (i32::from(ch.hw_offset) - code) as f32 * scale / ref_range;
+                        out += &fmt_f(f64::from(v), 5);
+                        out.push(',');
+                    }
+                    out.pop();
+                    out.push('\n');
+                }
+                Some(out)
+            }
+            ExportPacket::Analog { data, num_samples } => {
+                let mut out = self.csv_begin();
+                let ch_num = self.channels.len();
+                let max_min_ref = f64::from(self.ref_max.wrapping_sub(self.ref_min));
+                for i in 0..num_samples {
+                    // csv.c walks every channel's enabled flag; the per-channel settings
+                    // are those of the enabled channels of the export type, in order.
+                    let mut cfg = 0usize;
+                    for (j, ch) in self.channels.iter().enumerate() {
+                        if !ch.enabled {
+                            continue;
+                        }
+                        let code = f64::from(data.get(i * ch_num + j).copied().unwrap_or(0));
+                        let set = self.enabled.get(cfg).map(|&k| &self.channels[k]);
+                        let (off, mmax, mmin) = set.map_or((0.0, 0.0, 0.0), |c| {
+                            (f64::from(c.hw_offset), c.map_max, c.map_min)
+                        });
+                        let vf = (off - code) * (mmax - mmin) / max_min_ref;
+                        out += &fmt_f(vf, 5);
+                        out.push(',');
+                        cfg += 1;
+                    }
+                    out.pop();
+                    out.push('\n');
+                }
+                Some(out)
+            }
+            ExportPacket::End => None,
+        }
+    }
+
+    // ------------------------------------------------------------ VCD
+
+    fn vcd_header(&mut self) -> String {
+        let mut h = format!("$date {} $end\n", self.date_string);
+        h += "$version libsigrok4DSL 0.2.0 $end\n";
+        h += &format!(
+            "$comment\n  Acquisition with {}/{} channels",
+            self.enabled.len(),
+            self.channels.len()
+        );
+        if self.samplerate != 0 {
+            h += &format!(" at {}", samplerate_string(self.samplerate));
+        }
+        h += "\n$end\n";
+        self.period = if self.samplerate > 1_000_000 {
+            1_000_000_000
+        } else if self.samplerate > 1_000 {
+            1_000_000
+        } else {
+            1_000
+        };
+        h += &format!("$timescale {} $end\n", period_string(self.period));
+        h += "$scope module libsigrok4DSL $end\n";
+        for (p, &ci) in self.enabled.iter().enumerate() {
+            h += &format!(
+                "$var wire 1 {} {} $end\n",
+                (b'!' + p as u8) as char,
+                self.channels[ci].name
+            );
+        }
+        h += "$upscope $end\n$enddefinitions $end\n";
+        h
+    }
+
+    fn vcd_time(&self) -> String {
+        fmt_f(
+            self.samplecount as f64 / self.samplerate as f64 * self.period as f64,
+            0,
+        )
+    }
+
+    fn vcd(&mut self, p: &ExportPacket<'_>) -> Result<Option<String>, ExportError> {
+        match *p {
+            ExportPacket::Meta { samplerate, .. } => {
+                if let Some(s) = samplerate {
+                    self.samplerate = s;
+                }
+                Ok(None)
+            }
+            ExportPacket::Logic { data, unitsize, .. } => {
+                let mut out = if self.header_done {
+                    String::new()
+                } else {
+                    self.header_done = true;
+                    self.vcd_header()
+                };
+                if self.prevsample.is_empty() {
+                    self.prevsample = vec![0; unitsize];
+                }
+                if unitsize == 0 {
+                    return Ok(Some(out));
+                }
+                let n = self.enabled.len();
+                for sample in data.chunks_exact(unitsize) {
+                    let mut written = false;
+                    for p in 0..n {
+                        let cur = (sample.get(p / 8).copied().unwrap_or(0) >> (p % 8)) & 1;
+                        let prev =
+                            (self.prevsample.get(p / 8).copied().unwrap_or(0) >> (p % 8)) & 1;
+                        if prev == cur && self.samplecount > 0 {
+                            continue;
+                        }
+                        if !written {
+                            out.push('#');
+                            out += &self.vcd_time();
+                        }
+                        out.push(' ');
+                        out.push((b'0' + cur) as char);
+                        out.push((b'!' + p as u8) as char);
+                        written = true;
+                    }
+                    if written {
+                        out.push('\n');
+                    }
+                    self.samplecount += 1;
+                    let len = self.prevsample.len().min(sample.len());
+                    self.prevsample[..len].copy_from_slice(&sample[..len]);
+                }
+                Ok(Some(out))
+            }
+            ExportPacket::Dso { .. } | ExportPacket::Analog { .. } => Err(ExportError::NotLogic),
+            ExportPacket::End => Ok(Some(format!("#{}\n", self.vcd_time()))),
+        }
+    }
+}
+
+/// csv.c: (unit, scale) of a DSO channel, computed in `float` like the C code.
+fn dso_unit(ch: &ExportChannel) -> (i32, f32) {
+    let range = ch.vdiv.wrapping_mul(ch.vfactor).wrapping_mul(10) as f32;
+    let unit = if range >= 5_000_000.0 {
+        1_000_000
+    } else if range >= 5000.0 {
+        1000
+    } else {
+        1
+    };
+    (unit, range / unit as f32)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn logic_channels(n: u16) -> Vec<ExportChannel> {
+        (0..n)
+            .map(|i| ExportChannel {
+                index: i,
+                kind: ChannelKind::Logic,
+                enabled: true,
+                name: format!("ch{i}"),
+                vdiv: 0,
+                vfactor: 0,
+                hw_offset: 0,
+                map_max: 0.0,
+                map_min: 0.0,
+                map_unit: String::new(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn csv_logic_skips_unchanged_samples() {
+        let mut e = Exporter::new(Format::Csv, ChannelKind::Logic, logic_channels(2), 0).unwrap();
+        e.time_string = "T".into();
+        e.receive(&ExportPacket::Meta {
+            samplerate: Some(1000),
+            limit_samples: Some(4),
+            ref_min: None,
+            ref_max: None,
+        })
+        .unwrap();
+        let out = e
+            .receive(&ExportPacket::Logic {
+                data: &[0b01, 0b01, 0b10, 0b10],
+                unitsize: 1,
+                export_original: false,
+            })
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            out,
+            "; CSV, generated by DSView, sampled on T\n; Channels (2/2)\n; Sample rate: 1 kHz\n; Sample count: 4  Samples\nTime(s), ch0, ch1\n0,1,0\n0.002,0,1\n"
+        );
+    }
+
+    #[test]
+    fn vcd_logic_deltas() {
+        let mut e = Exporter::new(Format::Vcd, ChannelKind::Logic, logic_channels(2), 0).unwrap();
+        e.date_string = "D".into();
+        e.receive(&ExportPacket::Meta {
+            samplerate: Some(10_000_000),
+            limit_samples: None,
+            ref_min: None,
+            ref_max: None,
+        })
+        .unwrap();
+        let out = e
+            .receive(&ExportPacket::Logic {
+                data: &[0b01, 0b01, 0b11],
+                unitsize: 1,
+                export_original: false,
+            })
+            .unwrap()
+            .unwrap();
+        assert!(out.starts_with("$date D $end\n$version libsigrok4DSL 0.2.0 $end\n"));
+        assert!(out.ends_with("#0 1! 0\"\n#200 1\"\n"), "{out}");
+        assert_eq!(e.receive(&ExportPacket::End).unwrap().unwrap(), "#300\n");
+    }
+}

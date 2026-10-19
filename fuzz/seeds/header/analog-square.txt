@@ -1,0 +1,28 @@
+[version]
+version = 3
+[header]
+driver = virtual-demo
+device mode = 2
+capturefile = data
+total samples = 155
+total probes = 2
+total blocks = 1
+samplerate = 10 Hz
+bits = 8
+trigger pos = 0
+probe0 = 0
+ enable0 = 1
+ coupling0 = 1
+ vDiv0 = 1000
+ vOffset0 = 128
+ mapUnit0 = V
+ mapMax0 = 5.000000
+ mapMin0 = -5.000000
+probe1 = 1
+ enable1 = 1
+ coupling1 = 1
+ vDiv1 = 1000
+ vOffset1 = 128
+ mapUnit1 = V
+ mapMax1 = 5.000000
+ mapMin1 = -5.000000

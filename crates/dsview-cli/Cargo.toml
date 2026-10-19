@@ -1,0 +1,22 @@
+[package]
+name = "dsview-cli"
+version.workspace = true
+description = "DSView without a GUI: the capture session behind the control socket"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "dsview-cli"
+path = "src/main.rs"
+
+[dependencies]
+dsview-core = { path = "../dsview-core" }
+dsview-control = { path = "../dsview-control" }
+dsview-decode = { path = "../dsview-decode" }
+dsview-drivers = { path = "../dsview-drivers" }
+dsview-session = { path = "../dsview-session" }
+dsview-usb = { path = "../dsview-usb" }
+libc = "0.2"
+serde_json.workspace = true

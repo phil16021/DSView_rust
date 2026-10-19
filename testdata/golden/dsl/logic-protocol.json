@@ -1,0 +1,141 @@
+{
+  "channels": [
+    {
+      "enabled": true,
+      "index": 0,
+      "name": "SDA",
+      "samples": 131072,
+      "sha256": "21f91a8e5761bc6dfb6df91dcbe6eb37f3ea5c71f8cfdec39325d123770b3443",
+      "type": "logic"
+    },
+    {
+      "enabled": true,
+      "index": 1,
+      "name": "SCL",
+      "samples": 131072,
+      "sha256": "0620a0b08ac54181af512b6aeb1c262ed060b61aca83473b3eadc022adcc2012",
+      "type": "logic"
+    },
+    {
+      "enabled": true,
+      "index": 2,
+      "name": "2",
+      "samples": 131072,
+      "sha256": "f94c2320bcf3772eb739e7e98a07635fdbedc8eca31b513dfe9b8e7f88f1d634",
+      "type": "logic"
+    },
+    {
+      "enabled": true,
+      "index": 3,
+      "name": "3",
+      "samples": 131072,
+      "sha256": "c0220921f03a1db34105437e8f737336b5dd27b1c70e0c37f573a7236248517b",
+      "type": "logic"
+    },
+    {
+      "enabled": true,
+      "index": 4,
+      "name": "4",
+      "samples": 131072,
+      "sha256": "f8feda0949ee2af3c26389fbbd2eb9c8f811aa229159c0ad3cf0ddc296a1c18a",
+      "type": "logic"
+    },
+    {
+      "enabled": true,
+      "index": 5,
+      "name": "UART",
+      "samples": 131072,
+      "sha256": "d975e1328a7930ae24bd132c808e93101ae883706d4cbb5a74df95893b3799ec",
+      "type": "logic"
+    },
+    {
+      "enabled": true,
+      "index": 6,
+      "name": "6",
+      "samples": 131072,
+      "sha256": "070a6bda1dd91f9bf8a84c69dde9842c5d3661cad7a0503b7e65522c1729d98b",
+      "type": "logic"
+    },
+    {
+      "enabled": true,
+      "index": 7,
+      "name": "7",
+      "samples": 131072,
+      "sha256": "9f6f3a10d4e18bdbe0415f26b464282bedb9b473912611d6a46a23e4ffc3363e",
+      "type": "logic"
+    },
+    {
+      "enabled": true,
+      "index": 8,
+      "name": "8",
+      "samples": 131072,
+      "sha256": "41678002410bb460bb612d9a39a547ce7511acf7608168fc9e6db0c2fa0e0110",
+      "type": "logic"
+    },
+    {
+      "enabled": true,
+      "index": 9,
+      "name": "CAN-FD",
+      "samples": 131072,
+      "sha256": "a7b8897adf5d9b4a0a7a3098a010ab97ee1aa64d0a7f35417398cdc38f714637",
+      "type": "logic"
+    },
+    {
+      "enabled": true,
+      "index": 10,
+      "name": "10",
+      "samples": 131072,
+      "sha256": "2d95963c58ef4ddd4c4f7459ec76639360d6c44ab240703d43d58cc2ae210e2b",
+      "type": "logic"
+    },
+    {
+      "enabled": true,
+      "index": 11,
+      "name": "11",
+      "samples": 131072,
+      "sha256": "880222a42014a56426ca4cea9d8dea66fd2bbb9380211f06fb7a6afd722af116",
+      "type": "logic"
+    },
+    {
+      "enabled": true,
+      "index": 12,
+      "name": "CLK",
+      "samples": 131072,
+      "sha256": "8ecd88862111750e86faf39ff4d3da891129386584eee55422e221969dfaf27c",
+      "type": "logic"
+    },
+    {
+      "enabled": true,
+      "index": 13,
+      "name": "CS#",
+      "samples": 131072,
+      "sha256": "921ab13fc1e632edea46d313f5d2993c15fd41e0a3216e8dded837e4c2074839",
+      "type": "logic"
+    },
+    {
+      "enabled": true,
+      "index": 14,
+      "name": "MOSI",
+      "samples": 131072,
+      "sha256": "478c90d852894b852202318f7b66a2058897141097373372b9a37fef34d7b77c",
+      "type": "logic"
+    },
+    {
+      "enabled": true,
+      "index": 15,
+      "name": "MISO",
+      "samples": 131072,
+      "sha256": "091cda1cece6ea01ed196a1215e55ba967a4a2da66a2a27b8202caacbfc698e9",
+      "type": "logic"
+    }
+  ],
+  "limit_samples": 131072,
+  "mode": "logic",
+  "packets": {
+    "analog": 0,
+    "dso": 0,
+    "end": 1,
+    "logic": 1
+  },
+  "samplerate": 25000000
+}

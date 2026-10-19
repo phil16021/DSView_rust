@@ -1,0 +1,49 @@
+[workspace]
+resolver = "3"
+exclude = ["fuzz"]
+members = [
+    "crates/dsview-cli",
+    "crates/dsview-control",
+    "crates/dsview-core",
+    "crates/dsview-decode",
+    "crates/dsview-drivers",
+    "crates/dsview-dsp",
+    "crates/dsview-formats",
+    "crates/dsview-gui",
+    "crates/dsview-session",
+    "crates/dsview-store",
+    "crates/dsview-viewmodel",
+    "crates/dsview-usb",
+    "dev/dsview-testkit",
+    "dsview-mcp",
+    "xtask",
+]
+
+[workspace.package]
+# DSViewR's version: the one source (the packaging reads it too)
+version = "1.0.0"
+edition = "2024"
+rust-version = "1.88"
+license = "GPL-3.0-or-later"
+publish = false
+
+[workspace.dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+[profile.release]
+strip = true
+
+# The stores and their tests move hundreds of MB; keep them fast in test builds.
+[profile.dev.package.dsview-store]
+opt-level = 3
+
+# Inflating .dsl/.demo entries dominates debug-build test runs (the demo
+# driver re-reads its pattern on every poll in some modes).
+[profile.dev.package.zlib-rs]
+opt-level = 3
+
+[profile.dev.package.flate2]
+opt-level = 3

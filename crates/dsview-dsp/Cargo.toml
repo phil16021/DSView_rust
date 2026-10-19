@@ -1,0 +1,13 @@
+[package]
+name = "dsview-dsp"
+version.workspace = true
+description = "DSView's signal computations: DSO measurements, FFT spectrum (realfft instead of FFTW), math, envelopes"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+dsview-core = { path = "../dsview-core" }
+realfft = "3.5"
+serde_json.workspace = true

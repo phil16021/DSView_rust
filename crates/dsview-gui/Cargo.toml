@@ -1,0 +1,82 @@
+[package]
+name = "dsview-gui"
+version.workspace = true
+description = "Logic analyzer and oscilloscope software for DreamSourceLab devices (DSViewR)"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "dsview"
+path = "src/main.rs"
+
+[dependencies]
+dsview-control = { path = "../dsview-control" }
+dsview-dsp = { path = "../dsview-dsp" }
+dsview-core = { path = "../dsview-core" }
+dsview-decode = { path = "../dsview-decode" }
+dsview-drivers = { path = "../dsview-drivers" }
+dsview-formats = { path = "../dsview-formats" }
+dsview-session = { path = "../dsview-session" }
+dsview-store = { path = "../dsview-store" }
+dsview-usb = { path = "../dsview-usb" }
+dsview-viewmodel = { path = "../dsview-viewmodel" }
+rfd = "0.17"
+open = "5.4"
+resvg = { version = "0.44", default-features = false }
+egui_extras = "0.37"
+serde.workspace = true
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+serde_json.workspace = true
+egui = "0.37"
+eframe = { version = "0.37", default-features = false, features = ["accesskit", "default_fonts", "glow", "wgpu", "x11", "wayland"] }
+
+[dev-dependencies]
+egui_kittest = { version = "0.37", features = ["wgpu", "snapshot"] }
+
+# The .deb (cargo-deb): `cargo build --release -p dsview-gui -p dsview-cli`,
+# then `cargo deb -p dsview-gui --no-build`; tools/package/deb.sh bundles
+# Python into it afterwards. The GUI dlopens its windowing and GL libraries,
+# which dpkg-shlibdeps cannot see: X11 and GL are required, Wayland, Vulkan
+# and D-Bus (the accessibility bridge) used when present.
+[package.metadata.deb]
+name = "dsviewr"
+maintainer = "phil16021 <phil16021@users.noreply.github.com>"
+copyright = "DreamSourceLab, Schildkroet, phil16021"
+license-file = ["../../COPYING", "0"]
+section = "electronics"
+priority = "optional"
+extended-description = """\
+DSViewR captures, shows and decodes signals of DreamSourceLab's DSLogic logic \
+analyzers and DSCope oscilloscopes, with more than 150 protocol decoders. It \
+is a Rust rewrite of DSView. The package holds the GUI (DSViewR) and \
+dsviewr-cli, with its own Python for the decoders."""
+depends = "$auto, libgl1, libegl1, libx11-6, libx11-xcb1, libxcb1, libxcursor1, libxi6, libxrender1, libxkbcommon0, libxkbcommon-x11-0"
+# the file dialogs (rfd) go through the desktop portal
+recommends = "libwayland-client0, libwayland-egl1, libvulkan1, libdbus-1-3, xdg-desktop-portal"
+conflicts = "dsview"
+replaces = "dsview"
+maintainer-scripts = "../../assets/packaging/debian/"
+assets = [
+    ["target/release/dsview", "usr/bin/DSViewR", "755"],
+    ["target/release/dsview-cli", "usr/bin/dsviewr-cli", "755"],
+    ["../../assets/res/*", "usr/share/dsview/res/", "644"],
+    ["../../assets/demo/**/*", "usr/share/dsview/demo/", "644"],
+    ["../../assets/lang/**/*", "usr/share/dsview/lang/", "644"],
+    ["../../assets/decoders/**/*.py", "usr/share/dsview/decoders/", "644"],
+    ["../../assets/decoders/**/*.txt", "usr/share/dsview/decoders/", "644"],
+    ["../../assets/decoders/**/*.md", "usr/share/dsview/decoders/", "644"],
+    ["../../assets/decoders/edid/config", "usr/share/dsview/decoders/edid/", "644"],
+    ["../../assets/ug25.pdf", "usr/share/dsview/", "644"],
+    ["../../assets/ug31.pdf", "usr/share/dsview/", "644"],
+    ["../../assets/icons/logo.svg", "usr/share/dsview/logo.svg", "644"],
+    ["../../assets/DreamSourceLab.rules", "usr/share/dsview/", "644"],
+    ["../../assets/DreamSourceLab.rules", "usr/lib/udev/rules.d/60-dreamsourcelab.rules", "644"],
+    ["../../assets/dsviewr.desktop", "usr/share/applications/dsviewr.desktop", "644"],
+    ["../../assets/icons/logo.svg", "usr/share/icons/hicolor/scalable/apps/dsviewr.svg", "644"],
+    ["../../assets/icons/logo.svg", "usr/share/pixmaps/dsviewr.svg", "644"],
+]
