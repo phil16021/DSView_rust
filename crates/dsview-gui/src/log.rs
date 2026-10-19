@@ -1,5 +1,5 @@
 //! The log (`pv/log.cpp` over `common/log/xlog.c`): messages at or below
-//! the level go to stderr and, once enabled, to `~/DSView.log` as
+//! the level go to stderr and, once enabled, to `~/DSViewR.log` as
 //! `DSView: <message>` lines. The Log Options dialog
 //! (`LogoBar::on_action_setting_log`) sets level, file and append mode.
 
@@ -32,12 +32,12 @@ fn state() -> &'static LogState {
     })
 }
 
-/// `get_dsv_log_path`: `~/DSView.log` on Linux.
+/// `get_dsv_log_path` (`~/DSView.log` in Qt): `~/DSViewR.log`.
 fn default_path() -> PathBuf {
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_default()
-        .join("DSView.log")
+        .join("DSViewR.log")
 }
 
 pub fn path() -> PathBuf {
@@ -65,7 +65,7 @@ pub fn init(level: i32) {
         }
         eprintln!("{m}");
         if let Some((f, true)) = s.file.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
-            let _ = writeln!(f, "DSView: {m}");
+            let _ = writeln!(f, "DSViewR: {m}");
             let _ = f.flush();
         }
     }));
@@ -284,7 +284,7 @@ mod tests {
     fn file_levels_and_clear() {
         let dir = std::env::temp_dir().join(format!("dsv-log-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let p = dir.join("DSView.log");
+        let p = dir.join("DSViewR.log");
         std::fs::write(&p, "old\n").unwrap();
         set_path(p.clone());
         let read = || std::fs::read_to_string(&p).unwrap_or_default();
@@ -296,7 +296,7 @@ mod tests {
         dsview_drivers::sys::log(5, "detail line");
         let t = read();
         assert!(t.starts_with("old\n"), "{t}");
-        assert!(t.contains("DSView: dbg line"));
+        assert!(t.contains("DSViewR: dbg line"));
         assert!(!t.contains("detail line"));
         // the file switched off keeps what it has
         set_file_enabled(false);
@@ -306,7 +306,7 @@ mod tests {
         // clear: an open file starts over
         clear();
         dsview_drivers::sys::log(1, "after clear");
-        assert_eq!(read(), "DSView: after clear\n");
+        assert_eq!(read(), "DSViewR: after clear\n");
         // saved options: overwrite mode, a higher saved level wins
         set_path(p.clone());
         o.able_save_log = true;
@@ -316,7 +316,7 @@ mod tests {
         assert_eq!(level(), 5);
         let t = read();
         assert!(!t.contains("after clear"), "overwritten: {t}");
-        assert!(t.contains("DSView: Set log level: 5"), "{t}");
+        assert!(t.contains("DSViewR: Set log level: 5"), "{t}");
         // a lower saved level does not lower the command line's
         o.log_level = 1;
         set_path(p.clone());

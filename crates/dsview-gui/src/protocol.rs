@@ -782,7 +782,7 @@ impl ProtocolDock {
                         entry["view_index"] = (*vi).into();
                     }
                     if dsview_session::store::load_decoders(s, &[entry]) == 0 {
-                        dlg.error = Some("DSView could not add the decoder".into());
+                        dlg.error = Some("DSViewR could not add the decoder".into());
                     } else {
                         let mut index = s.state().decoders.len() - 1;
                         if let Some((old, _, _)) = dlg.replace {

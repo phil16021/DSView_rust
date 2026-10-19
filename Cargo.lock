@@ -1067,7 +1067,7 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 
 [[package]]
 name = "dsview-cli"
-version = "1.6.1"
+version = "1.0.0"
 dependencies = [
  "dsview-control",
  "dsview-core",
@@ -1081,7 +1081,7 @@ dependencies = [
 
 [[package]]
 name = "dsview-control"
-version = "1.6.1"
+version = "1.0.0"
 dependencies = [
  "dsview-core",
  "dsview-decode",
@@ -1096,18 +1096,18 @@ dependencies = [
 
 [[package]]
 name = "dsview-core"
-version = "1.6.1"
+version = "1.0.0"
 
 [[package]]
 name = "dsview-decode"
-version = "1.6.1"
+version = "1.0.0"
 dependencies = [
  "pyo3",
 ]
 
 [[package]]
 name = "dsview-drivers"
-version = "1.6.1"
+version = "1.0.0"
 dependencies = [
  "dsview-core",
  "dsview-formats",
@@ -1117,7 +1117,7 @@ dependencies = [
 
 [[package]]
 name = "dsview-dsp"
-version = "1.6.1"
+version = "1.0.0"
 dependencies = [
  "dsview-core",
  "realfft",
@@ -1126,7 +1126,7 @@ dependencies = [
 
 [[package]]
 name = "dsview-ffi"
-version = "1.6.1"
+version = "1.0.0"
 dependencies = [
  "dsview-core",
  "dsview-decode",
@@ -1139,7 +1139,7 @@ dependencies = [
 
 [[package]]
 name = "dsview-formats"
-version = "1.6.1"
+version = "1.0.0"
 dependencies = [
  "dsview-testkit",
  "proptest",
@@ -1150,7 +1150,7 @@ dependencies = [
 
 [[package]]
 name = "dsview-gui"
-version = "1.6.1"
+version = "1.0.0"
 dependencies = [
  "dsview-control",
  "dsview-core",
@@ -1176,7 +1176,7 @@ dependencies = [
 
 [[package]]
 name = "dsview-mcp"
-version = "1.6.1"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "dsview-control",
@@ -1189,7 +1189,7 @@ dependencies = [
 
 [[package]]
 name = "dsview-oracle"
-version = "1.6.1"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "cc",
@@ -1212,7 +1212,7 @@ dependencies = [
 
 [[package]]
 name = "dsview-session"
-version = "1.6.1"
+version = "1.0.0"
 dependencies = [
  "dsview-core",
  "dsview-decode",
@@ -1228,14 +1228,14 @@ dependencies = [
 
 [[package]]
 name = "dsview-store"
-version = "1.6.1"
+version = "1.0.0"
 dependencies = [
  "proptest",
 ]
 
 [[package]]
 name = "dsview-testkit"
-version = "1.6.1"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "dsview-formats",
@@ -1247,7 +1247,7 @@ dependencies = [
 
 [[package]]
 name = "dsview-usb"
-version = "1.6.1"
+version = "1.0.0"
 dependencies = [
  "futures-core",
  "nusb",
@@ -1255,7 +1255,7 @@ dependencies = [
 
 [[package]]
 name = "dsview-viewmodel"
-version = "1.6.1"
+version = "1.0.0"
 dependencies = [
  "dsview-store",
  "proptest",
@@ -5340,7 +5340,7 @@ checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
 
 [[package]]
 name = "xtask"
-version = "1.6.1"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "dsview-formats",

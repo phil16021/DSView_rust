@@ -893,7 +893,7 @@ impl App {
         }
         // `update_title_bar_text`: the version, and the hardware profile if
         // the option says so
-        let mut title = format!("DSView v{}", self.version);
+        let mut title = format!("DSViewR v{}", self.version);
         if self.options.display_profile_in_bar
             && let Some(f) = self.session.state().profile_file.clone()
         {

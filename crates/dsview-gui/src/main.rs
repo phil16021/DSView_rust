@@ -24,7 +24,7 @@ use dsview_gui::DSVIEW_VERSION;
 
 fn usage() -> ! {
     eprintln!(
-        "usage: dsview [-l N] [-s] [-v] [--mcp] [--data-dir DIR] [--bench SECONDS] [--soak MINUTES] [FILE]"
+        "usage: DSViewR [-l N] [-s] [-v] [--mcp] [--data-dir DIR] [--bench SECONDS] [--soak MINUTES] [FILE]"
     );
     std::process::exit(2);
 }
@@ -52,7 +52,7 @@ fn main() -> eframe::Result {
             "--soak" => soak = args.next().and_then(|v| v.parse::<f64>().ok()),
             "-l" | "--loglevel" => level = args.next().and_then(|v| v.parse().ok()).unwrap_or(3),
             "-v" | "-V" | "--version" => {
-                println!("DSView {DSVIEW_VERSION}");
+                println!("DSViewR {DSVIEW_VERSION}");
                 return Ok(());
             }
             "-s" | "--storelog" => store_log = true,
@@ -159,10 +159,10 @@ fn main() -> eframe::Result {
         Some([w.parse().ok()?, h.parse().ok()?])
     });
     let mut viewport = egui::ViewportBuilder::default()
-        .with_title(format!("DSView v{DSVIEW_VERSION}"))
+        .with_title(format!("DSViewR v{DSVIEW_VERSION}"))
         // Wayland app id and X11 class: the installed desktop file's name,
-        // `dsview` (Qt: `setDesktopFileName("dsview")`)
-        .with_app_id("dsview")
+        // `dsviewr`
+        .with_app_id("dsviewr")
         .with_inner_size(bench_size.unwrap_or([1280.0, 800.0]));
     // `MainFrame::ReadSettings`: the last normal window, maximised again if
     // it was

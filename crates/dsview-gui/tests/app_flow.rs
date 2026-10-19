@@ -145,7 +145,7 @@ fn close_offers_to_save_once() {
 fn log_options_dialog() {
     let dir = std::env::temp_dir().join(format!("dsv-logdlg-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let log = dir.join("DSView.log");
+    let log = dir.join("DSViewR.log");
     dsview_gui::log::set_path(log.clone());
     let s = dslogic_session();
     let (mut h, app) = harness(&s);
@@ -185,11 +185,11 @@ fn about_window() {
     h.run();
     h.get_by_label("About…").click();
     h.run();
-    h.get_by_label_contains("DSView test (");
+    h.get_by_label_contains("DSViewR test (");
     h.get_by_label("All members of Sigrok project");
     h.key_press(egui::Key::Escape);
     h.run();
-    assert!(h.query_by_label_contains("DSView test (").is_none());
+    assert!(h.query_by_label_contains("DSViewR test (").is_none());
     s.exit();
 }
 

@@ -1,4 +1,4 @@
-//! `dsview-cli`: DSView without its GUI.
+//! `dsviewr-cli` (crate `dsview-cli`): DSViewR without its GUI.
 //!
 //! `dsview-cli serve --mcp` runs the capture session behind the same control
 //! socket the Qt GUI opens with `--mcp`, so `dsview-mcp` (and anything else
@@ -21,23 +21,23 @@ mod soak;
 const DSVIEW_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const USAGE: &str = "\
-usage: dsview-cli serve --mcp [options]
-       dsview-cli soak [--mode loop|repeat] [--minutes N] [--device demo|dslogic]
+usage: dsviewr-cli serve --mcp [options]
+       dsviewr-cli soak [--mode loop|repeat] [--minutes N] [--device demo|dslogic]
                        [--samples FILE] [options]
-       dsview-cli devices [--json]
-       dsview-cli decoders [--json]
-       dsview-cli info [--device D]
-       dsview-cli capture [--device D] [--mode logic|dso|analog] [--samplerate HZ]
+       dsviewr-cli devices [--json]
+       dsviewr-cli decoders [--json]
+       dsviewr-cli info [--device D]
+       dsviewr-cli capture [--device D] [--mode logic|dso|analog] [--samplerate HZ]
                           [--samples N] [--channels 0-7,9] [--timeout S] [--json]
                           --out FILE.dsl|csv|vcd|srzip
-       dsview-cli export FILE.dsl OUT.csv|vcd|srzip
-       dsview-cli decode FILE.dsl --decoder ID[:channel=N,option=value,...]...
+       dsviewr-cli export FILE.dsl OUT.csv|vcd|srzip
+       dsviewr-cli decode FILE.dsl --decoder ID[:channel=N,option=value,...]...
                          [--json]
-       dsview-cli verify-counter [--device D] [--samples N] [--timeout S]
-       dsview-cli selftest [--timeout S] --out DIR
-       dsview-cli hwmatrix [--cycles N] [--quick] [--out REPORT.json]
+       dsviewr-cli verify-counter [--device D] [--samples N] [--timeout S]
+       dsviewr-cli selftest [--timeout S] --out DIR
+       dsviewr-cli hwmatrix [--cycles N] [--quick] [--out REPORT.json]
 
-Runs DSView's capture session without a GUI behind the control socket
+Runs DSViewR's capture session without a GUI behind the control socket
 (DSVIEW_MCP_SOCKET, else $XDG_RUNTIME_DIR/dsview/mcp.sock).
 
 options:
@@ -75,7 +75,7 @@ extern "C" fn on_signal(_: libc::c_int) {
 }
 
 fn fail(msg: &str) -> ! {
-    eprintln!("dsview-cli: {msg}");
+    eprintln!("dsviewr-cli: {msg}");
     std::process::exit(2);
 }
 

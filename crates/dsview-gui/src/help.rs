@@ -1,5 +1,5 @@
 //! The Help menu's actions (`pv/toolbars/logobar.cpp`): About
-//! (`pv/dialogs/about.cpp`), the user guide, the bug tracker and the
+//! (`pv/dialogs/about.cpp`), the user guide, and DSViewR's bug tracker and
 //! release page.
 
 use crate::i18n::tr;
@@ -7,9 +7,12 @@ use std::path::{Path, PathBuf};
 
 use eframe::egui;
 
-/// `LogoBar::on_action_issue`, `on_action_update`.
-pub const BUG_REPORT_URL: &str = "https://github.com/DreamSourceLab/DSView/issues";
-pub const UPDATE_URL: &str = "https://github.com/Schildkroet/DSView/releases";
+/// DSViewR's repository, its issue tracker and releases
+/// (`LogoBar::on_action_issue`, `on_action_update`).
+const REPO_URL: &str = "https://github.com/phil16021/DSView_rust";
+pub const BUG_REPORT_URL: &str = "https://github.com/phil16021/DSView_rust/issues";
+pub const UPDATE_URL: &str = "https://github.com/phil16021/DSView_rust/releases";
+const AUTHOR: &str = "phil16021";
 const WEBSITE: &str = "https://www.DreamSourceLab.com";
 const FORK_URL: &str = "https://github.com/Schildkroet/DSView";
 const KICKSTARTER_URL: &str = "https://www.kickstarter.com/projects/dreamsourcelab/dslogic-multifunction-instruments-for-everyone";
@@ -63,14 +66,19 @@ pub fn about(ctx: &egui::Context, version: &str) -> bool {
         .show(ctx, |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(8.0);
-                ui.label(egui::RichText::new(format!("DSView {version} ({})", arch())).size(24.0));
+                ui.label(egui::RichText::new(format!("DSViewR {version} ({})", arch())).size(24.0));
                 ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.label(format!("DSViewR by {AUTHOR}:"));
+                    link(ui, REPO_URL, REPO_URL);
+                });
+                ui.add_space(8.0);
+                ui.label("Based on DSView by DreamSourceLab");
                 ui.horizontal(|ui| {
                     ui.label(tr("Website:"));
                     link(ui, WEBSITE, WEBSITE);
                 });
                 ui.label(tr("Copyright: © DreamSourceLab. All rights reserved."));
-                ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     ui.label(tr("Fork by Schildkroet:"));
                     link(ui, FORK_URL, FORK_URL);

@@ -113,7 +113,7 @@ fn decoder_spec(spec: &str) -> Result<Value, String> {
         .chain(std::iter::once((spec, "")))
         .rev()
         .find_map(|(id, rest)| find(id).map(|d| (d, rest)))
-        .ok_or_else(|| format!("unknown decoder in '{spec}'; see `dsview-cli decoders`"))?;
+        .ok_or_else(|| format!("unknown decoder in '{spec}'; see `dsviewr-cli decoders`"))?;
     let (mut chans, mut opts) = (Map::new(), Map::new());
     for kv in rest.split(',').filter(|s| !s.is_empty()) {
         let (k, v) = kv
@@ -234,14 +234,14 @@ pub fn run(cmd: &str, s: &Session, version: &str, o: &Opts) -> i32 {
         })(),
         "export" => (|| {
             let [input, out] = o.args.as_slice() else {
-                return Err("usage: dsview-cli export FILE.dsl OUT.csv|vcd|srzip".to_string());
+                return Err("usage: dsviewr-cli export FILE.dsl OUT.csv|vcd|srzip".to_string());
             };
             c.call("open_file", json!({ "path": input }))?;
             write(&c, out).map(|_| ())
         })(),
         "decode" => (|| {
             let [input] = o.args.as_slice() else {
-                return Err("usage: dsview-cli decode FILE.dsl --decoder ID[:k=v,...]".to_string());
+                return Err("usage: dsviewr-cli decode FILE.dsl --decoder ID[:k=v,...]".to_string());
             };
             if o.decoders.is_empty() {
                 return Err("decode needs at least one --decoder".into());
@@ -282,7 +282,7 @@ pub fn run(cmd: &str, s: &Session, version: &str, o: &Opts) -> i32 {
     match r {
         Ok(()) => 0,
         Err(e) => {
-            eprintln!("dsview-cli {cmd}: {e}");
+            eprintln!("dsviewr-cli {cmd}: {e}");
             1
         }
     }
