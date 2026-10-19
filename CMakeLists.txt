@@ -857,6 +857,15 @@ set(CPACK_PACKAGE_VERSION_MAJOR ${DS_VERSION_MAJOR})
 set(CPACK_PACKAGE_VERSION_MINOR ${DS_VERSION_MINOR})
 set(CPACK_PACKAGE_VERSION_PATCH ${DS_VERSION_MICRO})
 set(CPACK_PACKAGE_DESCRIPTION_FILE ${CMAKE_CURRENT_SOURCE_DIR}/DSView/README)
+# The README starts with a ruler line, which the .deb showed as its summary.
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Logic analyzer and oscilloscope software for DreamSourceLab devices")
+set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "DSView captures, shows and decodes signals of DSLogic logic analyzers and
+DSCope oscilloscopes, with more than 150 protocol decoders.")
+if(DSVIEW_RUST_GUI)
+    string(APPEND CPACK_DEBIAN_PACKAGE_DESCRIPTION "
+The package holds the Rust GUI (DSView), dsview-cli, and for one release the
+Qt GUI (DSView-qt), with its own Python for the decoders.")
+endif()
 set(CPACK_RESOURCE_FILE_LICENSE ${CMAKE_CURRENT_SOURCE_DIR}/DSView/COPYING)
 set(CPACK_SOURCE_IGNORE_FILES ${CMAKE_CURRENT_BINARY_DIR} ".gitignore" ".git")
 set(CPACK_SOURCE_PACKAGE_FILE_NAME
