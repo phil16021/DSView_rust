@@ -11,8 +11,8 @@ use eframe::egui;
 use crate::options::AppOptions;
 
 /// `showDoc<language>.png` from Qt's resources (`DSView.qrc`).
-const SHOW_DOC_CN: &[u8] = include_bytes!("../../../DSView/icons/showDoc25.png");
-const SHOW_DOC_EN: &[u8] = include_bytes!("../../../DSView/icons/showDoc31.png");
+const SHOW_DOC_CN: &[u8] = include_bytes!("../../../assets/icons/showDoc25.png");
+const SHOW_DOC_EN: &[u8] = include_bytes!("../../../assets/icons/showDoc31.png");
 
 /// Where a package puts the udev rule (`rule_paths`).
 pub const RULE_PATHS: [&str; 3] = [

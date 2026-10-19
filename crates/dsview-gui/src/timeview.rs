@@ -2341,7 +2341,7 @@ mod tests {
         let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
         let s = Session::new(
             Paths {
-                data_dir: root.join("DSView"),
+                data_dir: root.join("assets"),
                 profile_dir: None,
                 version: "test".into(),
             },

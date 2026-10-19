@@ -1,34 +1,24 @@
-//! The config keys, status layout and other constants match libsigrok.h.
+//! The config keys, status layout and other constants match libsigrok.h
+//! (the C header is gone since M7a; its key numbers are frozen in
+//! `config_keys.txt`, taken from tag `c-final`).
 
 use std::collections::BTreeMap;
 
-fn header() -> String {
-    let p = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../libsigrok4DSL/libsigrok.h"
-    );
-    std::fs::read_to_string(p).expect("libsigrok.h")
-}
-
-/// `NAME = value` pairs of the C enum `name`.
-fn c_enum(src: &str, name: &str, prefix: &str) -> BTreeMap<String, i32> {
-    let start = src.find(&format!("enum {name}")).expect("enum");
-    let body = &src[start..start + src[start..].find("};").unwrap()];
-    let mut out = BTreeMap::new();
-    for line in body.lines() {
-        let line = line.split("/*").next().unwrap().trim();
-        if let Some((n, v)) = line.trim_end_matches(',').split_once('=')
-            && let Some(n) = n.trim().strip_prefix(prefix)
-        {
-            out.insert(n.to_owned(), v.trim().parse().unwrap());
-        }
-    }
-    out
+/// `NAME = value` lines of the frozen `enum sr_config_option_id`.
+fn frozen_keys() -> BTreeMap<String, i32> {
+    include_str!("config_keys.txt")
+        .lines()
+        .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+        .map(|l| {
+            let (n, v) = l.split_once('=').expect("NAME = value");
+            (n.trim().to_owned(), v.trim().parse().expect("number"))
+        })
+        .collect()
 }
 
 #[test]
 fn config_keys_match_header() {
-    let c = c_enum(&header(), "sr_config_option_id", "SR_CONF_");
+    let c = frozen_keys();
     let rust: BTreeMap<String, i32> = dsview_core::key::ALL
         .iter()
         .map(|&(n, v)| (n.to_owned(), v))

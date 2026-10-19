@@ -1,6 +1,11 @@
-# Rust workspace: lint, tests, supply-chain check and the C-oracle golden check.
-# See docs/migration/PLAN.md. Tools are installed with `cargo install --locked`
-# rather than third-party actions; the toolchain comes from rust-toolchain.toml.
+# Rust workspace: lint, tests, the golden check, fuzzing, MCP end-to-end,
+# Miri and the supply-chain check. See docs/migration/PLAN.md. Tools are
+# installed with `cargo install --locked` rather than third-party actions;
+# the toolchain comes from rust-toolchain.toml.
+#
+# The C-vs-Rust differential checks ran against the C code until tag
+# `c-final` (docs/migration/STATUS.md, M7a); the goldens they produced are
+# checked against Rust here.
 
 name: Rust
 
@@ -14,17 +19,16 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  # The oracle compiles the original C/C++ sources against these (Qt Core for
-  # the pv::data snapshot classes).
-  ORACLE_DEPS: pkg-config libglib2.0-dev python3-dev libusb-1.0-0-dev zlib1g-dev qt6-base-dev libfftw3-dev
+  # PyO3 embeds the system Python (the decoder engine)
+  RUST_DEPS: pkg-config python3-dev
 
 jobs:
   lint:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
-      - name: Install oracle build dependencies
-        run: sudo apt-get update && sudo apt-get install -y $ORACLE_DEPS
+      - name: Build dependencies
+        run: sudo apt-get update && sudo apt-get install -y $RUST_DEPS
       - name: Toolchain
         run: rustup show
       - name: rustfmt
@@ -42,37 +46,18 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
-      - name: Install oracle build dependencies
-        run: sudo apt-get update && sudo apt-get install -y $ORACLE_DEPS
-      # The oracle zeroes the C drivers' uninitialised fields with
-      # -ftrivial-auto-var-init (DEVIATIONS F20, F22), which GCC 11 lacks;
-      # its Qt 6.2 has no pkg-config files, so the oracle takes Qt5Core.
-      - name: GCC 12 and Qt 5 Core on Ubuntu 22.04
-        if: matrix.os == 'ubuntu-22.04'
-        run: |
-          sudo apt-get install -y gcc-12 g++-12 qtbase5-dev
-          echo "CC=gcc-12" >> "$GITHUB_ENV"
-          echo "CXX=g++-12" >> "$GITHUB_ENV"
-      - name: Toolchain, nextest and cbindgen
+      - name: Build dependencies
+        run: sudo apt-get update && sudo apt-get install -y $RUST_DEPS
+      - name: Toolchain and nextest
         run: |
           rustup show
-          cargo install --locked cargo-nextest cbindgen
+          cargo install --locked cargo-nextest
       - name: Unit tests
         run: cargo nextest run --workspace --locked --profile ci
       - name: Corpus hashes
         run: cargo xtask corpus verify
-      - name: Golden check (C oracle reproduces the stored goldens; Rust reader/writer vs C)
+      - name: Golden check (the Rust reader and decoder engine reproduce the C goldens)
         run: cargo xtask golden check
-      - name: C header of dsview-ffi is current
-        run: cargo xtask gen-header --check
-      - name: Decoder engines, C vs Rust (random captures, every decoder)
-        run: |
-          cargo build --release --locked -p dsview-oracle --bins
-          ./target/release/decode-diff --runs 4 --jobs 2 --seed "$GITHUB_RUN_NUMBER"
-      - name: DSLogic trigger masks, C vs Rust
-        run: cargo test --release --locked -p dsview-oracle --test trigger_diff
-      - name: Demo and file drivers, C vs Rust (seeded scenarios through the ds_* API)
-        run: ./target/release/drv-diff --runs 200 --jobs 2 --seed "$((GITHUB_RUN_NUMBER * 1000))"
 
   fuzz-smoke:
     runs-on: ubuntu-24.04
@@ -82,8 +67,8 @@ jobs:
         run: |
           rustup toolchain install nightly --profile minimal
           cargo install --locked cargo-fuzz
-      - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y python3-dev libusb-1.0-0-dev
+      - name: Build dependencies
+        run: sudo apt-get update && sudo apt-get install -y $RUST_DEPS
       - name: Fuzz each target for 60 s
         working-directory: fuzz
         # -detect_leaks=0 stops libFuzzer's per-input check; LeakSanitizer
@@ -97,43 +82,22 @@ jobs:
           done
 
   e2e-mcp:
-    # Every dsview-mcp tool against the headless dsview-cli on the demo
-    # devices (the transcript the Qt and Rust GUIs pass too).
+    # Every dsview-mcp tool against the headless dsviewr-cli on the demo
+    # devices (the transcript recorded from the Qt GUI, which DSViewR passes too).
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
-      - name: Install build dependencies
-        run: sudo apt-get update && sudo apt-get install -y python3-dev libusb-1.0-0-dev
-      - name: MCP suite on dsview-cli
+      - name: Build dependencies
+        run: sudo apt-get update && sudo apt-get install -y $RUST_DEPS
+      - name: MCP suite on dsviewr-cli
         env:
-          DSVIEW_ARGS: --data-dir ${{ github.workspace }}/DSView
+          DSVIEW_ARGS: --data-dir ${{ github.workspace }}/assets
         run: |
           rustup show
           cargo build --locked -p dsview-cli -p dsview-mcp
           cargo xtask mcp suite "$PWD/target/debug/dsview-cli"
       - name: One-shot commands on the demo
         run: cargo test --locked -p dsview-cli --test oneshot
-
-  oracle-asan:
-    # The store differential tests with the C++ oracle under ASan/UBSan: the
-    # original code must stay free of memory errors on the inputs DSView
-    # produces (DEVIATIONS.md F9/F10/F12 cover the ones it does not).
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v6
-      - name: Install oracle build dependencies
-        run: sudo apt-get update && sudo apt-get install -y $ORACLE_DEPS
-      - name: Store differential tests, sanitized oracle
-        env:
-          ORACLE_SANITIZE: "1"
-          ASAN_OPTIONS: detect_leaks=0
-          PROPTEST_CASES: "60"
-        run: |
-          rustup show
-          cargo test --locked -p dsview-oracle --test store_diff --test store_ad_diff --no-run 2>&1 | tee build.log
-          for bin in $(grep -o 'target/debug/deps/store[a-z_]*-[0-9a-f]*' build.log | sort -u); do
-            (cd dev/dsview-oracle && LD_PRELOAD="$(gcc -print-file-name=libasan.so)" "../../$bin")
-          done
 
   miri:
     # The store's unsafe code (leaf blocks, raw block pointers) under Miri,
@@ -159,8 +123,8 @@ jobs:
           cargo deny check
 
   portability:
-    # Every crate but the C oracle builds on Linux and macOS (Windows is a
-    # later port: PLAN, follow-on).
+    # Every crate builds on Linux and macOS (Windows is a later port: PLAN,
+    # follow-on).
     strategy:
       fail-fast: false
       matrix:
@@ -170,37 +134,8 @@ jobs:
       - uses: actions/checkout@v6
       - name: Linux build dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y python3-dev libusb-1.0-0-dev
+        run: sudo apt-get update && sudo apt-get install -y $RUST_DEPS
       - name: cargo check
         run: |
           rustup show
-          cargo check --locked --workspace --all-targets --exclude dsview-oracle
-
-  cpp-with-rust-core:
-    # The Qt application linking the Rust core (DSVIEW_RUST_CORE=ON), next to
-    # the Rust GUI, which installs as DSView (DSVIEW_RUST_GUI, on by default);
-    # the Qt GUI is DSView-qt.
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v6
-      - name: Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake pkg-config libglib2.0-dev libusb-1.0-0-dev \
-            libfftw3-dev zlib1g-dev libboost-dev python3-dev qt6-base-dev qt6-svg-dev libqt6core5compat6-dev
-      - name: Build
-        run: |
-          rustup show
-          cmake -S . -B build -DDSVIEW_RUST_CORE=ON
-          cmake --build build -j"$(nproc)"
-      - name: Rust core is linked
-        run: nm build/bin/DSView-qt | grep -q ' T dsv_version'
-      - name: C vs Rust inside DSView (open, export, save every corpus capture)
-        run: |
-          DESTDIR="$PWD/stage" cmake --install build --prefix /usr
-          cargo xtask control ab --bin "$PWD/stage/usr/bin/DSView-qt"
-      - name: The Rust GUI is installed as DSView
-        run: |
-          test -x stage/usr/bin/DSView
-          stage/usr/bin/DSView -v | grep -q '^DSView '
-          test -f stage/usr/share/applications/dsview-qt.desktop
+          cargo check --locked --workspace --all-targets

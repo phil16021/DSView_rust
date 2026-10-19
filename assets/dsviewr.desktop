@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=DSViewR
+GenericName=Logic Analyzer
+Comment=Logic analyzer and oscilloscope software for DreamSourceLab devices
+TryExec=DSViewR
+Exec=DSViewR %f
+Icon=dsviewr
+StartupWMClass=dsviewr
+Terminal=false
+Categories=Development;Electronics;

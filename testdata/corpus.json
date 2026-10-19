@@ -1,55 +1,55 @@
 {
   "files": [
     {
-      "path": "DSView/demo/logic/protocol.demo",
+      "path": "assets/demo/logic/protocol.demo",
       "sha256": "9df041ddae3fd0873a0f327986528d1117c35cf9c4e31f91c4032b607f322cc7",
       "mode": "logic",
       "decode": true
     },
     {
-      "path": "DSView/demo/dso/sawtooth.demo",
+      "path": "assets/demo/dso/sawtooth.demo",
       "sha256": "c904366b173b33d5e36a457ab6de3c024cea63a70b7cd7889195cd8b1174d560",
       "mode": "dso",
       "decode": false
     },
     {
-      "path": "DSView/demo/dso/sine.demo",
+      "path": "assets/demo/dso/sine.demo",
       "sha256": "836bd6c4293504ca422bd29230923b784823f47b8d9daae4605b39240b2d1d4c",
       "mode": "dso",
       "decode": false
     },
     {
-      "path": "DSView/demo/dso/square.demo",
+      "path": "assets/demo/dso/square.demo",
       "sha256": "c956650c7210a3b544eae9efd49c5e78cd955991a8292d2c215713dc0ecca637",
       "mode": "dso",
       "decode": false
     },
     {
-      "path": "DSView/demo/dso/triangle.demo",
+      "path": "assets/demo/dso/triangle.demo",
       "sha256": "ed4abc34761fa944d07105f1ba03bff6201429375ddf3c5c2544f1c3f6dd70e0",
       "mode": "dso",
       "decode": false
     },
     {
-      "path": "DSView/demo/analog/sawtooth.demo",
+      "path": "assets/demo/analog/sawtooth.demo",
       "sha256": "ff57801f627d67296bb3d736662bb2a6c7bd1da1d200d126f5688513c231a536",
       "mode": "analog",
       "decode": false
     },
     {
-      "path": "DSView/demo/analog/sine.demo",
+      "path": "assets/demo/analog/sine.demo",
       "sha256": "6a75aee65cfa82470b35460808758097bf3b0496dea8f5623675d74fc42b23e6",
       "mode": "analog",
       "decode": false
     },
     {
-      "path": "DSView/demo/analog/square.demo",
+      "path": "assets/demo/analog/square.demo",
       "sha256": "856dadb51668a26681f8b18e6e32e73032f70185cddfa31d17cced0631b8bfa2",
       "mode": "analog",
       "decode": false
     },
     {
-      "path": "DSView/demo/analog/triangle.demo",
+      "path": "assets/demo/analog/triangle.demo",
       "sha256": "1e8226ac601481e961a44f672f97c896b164a57218da765abdc7201de3e63947",
       "mode": "analog",
       "decode": false

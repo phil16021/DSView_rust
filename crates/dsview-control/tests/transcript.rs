@@ -30,8 +30,7 @@ fn root() -> PathBuf {
 fn init_decoders() {
     static INIT: std::sync::Once = std::sync::Once::new();
     INIT.call_once(|| {
-        dsview_decode::init(&[root().join("libsigrokdecode4DSL/decoders").as_path()])
-            .expect("decoders");
+        dsview_decode::init(&[root().join("assets/decoders").as_path()]).expect("decoders");
         dsview_decode::load_all();
     });
 }
@@ -56,7 +55,7 @@ fn a_dialog_blocks_mutating_methods() {
     init_decoders();
     let session = Session::new(
         Paths {
-            data_dir: root().join("DSView"),
+            data_dir: root().join("assets"),
             profile_dir: None,
             version: "test".into(),
         },
@@ -82,7 +81,7 @@ fn demo_transcript_matches_qt() {
     init_decoders();
     let session = Session::new(
         Paths {
-            data_dir: root.join("DSView"),
+            data_dir: root.join("assets"),
             profile_dir: None,
             version: "test".into(),
         },
@@ -131,7 +130,7 @@ fn dso_voltages_keep_the_capture_vdiv() {
     init_decoders();
     let session = Session::new(
         Paths {
-            data_dir: root().join("DSView"),
+            data_dir: root().join("assets"),
             profile_dir: None,
             version: "test".into(),
         },

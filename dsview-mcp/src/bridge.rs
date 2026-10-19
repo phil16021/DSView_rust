@@ -41,7 +41,7 @@ impl Bridge {
     pub fn from_env() -> Self {
         let no_launch = std::env::var("DSVIEW_MCP_NO_LAUNCH").is_ok_and(|v| v == "1");
         let launch =
-            (!no_launch).then(|| std::env::var("DSVIEW_BIN").unwrap_or_else(|_| "DSView".into()));
+            (!no_launch).then(|| std::env::var("DSVIEW_BIN").unwrap_or_else(|_| "DSViewR".into()));
         Self::new(default_socket_path(), launch)
     }
 
@@ -125,7 +125,7 @@ impl Bridge {
     fn not_running(&self) -> String {
         format!(
             "DSView is not running with MCP control enabled (no socket at {}). \
-             Ask the user to start it with: DSView --mcp",
+             Ask the user to start it with: DSViewR --mcp",
             self.socket.display()
         )
     }
@@ -135,10 +135,10 @@ impl Bridge {
 fn launch(bin: &str) -> Result<(), String> {
     use std::os::unix::process::CommandExt;
 
-    // the Qt GUI takes `--mcp`; DSView without a GUI is `dsview-cli serve --mcp`
+    // the GUI takes `--mcp`; without a GUI it is `dsviewr-cli serve --mcp`
     let headless = std::path::Path::new(bin)
         .file_name()
-        .is_some_and(|n| n == "dsview-cli");
+        .is_some_and(|n| n == "dsviewr-cli" || n == "dsview-cli");
     let args: &[&str] = if headless {
         &["serve", "--mcp"]
     } else {
@@ -239,6 +239,6 @@ mod tests {
             .call("version", json!({}), Duration::from_secs(1))
             .await
             .unwrap_err();
-        assert!(err.contains("DSView --mcp"), "{err}");
+        assert!(err.contains("DSViewR --mcp"), "{err}");
     }
 }

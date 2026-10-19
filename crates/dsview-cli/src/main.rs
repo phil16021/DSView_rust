@@ -42,11 +42,11 @@ Runs DSViewR's capture session without a GUI behind the control socket
 
 options:
   --socket PATH      control socket path
-  --data-dir DIR     DSView's data directory (demo/, res/, decoders/);
-                     default ../share/dsview or ../share/DSView next
-                     to the binary, then /usr/local/share/DSView
-  --decoders DIR     protocol decoder directory (default <data-dir>/decoders,
-                     else <data-dir>/../libsigrokdecode4DSL/decoders)
+  --data-dir DIR     DSViewR's data directory (demo/, res/, decoders/, lang/);
+                     default ../share/dsview next to the binary (or the
+                     source tree's assets/ for a cargo build), then
+                     /usr/share/dsview
+  --decoders DIR     protocol decoder directory (default <data-dir>/decoders)
   --log-level N      0 none .. 5 detail (default 3)
 
 --device D is an index of `devices` or a part of a name; without it the
@@ -158,16 +158,8 @@ fn main() {
         fail("only `serve --mcp` is supported");
     }
     let data_dir = data_dir.unwrap_or_else(dsview_session::default_data_dir);
-    // GetDecodeScriptDir(): <data>/decoders, else ../share/libsigrokdecode4DSL/decoders
-    let decoders = decoders.unwrap_or_else(|| {
-        let own = data_dir.join("decoders");
-        let shared = data_dir.join("../libsigrokdecode4DSL/decoders");
-        if !own.is_dir() && shared.is_dir() {
-            shared
-        } else {
-            own
-        }
-    });
+    // GetDecodeScriptDir(): <data>/decoders
+    let decoders = decoders.unwrap_or_else(|| data_dir.join("decoders"));
 
     // selftest keeps the whole log next to its report
     let log_file = (cmd == "selftest")

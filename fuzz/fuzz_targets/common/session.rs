@@ -24,11 +24,11 @@ pub fn session() -> &'static Session {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
         dsview_drivers::sys::set_log_sink(Box::new(|_, _| {}));
         dsview_decode::log::set_sink(|_, _| {});
-        let _ = dsview_decode::init(&[root.join("libsigrokdecode4DSL/decoders").as_path()]);
+        let _ = dsview_decode::init(&[root.join("assets/decoders").as_path()]);
         dsview_decode::load_all();
         let s = Session::new(
             Paths {
-                data_dir: root.join("DSView"),
+                data_dir: root.join("assets"),
                 profile_dir: Some(std::env::temp_dir().join("dsv-fuzz-profiles")),
                 version: "fuzz".into(),
             },

@@ -25,7 +25,7 @@ fn setup() -> MutexGuard<'static, ()> {
         }
     }
     sys::set_clock(Arc::new(Fast(AtomicI64::new(0))));
-    sys::set_user_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../DSView"));
+    sys::set_user_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets"));
     g
 }
 

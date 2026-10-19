@@ -8,7 +8,9 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+dsview-decode = { path = "../../crates/dsview-decode" }
 dsview-formats = { path = "../../crates/dsview-formats" }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -26,22 +26,25 @@ pub use library::{Entry, Handle, Host, Kind, Library};
 pub use session::{Paths, Session};
 
 /// The data directory of a binary in `<prefix>/bin` (`GetAppDataDir`):
-/// `<prefix>/share/dsview`, the packages' layout, or Qt's
-/// `<prefix>/share/DSView`.
+/// `<prefix>/share/dsview`, the packages' layout, or the older
+/// `<prefix>/share/DSView`; for a binary in a cargo build tree
+/// (`<repo>/target/<profile>`), the source tree's `assets/`.
 pub fn data_dir_for(bin_dir: &std::path::Path) -> Option<std::path::PathBuf> {
-    let share = bin_dir.parent()?.join("share");
+    let prefix = bin_dir.parent()?;
+    let share = prefix.join("share");
     ["dsview", "DSView"]
         .into_iter()
         .map(|n| share.join(n))
-        .find(|d| d.is_dir())
+        .chain(prefix.parent().map(|repo| repo.join("assets")))
+        .find(|d| d.join("res").is_dir())
 }
 
-/// [`data_dir_for`] the running binary, else `/usr/local/share/DSView`.
+/// [`data_dir_for`] the running binary, else `/usr/share/dsview`.
 pub fn default_data_dir() -> std::path::PathBuf {
     std::env::current_exe()
         .ok()
         .and_then(|e| data_dir_for(e.parent()?))
-        .unwrap_or_else(|| "/usr/local/share/DSView".into())
+        .unwrap_or_else(|| "/usr/share/dsview".into())
 }
 
 /// `enum libsigrok_event_type` and the `DS_EV_*` codes.

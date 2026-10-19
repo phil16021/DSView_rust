@@ -31,11 +31,11 @@ fn root() -> PathBuf {
 
 #[test]
 fn a_table_of_100k_rows_stays_interactive() {
-    dsview_decode::init(&[root().join("libsigrokdecode4DSL/decoders").as_path()]).unwrap();
+    dsview_decode::init(&[root().join("assets/decoders").as_path()]).unwrap();
     dsview_decode::load_all();
     let s = Session::new(
         Paths {
-            data_dir: root().join("DSView"),
+            data_dir: root().join("assets"),
             profile_dir: None,
             version: "test".into(),
         },

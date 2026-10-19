@@ -8,23 +8,19 @@ members = [
     "crates/dsview-decode",
     "crates/dsview-drivers",
     "crates/dsview-dsp",
-    "crates/dsview-ffi",
     "crates/dsview-formats",
     "crates/dsview-gui",
     "crates/dsview-session",
     "crates/dsview-store",
     "crates/dsview-viewmodel",
     "crates/dsview-usb",
-    "dev/dsview-oracle",
     "dev/dsview-testkit",
     "dsview-mcp",
     "xtask",
 ]
-# The oracle compiles the original C sources; it is a dev tool, never shipped.
-default-members = ["crates/dsview-cli", "crates/dsview-control", "crates/dsview-core", "crates/dsview-decode", "crates/dsview-drivers", "crates/dsview-dsp", "crates/dsview-ffi", "crates/dsview-formats", "crates/dsview-session", "crates/dsview-store", "crates/dsview-viewmodel", "crates/dsview-usb", "dev/dsview-testkit", "dsview-mcp", "xtask"]
 
 [workspace.package]
-# DSView's version: the one source (CMakeLists.txt reads it too)
+# DSViewR's version: the one source (the packaging reads it too)
 version = "1.0.0"
 edition = "2024"
 rust-version = "1.88"
@@ -40,12 +36,8 @@ sha2 = "0.10"
 [profile.release]
 strip = true
 
-# The stores and their differential tests move hundreds of MB; keep them fast
-# in test builds.
+# The stores and their tests move hundreds of MB; keep them fast in test builds.
 [profile.dev.package.dsview-store]
-opt-level = 3
-
-[profile.dev.package.dsview-oracle]
 opt-level = 3
 
 # Inflating .dsl/.demo entries dominates debug-build test runs (the demo

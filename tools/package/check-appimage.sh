@@ -1,9 +1,8 @@
 #!/bin/bash
-# Runs both GUIs of the AppImage on clean Ubuntu containers (release R1):
-# the Rust GUI and `--qt` must open their control socket under Xvfb and list
-# the decoders with the bundled Python. The containers get the desktop
-# libraries an AppImage takes from the host (AppImage's excludelist: GL, X11,
-# xcb, fontconfig, freetype, harfbuzz, libusb, xkbcommon).
+# Runs the AppImage on clean Ubuntu containers: DSViewR must open its
+# control socket under Xvfb and list the decoders with the bundled Python.
+# The containers get the desktop libraries an AppImage takes from the host
+# (AppImage's excludelist: GL, X11, xcb, fontconfig, freetype, xkbcommon).
 #
 # usage: tools/package/check-appimage.sh APPIMAGE [IMAGE...]  (default ubuntu:24.04)
 set -euo pipefail
@@ -42,7 +41,6 @@ for image in "${IMAGES[@]}"; do
                 exit 1
             fi
         }
-        check DSView
-        check DSView-qt --qt
+        check DSViewR
         echo "AppImage OK"'
 done

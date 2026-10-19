@@ -22,7 +22,7 @@ fn root() -> PathBuf {
 fn dslogic_session() -> Session {
     static INIT: std::sync::Once = std::sync::Once::new();
     INIT.call_once(|| {
-        let _ = dsview_decode::init(&[root().join("libsigrokdecode4DSL/decoders").as_path()]);
+        let _ = dsview_decode::init(&[root().join("assets/decoders").as_path()]);
         dsview_decode::load_all();
     });
     let hub = Arc::new(Mutex::new(Hub::new(SimConfig::new(
@@ -36,7 +36,7 @@ fn dslogic_session() -> Session {
     ));
     let s = Session::new(
         Paths {
-            data_dir: root().join("DSView"),
+            data_dir: root().join("assets"),
             profile_dir: None,
             version: "test".into(),
         },
@@ -276,7 +276,7 @@ fn startup_dialogs() {
         let a = a.as_mut().unwrap();
         a.startup = Some(dsview_gui::startup::Startup::new(
             &a.options,
-            &root().join("DSView"),
+            &root().join("assets"),
         ));
     }
     h.run();

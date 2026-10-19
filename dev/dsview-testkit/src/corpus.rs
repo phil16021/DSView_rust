@@ -67,7 +67,7 @@ impl Corpus {
         Ok(())
     }
 
-    /// File stem used to name goldens, e.g. "logic-protocol" for DSView/demo/logic/protocol.demo.
+    /// File stem used to name goldens, e.g. "logic-protocol" for assets/demo/logic/protocol.demo.
     pub fn golden_name(entry: &Entry) -> String {
         let p = Path::new(&entry.path);
         let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("capture");

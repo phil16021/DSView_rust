@@ -32,12 +32,12 @@ fn session(device: &str) -> (MutexGuard<'static, ()>, Session) {
     static INIT: Once = Once::new();
     let g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     INIT.call_once(|| {
-        dsview_decode::init(&[root().join("libsigrokdecode4DSL/decoders").as_path()]).unwrap();
+        dsview_decode::init(&[root().join("assets/decoders").as_path()]).unwrap();
         dsview_decode::load_all();
     });
     let s = Session::new(
         Paths {
-            data_dir: root().join("DSView"),
+            data_dir: root().join("assets"),
             profile_dir: None,
             version: "test".into(),
         },
@@ -404,7 +404,7 @@ fn hardware_profile_names() {
         ));
         let s = Session::new(
             Paths {
-                data_dir: root().join("DSView"),
+                data_dir: root().join("assets"),
                 profile_dir: Some(dir.clone()),
                 version: "test".into(),
             },

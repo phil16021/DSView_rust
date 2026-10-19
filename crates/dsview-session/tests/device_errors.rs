@@ -29,7 +29,7 @@ fn a_missing_bitstream_is_reported_as_missing_firmware() {
     ));
     let s = Session::new(
         Paths {
-            data_dir: root().join("DSView"),
+            data_dir: root().join("assets"),
             profile_dir: Some(res.clone()),
             version: "test".into(),
         },
@@ -63,12 +63,12 @@ fn the_data_dir_prefers_the_package_layout() {
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("bin")).unwrap();
     assert_eq!(dsview_session::data_dir_for(&root.join("bin")), None);
-    std::fs::create_dir_all(root.join("share/DSView")).unwrap();
+    std::fs::create_dir_all(root.join("share/DSView/res")).unwrap();
     assert_eq!(
         dsview_session::data_dir_for(&root.join("bin")),
         Some(root.join("share/DSView"))
     );
-    std::fs::create_dir_all(root.join("share/dsview")).unwrap();
+    std::fs::create_dir_all(root.join("share/dsview/res")).unwrap();
     assert_eq!(
         dsview_session::data_dir_for(&root.join("bin")),
         Some(root.join("share/dsview"))

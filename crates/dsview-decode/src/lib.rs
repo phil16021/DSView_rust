@@ -1,5 +1,5 @@
 //! DSView's protocol decoder engine: runs the sigrok Python decoders
-//! (`libsigrokdecode4DSL/decoders`) in an embedded CPython through PyO3.
+//! (`assets/decoders`) in an embedded CPython through PyO3.
 //!
 //! A port of libsigrokdecode4DSL with the same behaviour, quirks included:
 //! decoder loading and validation ([`decoder`]), the `sigrokdecode` module

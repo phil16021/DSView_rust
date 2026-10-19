@@ -13,7 +13,7 @@ fn cli(dir: &Path, args: &[&str]) -> (bool, String, String) {
         .args(args)
         .args([
             "--data-dir",
-            root().join("DSView").to_str().unwrap(),
+            root().join("assets").to_str().unwrap(),
             "--log-level",
             "0",
         ])

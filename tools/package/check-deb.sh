@@ -1,9 +1,8 @@
 #!/bin/bash
-# Installs the .deb in DIR on a clean Ubuntu container and checks that both
-# GUIs and dsview-cli start with the bundled Python (release R1):
-# - dsview-cli lists the decoders, captures the demo and decodes it;
-# - the Rust GUI (DSView) runs for 20 s under Xvfb;
-# - the Qt GUI (DSView-qt) runs for 20 s on Qt's offscreen platform.
+# Installs the .deb in DIR on a clean Ubuntu container and checks that
+# DSViewR and dsviewr-cli start with the bundled Python:
+# - dsviewr-cli lists the decoders, captures the demo and decodes it;
+# - DSViewR runs for 20 s under Xvfb.
 #
 # usage: tools/package/check-deb.sh DIR [IMAGE...]   (default ubuntu:24.04)
 set -euo pipefail
@@ -19,10 +18,10 @@ for image in "${IMAGES[@]}"; do
         apt-get update -qq
         apt-get install -y -qq /deb/*.deb xvfb xauth libgl1-mesa-dri >/dev/null
         cd /tmp
-        dsview-cli decoders 2>/dev/null | grep -qw uart
-        dsview-cli capture --device "demo logic" --samples 100000 --out demo.dsl 2>/dev/null
-        n="$(dsview-cli decode demo.dsl --decoder i2c:scl=0,sda=1 2>/dev/null | wc -l)"
-        echo "dsview-cli: $n I2C annotations"
+        dsviewr-cli decoders 2>/dev/null | grep -qw uart
+        dsviewr-cli capture --device "demo logic" --samples 100000 --out demo.dsl 2>/dev/null
+        n="$(dsviewr-cli decode demo.dsl --decoder i2c:scl=0,sda=1 2>/dev/null | wc -l)"
+        echo "dsviewr-cli: $n I2C annotations"
         [ "$n" -gt 0 ]
         run() {   # NAME COMMAND...: must still run after 20 s
             local name="$1" rc=0
@@ -40,7 +39,6 @@ for image in "${IMAGES[@]}"; do
             fi
             echo "$name: running after 20 s"
         }
-        run DSView xvfb-run -a DSView
-        run DSView-qt env QT_QPA_PLATFORM=offscreen DSView-qt
+        run DSViewR xvfb-run -a DSViewR
         echo "deb OK"'
 done

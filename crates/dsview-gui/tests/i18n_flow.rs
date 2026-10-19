@@ -36,7 +36,7 @@ fn switch_to_chinese_and_back() {
     }
     let s = Session::new(
         Paths {
-            data_dir: root().join("DSView"),
+            data_dir: root().join("assets"),
             profile_dir: None,
             version: "test".into(),
         },

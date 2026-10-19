@@ -24,16 +24,9 @@ pub fn dir_name(lang: i64) -> &'static str {
     }
 }
 
-/// The language files: `<data>/lang` when installed, `lang/` next to the
-/// data directory in the source tree.
+/// The language files: `<data>/lang`.
 pub fn lang_dir(data_dir: &Path) -> PathBuf {
-    let own = data_dir.join("lang");
-    let tree = data_dir.join("../lang");
-    if !own.is_dir() && tree.is_dir() {
-        tree
-    } else {
-        own
-    }
+    data_dir.join("lang")
 }
 
 /// The pages with ids (toolbar, msg, dlg).
@@ -287,7 +280,7 @@ mod tests {
     use super::*;
 
     fn repo_lang() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../lang")
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/lang")
     }
 
     #[test]

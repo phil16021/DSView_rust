@@ -1,4 +1,4 @@
-//! Qt's SVG icons (`DSView/icons/{dark,light}`, `GetIconPath`): the
+//! Qt's SVG icons (now `assets/icons/{dark,light}`, Qt's `GetIconPath`): the
 //! light-on-dark set for the dark and frappé themes, the other for light
 //! and latte. They are built in and rasterised with resvg at the size and
 //! pixel density they are drawn at; textures are kept per size.
@@ -11,10 +11,10 @@ use eframe::egui;
 macro_rules! icon_set {
     ($($name:literal),* $(,)?) => {
         const DARK: &[(&str, &[u8])] = &[
-            $(($name, include_bytes!(concat!("../../../DSView/icons/dark/", $name, ".svg")))),*
+            $(($name, include_bytes!(concat!("../../../assets/icons/dark/", $name, ".svg")))),*
         ];
         const LIGHT: &[(&str, &[u8])] = &[
-            $(($name, include_bytes!(concat!("../../../DSView/icons/light/", $name, ".svg")))),*
+            $(($name, include_bytes!(concat!("../../../assets/icons/light/", $name, ".svg")))),*
         ];
     };
 }

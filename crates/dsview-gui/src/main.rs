@@ -67,15 +67,7 @@ fn main() -> eframe::Result {
     }
     dsview_gui::log::init(level);
     let data_dir = data_dir.unwrap_or_else(dsview_session::default_data_dir);
-    let decoders = {
-        let own = data_dir.join("decoders");
-        let shared = data_dir.join("../libsigrokdecode4DSL/decoders");
-        if !own.is_dir() && shared.is_dir() {
-            shared
-        } else {
-            own
-        }
-    };
+    let decoders = data_dir.join("decoders");
     if let Err(e) = dsview_decode::init(&[decoders.as_path()]) {
         eprintln!("dsview: decoder engine: {e}");
     }

@@ -1,21 +1,19 @@
 //! Developer tasks for the Rust port.
 //!
-//!   cargo xtask corpus init      write testdata/corpus.json from DSView/demo
+//!   cargo xtask corpus init      write testdata/corpus.json from assets/demo
 //!   cargo xtask corpus verify    check every corpus file against its hash
-//!   cargo xtask golden gen       (re)generate goldens with the C oracle
-//!   cargo xtask golden check     regenerate in memory and diff against the stored goldens
+//!   cargo xtask golden check     run the Rust reader and decoder engine and diff against
+//!                                the stored goldens (written by the C oracle up to tag
+//!                                `c-final`)
 //!   cargo xtask golden bless     write the goldens from the Rust implementation (the
 //!                                reader summary and rust-decode), for intentional
 //!                                changes once they are in DEVIATIONS.md
-//!   cargo xtask control record   run the demo scenario against `DSView --mcp`, store the transcript
+//!   cargo xtask control record   run the demo scenario against `--mcp`, store the transcript
 //!   cargo xtask control check    run it again and compare with the stored transcript
-//!   cargo xtask control dump OUT  run it and write the transcript to OUT (A/B of two DSViews)
-//!   cargo xtask control ab --bin <DSView>   same probes with DSVIEW_IMPL=c and rust; must match
-//!   cargo xtask gen-header [--check]   regenerate crates/dsview-ffi/include/dsview_ffi.h (cbindgen)
+//!   cargo xtask control dump OUT  run it and write the transcript to OUT
 //!   cargo xtask usb record [--iface usbmonN] [--out DIR] [--dry-run] [--only NAME]
 //!                                record DSLogic USB traffic per scenario (tools/usb/README.md)
 
-mod ab;
 mod mcp;
 mod usb;
 
@@ -41,22 +39,18 @@ fn main() -> Result<()> {
             println!("corpus ok");
             Ok(())
         }
-        ["golden", "gen"] => golden_run(&root, Mode::Generate),
         ["golden", "check"] => golden_run(&root, Mode::Check),
         ["golden", "bless"] => golden_run(&root, Mode::Bless),
         ["control", "record"] => control_run(&root, Mode::Generate),
         ["control", "check"] => control_run(&root, Mode::Check),
         ["control", "dump", out] => control_dump(Path::new(out)),
-        ["control", "ab", rest @ ..] => ab::run(&root, rest),
         ["mcp", "suite", bin] => mcp::suite(&root, bin, None),
         ["mcp", "suite", bin, out] => mcp::suite(&root, bin, Some(Path::new(out))),
         ["mcp", "compare", a, b] => mcp::compare(Path::new(a), Path::new(b)),
         ["usb", "record", rest @ ..] => usb::record(&root, rest),
-        ["gen-header"] => gen_header(&root, false),
-        ["gen-header", "--check"] => gen_header(&root, true),
         _ => {
             eprintln!(
-                "usage: cargo xtask <corpus init|corpus verify|golden gen|golden check|golden bless|control record|control check|control ab|mcp suite BIN [OUT]|mcp compare A B|gen-header [--check]|usb record>"
+                "usage: cargo xtask <corpus init|corpus verify|golden check|golden bless|control record|control check|control dump OUT|mcp suite BIN [OUT]|mcp compare A B|usb record>"
             );
             std::process::exit(2);
         }
@@ -66,7 +60,7 @@ fn main() -> Result<()> {
 fn corpus_init(root: &Path) -> Result<()> {
     let mut files = Vec::new();
     for mode in ["logic", "dso", "analog"] {
-        let dir = root.join("DSView/demo").join(mode);
+        let dir = root.join("assets/demo").join(mode);
         let mut names: Vec<_> = std::fs::read_dir(&dir)?
             .filter_map(|e| e.ok())
             .map(|e| e.path())
@@ -98,13 +92,13 @@ fn corpus_init(root: &Path) -> Result<()> {
 enum Mode {
     Generate,
     Check,
-    /// Generate from the Rust side: no C code runs.
+    /// Write the goldens from the Rust side.
     Bless,
 }
 
-fn oracle_bin(root: &Path, name: &str) -> Result<PathBuf> {
+fn testkit_bin(root: &Path, name: &str) -> Result<PathBuf> {
     let status = Command::new(env!("CARGO"))
-        .args(["build", "--release", "-p", "dsview-oracle", "--bin", name])
+        .args(["build", "--release", "-p", "dsview-testkit", "--bin", name])
         .current_dir(root)
         .status()?;
     if !status.success() {
@@ -133,9 +127,7 @@ fn run(bin: &Path, args: &[&str]) -> Result<String> {
 fn golden_run(root: &Path, mode: Mode) -> Result<()> {
     let corpus = Corpus::load(root)?;
     corpus.verify(root)?;
-    let dsl = oracle_bin(root, "oracle-dsl")?;
-    let decode = oracle_bin(root, "oracle-decode")?;
-    let rust_decode = oracle_bin(root, "rust-decode")?;
+    let rust_decode = testkit_bin(root, "rust-decode")?;
 
     let mut failures = 0;
     for entry in &corpus.files {
@@ -143,61 +135,42 @@ fn golden_run(root: &Path, mode: Mode) -> Result<()> {
         let input = root.join(&entry.path);
         let input = input.to_str().context("non-UTF-8 path")?;
 
-        let dsl_text = if mode == Mode::Bless {
-            // oracle-dsl's output, from the Rust reader
-            let summary = dsview_testkit::dsl_summary::summary(&root.join(&entry.path));
-            format!("{}\n", serde_json::to_string_pretty(&summary)?)
-        } else {
-            run(&dsl, &[input])?
-        };
+        // the C loader's summary (oracle-dsl), from the Rust reader
+        let summary = dsview_testkit::dsl_summary::summary(&root.join(&entry.path));
         let mut outputs = vec![(
             root.join(format!("testdata/golden/dsl/{name}.json")),
-            dsl_text,
-            "",
+            format!("{}\n", serde_json::to_string_pretty(&summary)?),
         )];
         if entry.decode {
-            let golden = root.join(format!("testdata/golden/decode/{name}.jsonl.gz"));
-            let engine = if mode == Mode::Bless {
-                &rust_decode
-            } else {
-                &decode
-            };
-            outputs.push((golden.clone(), run(engine, &[input])?, ""));
-            // the Rust decoder engine must reproduce the same golden
-            if mode == Mode::Check {
-                outputs.push((
-                    golden,
-                    run(&rust_decode, &[input])?,
-                    " (Rust decoder engine)",
-                ));
-            }
+            outputs.push((
+                root.join(format!("testdata/golden/decode/{name}.jsonl.gz")),
+                run(&rust_decode, &[input])?,
+            ));
         }
 
-        // Rust writes, C reads: the C loader must see the same samples in a
-        // capture re-written by dsview-formats.
+        // Rust writes, Rust reads: a capture re-written by dsview-formats
+        // reads back with the same samples as the original
         if mode == Mode::Check && entry.mode == "logic" {
             let tmp =
                 std::env::temp_dir().join(format!("dsview-rewrite-{}.dsl", std::process::id()));
             rewrite_logic(&root.join(&entry.path), &tmp)?;
-            let rewritten = run(&dsl, &[tmp.to_str().context("temp path")?]);
+            let mut rewritten = dsview_testkit::dsl_summary::summary(&tmp);
             let _ = std::fs::remove_file(&tmp);
-            let golden: serde_json::Value = serde_json::from_str(&outputs[0].1)?;
-            let mut rewritten: serde_json::Value = serde_json::from_str(&rewritten?)?;
-            let mut golden = golden;
-            golden.as_object_mut().unwrap().remove("packets");
+            let mut original = summary.clone();
+            original.as_object_mut().unwrap().remove("packets");
             rewritten.as_object_mut().unwrap().remove("packets");
-            if golden == rewritten {
-                println!(
-                    "ok   rust-written {} reads back identically in C",
-                    entry.path
-                );
+            if original == rewritten {
+                println!("ok   rust-written {} reads back identically", entry.path);
             } else {
                 failures += 1;
-                println!("FAIL rust-written {}: C reads different data", entry.path);
+                println!(
+                    "FAIL rust-written {}: reads back different data",
+                    entry.path
+                );
             }
         }
 
-        for (path, text, label) in outputs {
+        for (path, text) in outputs {
             let rel = path.strip_prefix(root)?.display().to_string();
             let gz = rel.ends_with(".gz");
             match mode {
@@ -216,15 +189,13 @@ fn golden_run(root: &Path, mode: Mode) -> Result<()> {
                     } else {
                         Ok(std::fs::read_to_string(&path)?)
                     }
-                    .with_context(|| {
-                        format!("missing golden {rel}; run `cargo xtask golden gen`")
-                    })?;
+                    .with_context(|| format!("missing golden {rel}"))?;
                     match golden::first_divergence(&stored, &text) {
-                        None => println!("ok   {rel}{label}"),
+                        None => println!("ok   {rel}"),
                         Some(d) => {
                             failures += 1;
                             println!(
-                                "FAIL {rel}{label}: {} differing lines\n{d}",
+                                "FAIL {rel}: {} differing lines\n{d}",
                                 golden::count_differences(&stored, &text)
                             );
                         }
@@ -234,7 +205,7 @@ fn golden_run(root: &Path, mode: Mode) -> Result<()> {
         }
     }
     if mode == Mode::Check {
-        failures += synthetic_logic_check(&dsl)?;
+        failures += synthetic_logic_check()?;
     }
     if failures > 0 {
         bail!("{failures} golden file(s) differ");
@@ -267,10 +238,10 @@ fn synthetic_bits(samples: u64, seed: u64) -> Vec<u8> {
     out
 }
 
-/// Multi-block/multi-packet logic captures written by the Rust writer must
-/// read identically (data and packet boundaries) through C and Rust.
-fn synthetic_logic_check(oracle_dsl: &Path) -> Result<usize> {
-    use dsview_formats::dsl::{LOGIC_BLOCK_SAMPLES, LogicWriter, WriteChannel};
+/// Multi-block logic captures written by the Rust writer must read back with
+/// the bits written (until tag `c-final` the C loader read them too).
+fn synthetic_logic_check() -> Result<usize> {
+    use dsview_formats::dsl::{DslReader, LOGIC_BLOCK_SAMPLES, LogicWriter, WriteChannel};
 
     let cases: [(&str, &[u16], u64); 3] = [
         (
@@ -312,15 +283,16 @@ fn synthetic_logic_check(oracle_dsl: &Path) -> Result<usize> {
         let refs: Vec<&[u8]> = bits.iter().map(Vec::as_slice).collect();
         writer.write(std::fs::File::create(&path)?, &refs)?;
 
-        let c: serde_json::Value =
-            serde_json::from_str(&run(oracle_dsl, &[path.to_str().context("temp path")?])?)?;
-        let rust = dsview_testkit::dsl_summary::summary(&path);
+        let mut reader = DslReader::open(&path)?;
+        let read: Vec<Vec<u8>> = (0..idx.len())
+            .map(|i| reader.logic_channel(i))
+            .collect::<Result<_, _>>()?;
         let _ = std::fs::remove_file(&path);
-        if c == rust {
-            println!("ok   synthetic {name}: C and Rust read identical data and packets");
+        if read == bits {
+            println!("ok   synthetic {name}: the Rust reader returns the bits written");
         } else {
             failures += 1;
-            println!("FAIL synthetic {name}\n  C:    {c}\n  Rust: {rust}");
+            println!("FAIL synthetic {name}: the Rust reader returns other bits");
         }
     }
     Ok(failures)
@@ -414,40 +386,5 @@ fn rewrite_logic(src: &Path, dst: &Path) -> Result<()> {
     };
     let refs: Vec<&[u8]> = bits.iter().map(Vec::as_slice).collect();
     writer.write(std::fs::File::create(dst)?, &refs)?;
-    Ok(())
-}
-
-/// The C header of dsview-ffi is generated; `--check` fails if it is stale.
-fn gen_header(root: &Path, check: bool) -> Result<()> {
-    let header = root.join("crates/dsview-ffi/include/dsview_ffi.h");
-    let tmp = std::env::temp_dir().join(format!("dsview_ffi-{}.h", std::process::id()));
-    let status = Command::new("cbindgen")
-        .args([
-            "--quiet",
-            "--config",
-            "crates/dsview-ffi/cbindgen.toml",
-            "--crate",
-            "dsview-ffi",
-            "--output",
-        ])
-        .arg(&tmp)
-        .arg("crates/dsview-ffi")
-        .current_dir(root)
-        .status()
-        .context("running cbindgen (cargo install --locked cbindgen)")?;
-    if !status.success() {
-        bail!("cbindgen failed");
-    }
-    let generated = std::fs::read_to_string(&tmp)?;
-    let _ = std::fs::remove_file(&tmp);
-    if check {
-        if std::fs::read_to_string(&header)? != generated {
-            bail!("crates/dsview-ffi/include/dsview_ffi.h is stale; run `cargo xtask gen-header`");
-        }
-        println!("dsview_ffi.h is up to date");
-    } else {
-        std::fs::write(&header, generated)?;
-        println!("wrote crates/dsview-ffi/include/dsview_ffi.h");
-    }
     Ok(())
 }

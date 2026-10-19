@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use dsview_decode::{OptValue, OutputData, Session};
 
 fn decoders_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../libsigrokdecode4DSL/decoders")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/decoders")
 }
 
 /// 8N1 UART frames, LSB first, `spb` samples per bit, idle high.
