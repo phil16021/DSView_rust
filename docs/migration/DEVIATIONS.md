@@ -498,6 +498,24 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
 - **Plan:** the fix belongs to M7b, with the other post-parity fixes. `tests/chunking.rs` checks
   invariance up to that one sample for chunks of 2 samples and more.
 
+### F33. The analog envelope writes one entry past its ring (R1, first CI run)
+- **Found by** the `oracle-asan` CI job: it had never run before the branch was pushed. One
+  channel, 20 samples total, packets of 4, 12 and 3 samples.
+- **The defect:** `AnalogSnapshot::append_payload_to_envelope_levels` continues level 0 at
+  `e0.samples + prev_length`.
+  - When the sample ring ends in its last partial 16-sample group, `prev_length` equals the
+    ring's entry count `e0.count`. That needs a total that is not a multiple of 16, e.g.
+    1000 samples.
+  - A packet that completes no new group then takes the "wrapped" branch. It computes
+    `total / 16` entries and writes the first one at `e0.samples[e0.count]`, before the wrap
+    check. That is a 2-byte heap write past the `malloc`ed ring.
+- **Rust behaviour:** the store computes the same entries and drops the one that has no slot
+  (`dsview-store/src/analog.rs`). The visible envelope is the same as C++'s.
+- **Tests:**
+  - Unsanitized, `store_ad_diff` keeps feeding such inputs and compares the results.
+  - Under ASan (`ORACLE_SANITIZE=1`, `cfg(oracle_sanitize)`) it uses whole 16-sample totals,
+    and no packets past the ring (F12). The C++ code stays memory-clean on everything else.
+
 ## Planned behaviour deviations (Rust intentionally differs)
 
 | Area | C behaviour | Rust behaviour | Phase |
@@ -533,6 +551,7 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
 | Logic store, capture into an uncleared store (F10) | Stale offsets; heap overflow / use-after-free | Same logic, memory-safe (DSView always clears first) | 1b ✔ |
 | Logic store `_dest_ptr` into a freed leaf | Dangling pointer kept | Write position dropped (only reachable through F9/F10 input) | 1b ✔ |
 | Analog envelope over-read (F12) | One entry past the ring folded into min/max | Entry skipped | 1b ✔ |
+| Analog envelope over-write (F33) | Level 0 writes one entry past the ring when the ring ends in a partial 16-sample group | That entry is dropped; same envelope | 1b ✔ (recorded R1) |
 | Decoder engine teardown | `wait()` returns NULL without an exception (Python: SystemError, which `except Exception` in a decoder can swallow) | Raises `sigrokdecode.Terminate`, a BaseException | 2 ✔ |
 | Malformed `wait()` conditions | NULL without an exception ("returned NULL without setting an exception") | SystemError naming the problem | 2 ✔ |
 | `metadata()` raising | The exception stays pending on the calling thread | Discarded | 2 ✔ |

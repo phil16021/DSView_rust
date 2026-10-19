@@ -27,6 +27,15 @@ unused-allowed-license = "allow"
 
 [advisories]
 yanked = "deny"
+# Informational "unmaintained" notices (2026-10-16): zbus_names, zvariant and
+# zvariant_derive were merged into zbus 6. They come from eframe 0.37's
+# AccessKit bridge (accesskit_unix -> atspi -> zbus 5); they go away with an
+# egui release on zbus 6.
+ignore = [
+    { id = "RUSTSEC-2026-0370", reason = "zbus 5 split crate, merged into zbus 6; via eframe 0.37 / AccessKit" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus 5 split crate, merged into zbus 6; via eframe 0.37 / AccessKit" },
+    { id = "RUSTSEC-2026-0372", reason = "zbus 5 split crate, merged into zbus 6; via eframe 0.37 / AccessKit" },
+]
 
 [bans]
 multiple-versions = "allow"

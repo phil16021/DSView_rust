@@ -220,6 +220,10 @@ fn probe(socket: &Path, root: &Path, corpus: &Corpus, tag: &str) -> Value {
                             break;
                         }
                     }
+                    // Rows that start on the same sample come in decoder load
+                    // order, which for the C engine is the directory order of
+                    // the file system (DEVIATIONS F25): compare them as a set.
+                    all.sort_by_cached_key(|a| (a["start_sample"].as_u64(), a.to_string()));
                     r.insert(format!("annotations_{d}"), Value::Array(all));
                 }
             }

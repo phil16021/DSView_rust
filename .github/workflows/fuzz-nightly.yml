@@ -38,6 +38,9 @@ jobs:
           restore-keys: fuzz-corpus-${{ matrix.target }}-
       - name: Fuzz for an hour
         working-directory: fuzz
+        # LeakSanitizer would report the embedded interpreter at exit
+        env:
+          ASAN_OPTIONS: detect_leaks=0
         run: |
           mkdir -p "corpus/${{ matrix.target }}" "seeds/${{ matrix.target }}"
           cargo +nightly fuzz run "${{ matrix.target }}" "corpus/${{ matrix.target }}" \

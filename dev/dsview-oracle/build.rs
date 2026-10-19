@@ -55,6 +55,11 @@ fn main() {
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
     let root = manifest.join("../..").canonicalize().unwrap();
     let sanitize = std::env::var("ORACLE_SANITIZE").is_ok_and(|v| v == "1");
+    // lets the tests keep clear of the C defects ASan would stop on (F33)
+    println!("cargo::rustc-check-cfg=cfg(oracle_sanitize)");
+    if sanitize {
+        println!("cargo::rustc-cfg=oracle_sanitize");
+    }
 
     let mut includes = Vec::new();
     includes.extend(python_embed());

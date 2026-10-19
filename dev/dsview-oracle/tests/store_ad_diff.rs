@@ -343,7 +343,15 @@ fn analog_case(seed: u64) {
             16 * (1 + rng.below(300)),
             1 + rng.below(70_000),
         ];
-        let total = rng.pick(&totals);
+        let mut total = rng.pick(&totals);
+        // Under ASan the inputs keep clear of the C++ envelope's heap
+        // overflows, which the unsanitized run compares with Rust: totals of
+        // whole 16-sample groups (F33) and no wrap of the sample ring (F12).
+        let mut room = u64::MAX;
+        if cfg!(oracle_sanitize) {
+            total = total.div_ceil(16) * 16;
+            room = total;
+        }
         let bps = n_ch as usize * unit_bits.div_ceil(8) as usize;
 
         c.first_payload(&[], 0, unit_bits, pitch, total, &channels);
@@ -359,6 +367,8 @@ fn analog_case(seed: u64) {
                 1 => rng.below(total * 3 + 1),
                 _ => rng.below(total / 3 + 2),
             } as usize;
+            let n = n.min(room as usize);
+            room -= n as u64;
             let data = rng.bytes(n * bps);
             c.append_payload(&data, n as i32, pitch);
             r.append_payload(&data, n as u64, pitch);
