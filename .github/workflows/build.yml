@@ -24,6 +24,12 @@ jobs:
             libglib2.0-dev zlib1g-dev libusb-1.0-0-dev libboost-dev libfftw3-dev \
             python3-dev libudev-dev dpkg-dev rsync patchelf
 
+      # Release R1: the Rust GUI installs as DSView, the Qt GUI as DSView-qt
+      # (running on the Rust core by default), and dsview-cli next to them.
+      # The toolchain comes from rust-toolchain.toml.
+      - name: Rust toolchain
+        run: rustup show
+
       - name: Configure
         run: |
           cmake -S . -B build \
@@ -40,58 +46,15 @@ jobs:
           cd build
           cpack -G DEB
 
-      - name: Bundle Python (lib + stdlib) so the .deb doesn't depend on the host's Python
-        run: |
-          cd build
-          DEB="$(ls *.deb)"
-          rm -rf deb-extract
-          dpkg-deb -R "$DEB" deb-extract
+      # DSView embeds Python for its protocol decoders and links the exact
+      # libpythonX.Y the runner has (Ubuntu 22.04: 3.10), which newer
+      # releases do not ship. The package carries that libpython and its
+      # standard library in /usr/lib/dsview instead.
+      - name: Bundle Python into the .deb
+        run: tools/package/deb.sh build/*.deb python3
 
-          # DSView embeds Python (for its protocol decoders) and links
-          # libpython directly, so the binary has a hard DT_NEEDED on the
-          # exact libpythonX.Y.so the runner (Ubuntu 22.04, Python 3.10)
-          # built against, and the interpreter needs that same version's
-          # stdlib (encodings, etc.) to even bootstrap. Neither exists on
-          # newer distros (24.04 only ships Python 3.12), so the app would
-          # fail to start even though apt happily installed it. Fix: carry
-          # our own copy of both inside the package and point the binary at
-          # them via RPATH + a PYTHONHOME/PYTHONPATH wrapper, so it never
-          # relies on whatever Python happens to be on the host.
-          PYVER="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
-          BIN="deb-extract/usr/bin/DSView"
-          PYSO="$(ldd "$BIN" | awk '/libpython/ {print $3}')"
-          BUNDLE="deb-extract/usr/lib/dsview"
-          mkdir -p "$BUNDLE"
-          cp -Lv "$PYSO" "$BUNDLE/"
-          patchelf --set-rpath '$ORIGIN/../lib/dsview' "$BIN"
-
-          rsync -a \
-            --exclude 'test' --exclude 'idlelib' --exclude 'tkinter' --exclude '__pycache__' \
-            "/usr/lib/python${PYVER}/" "$BUNDLE/python${PYVER}/"
-
-          mv "$BIN" "${BIN}.bin"
-          cat > "$BIN" <<WRAPPER
-          #!/bin/bash
-          export PYTHONHOME="/usr/lib/dsview"
-          export PYTHONPATH="/usr/lib/dsview/python${PYVER}:/usr/lib/dsview/python${PYVER}/lib-dynload"
-          exec "/usr/bin/DSView.bin" "\$@"
-          WRAPPER
-          chmod +x "$BIN"
-
-          # Drop the auto-detected libpythonX.Y dependency from the control
-          # file - we no longer rely on the system providing it. Handles the
-          # dependency appearing first, last, or in the middle of the list.
-          sed -E -i \
-            -e "s/, libpython${PYVER//./\\.}[^,]*//g" \
-            -e "s/libpython${PYVER//./\\.}[^,]*, //g" \
-            -e "s/libpython${PYVER//./\\.}[^,]*\$//g" \
-            deb-extract/DEBIAN/control
-          echo "--- patched control ---"
-          cat deb-extract/DEBIAN/control
-          echo "--- ldd after patch ---"
-          ldd "${BIN}.bin" 2>/dev/null || true
-
-          dpkg-deb --root-owner-group -b deb-extract "$DEB"
+      - name: Check the .deb on clean systems
+        run: tools/package/check-deb.sh build ubuntu:22.04 ubuntu:24.04 ubuntu:26.04
 
       - name: Upload .deb artifact
         uses: actions/upload-artifact@v6
@@ -103,23 +66,15 @@ jobs:
         run: |
           rm -rf AppDir
           DESTDIR="${GITHUB_WORKSPACE}/AppDir" cmake --install build
+          # the AppImage starts the Rust GUI; the Qt one with --qt (AppRun)
+          rm -f AppDir/usr/share/applications/dsview-qt.desktop
 
       - name: Download linuxdeploy
         run: |
           # linuxdeployqt (previously used here) has a regression in its
-          # current "continuous" build: run against DSView's .desktop file, it
-          # silently omits libQt6*.so from the bundle entirely (confirmed by
-          # rebuilding this exact sequence locally and inspecting the result -
-          # it parses Qt6Widgets/Qt6Gui/Qt6Core as dependencies via its own
-          # logging, but never copies them). The resulting "AppImage" only
-          # happened to run on machines that already had system Qt6 installed,
-          # which is indistinguishable from a working build unless tested on a
-          # clean system - reported as "AppImage doesn't run without Qt6
-          # pre-installed". linuxdeploy + linuxdeploy-plugin-qt (actively
-          # maintained, purpose-built for Qt) does not share this bug - this
-          # was verified locally: a completely clean environment (env -i, no
-          # inherited LD_LIBRARY_PATH/QT_PLUGIN_PATH) successfully launched the
-          # resulting AppImage.
+          # current "continuous" build: it silently omits libQt6*.so from the
+          # bundle, so the AppImage only ran where Qt6 was installed.
+          # linuxdeploy + linuxdeploy-plugin-qt does not share this bug.
           wget -q -O linuxdeploy \
             "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
           wget -q -O linuxdeploy-plugin-qt \
@@ -133,55 +88,21 @@ jobs:
           # searching PATH for a linuxdeploy-plugin-qt executable.
           export PATH="${GITHUB_WORKSPACE}:${PATH}"
 
-          # Deploy Qt/shared-lib dependencies into AppDir, but don't build the
-          # final .AppImage yet - we still need to bundle the Python stdlib
-          # (DSView embeds Python for its protocol decoders; the interpreter
-          # needs the stdlib data files it loads at runtime, e.g. the
-          # `encodings` module, which no Qt-focused deploy tool knows about).
-          ./linuxdeploy --appdir "${GITHUB_WORKSPACE}/AppDir" --plugin qt
-
-          # Belt-and-suspenders: linuxdeploy-plugin-qt's own dependency scan
-          # already bundles libpython*.so (verified locally), but guard with
-          # an existence check rather than assume it always will - a plain
-          # `cp` would fail the step (source/dest resolving to the same file
-          # exits non-zero, and this workflow's steps run with `bash -e`) if
-          # it's already there.
-          PYSO="$(ldd "${GITHUB_WORKSPACE}/AppDir/usr/bin/DSView" | awk '/libpython/ {print $3}')"
-          if [ -n "${PYSO}" ] && [ ! -e "${GITHUB_WORKSPACE}/AppDir/usr/lib/$(basename "${PYSO}")" ]; then
-            cp -Lv "${PYSO}" "${GITHUB_WORKSPACE}/AppDir/usr/lib/"
-          fi
-
-          PYVER="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
-          PYLIBDIR="/usr/lib/python${PYVER}"
-          DEST="${GITHUB_WORKSPACE}/AppDir/usr/lib/python${PYVER}"
-          mkdir -p "${DEST}"
-          rsync -a \
-            --exclude 'test' --exclude 'idlelib' --exclude 'tkinter' --exclude '__pycache__' \
-            "${PYLIBDIR}/" "${DEST}/"
-
-          # linuxdeploy's AppRun (a plain symlink to the binary for Qt6 apps -
-          # it relies on the $ORIGIN rpaths the qt plugin already set on every
-          # bundled library, not an LD_LIBRARY_PATH-setting script) only
-          # covers Qt/library resolution. Wrap it with our own AppRun that
-          # also points the bundled Python interpreter at the bundled stdlib,
-          # instead of falling back to whatever python3 (and version) happens
-          # to be on the host. exec transparently follows the AppRun.qt
-          # symlink, so this works the same regardless of what form it takes.
-          mv "${GITHUB_WORKSPACE}/AppDir/AppRun" "${GITHUB_WORKSPACE}/AppDir/AppRun.qt"
-          cat > "${GITHUB_WORKSPACE}/AppDir/AppRun" <<EOF
-          #!/bin/bash
-          HERE="\$(dirname "\$(readlink -f "\${0}")")"
-          export PYTHONHOME="\$HERE/usr"
-          export PYTHONPATH="\$HERE/usr/lib/python${PYVER}:\$HERE/usr/lib/python${PYVER}/lib-dynload"
-          exec "\$HERE/AppRun.qt" "\$@"
-          EOF
-          chmod +x "${GITHUB_WORKSPACE}/AppDir/AppRun"
+          # Deploy the shared-lib dependencies of every binary (Qt for
+          # DSView-qt) without building the .AppImage yet: the Python
+          # standard library and the AppRun come next.
+          ./linuxdeploy --appdir "${GITHUB_WORKSPACE}/AppDir" --plugin qt \
+            --desktop-file "${GITHUB_WORKSPACE}/AppDir/usr/share/applications/dsview.desktop"
+          tools/package/appdir.sh "${GITHUB_WORKSPACE}/AppDir" python3
 
           wget -q -O appimagetool \
             "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
           chmod +x appimagetool
           ./appimagetool --appimage-extract-and-run \
             "${GITHUB_WORKSPACE}/AppDir" DSView-x86_64.AppImage
+
+      - name: Check the AppImage on clean systems
+        run: tools/package/check-appimage.sh DSView-x86_64.AppImage ubuntu:22.04 ubuntu:26.04
 
       - name: Upload AppImage artifact
         uses: actions/upload-artifact@v6
@@ -316,13 +237,10 @@ jobs:
       - name: Build Windows installer
         shell: pwsh
         run: |
-          # Read the app version from CMakeLists.txt instead of hand-duplicating
-          # it here, so the installer's version can't silently drift from the
-          # one DSView itself reports.
-          $major = (Select-String -Path CMakeLists.txt -Pattern 'DS_VERSION_MAJOR (\d+)').Matches[0].Groups[1].Value
-          $minor = (Select-String -Path CMakeLists.txt -Pattern 'DS_VERSION_MINOR (\d+)').Matches[0].Groups[1].Value
-          $micro = (Select-String -Path CMakeLists.txt -Pattern 'DS_VERSION_MICRO (\d+)').Matches[0].Groups[1].Value
-          $version = "$major.$minor.$micro"
+          # Read the app version from the workspace Cargo.toml (CMake reads it
+          # there too) instead of hand-duplicating it here, so the installer's
+          # version can't silently drift from the one DSView itself reports.
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(\d+\.\d+\.\d+)"').Matches[0].Groups[1].Value
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "installer\windows\dsview.iss" "/DMyAppVersion=$version"
 
       - name: Upload installer artifact
@@ -339,11 +257,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      # Only CMakeLists.txt is needed, to read the app version for the title.
-      - name: Checkout CMakeLists.txt
+      # Only Cargo.toml is needed, to read the app version for the title.
+      - name: Checkout Cargo.toml
         uses: actions/checkout@v6
         with:
-          sparse-checkout: CMakeLists.txt
+          sparse-checkout: Cargo.toml
           sparse-checkout-cone-mode: false
 
       - name: Download artifacts
@@ -356,10 +274,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          major="$(sed -nE 's/^set\(DS_VERSION_MAJOR ([0-9]+)\)/\1/p' CMakeLists.txt)"
-          minor="$(sed -nE 's/^set\(DS_VERSION_MINOR ([0-9]+)\)/\1/p' CMakeLists.txt)"
-          micro="$(sed -nE 's/^set\(DS_VERSION_MICRO ([0-9]+)\)/\1/p' CMakeLists.txt)"
-          version="${major}.${minor}.${micro}-dev"
+          version="$(sed -nE 's/^version = "([0-9]+\.[0-9]+\.[0-9]+)"/\1/p' Cargo.toml | head -n 1)-dev"
           gh release delete latest --yes --cleanup-tag --repo "${GITHUB_REPOSITORY}" || true
           gh release create latest artifacts/* \
             --repo "${GITHUB_REPOSITORY}" \

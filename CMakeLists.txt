@@ -81,14 +81,17 @@ endif()
 set(DISABLE_WERROR TRUE) #Build without -Werror
 set(ENABLE_SIGNALS TRUE) #Build with UNIX signals
 set(ENABLE_COTIRE FALSE) #Enable cotire
-option(DSVIEW_RUST_CORE "Link the Rust core (crates/dsview-ffi, built with cargo)" OFF)
 # Milestone M6e (docs/migration/PLAN.md): the Rust GUI is the default on
 # Linux. It is installed as DSView; the Qt GUI stays for one release as
 # DSView-qt. Without cargo the Qt GUI remains DSView.
+# Release R1: on Linux DSView-qt also links the Rust core and uses it by
+# default for every subsystem (DSVIEW_IMPL=c still selects the C code).
 if(CMAKE_SYSTEM_NAME MATCHES "Linux")
     option(DSVIEW_RUST_GUI "Build the Rust GUI (crates/dsview-gui) and install it as DSView" ON)
+    option(DSVIEW_RUST_CORE "Link the Rust core (crates/dsview-ffi, built with cargo)" ON)
 else()
     option(DSVIEW_RUST_GUI "Build the Rust GUI (crates/dsview-gui) and install it as DSView" OFF)
+    option(DSVIEW_RUST_CORE "Link the Rust core (crates/dsview-ffi, built with cargo)" OFF)
 endif()
 
 if(WIN32)
@@ -704,16 +707,22 @@ target_link_libraries(${PROJECT_NAME} ${DSVIEW_LINK_LIBS})
 # cargo is incremental, so the target runs on every build and is a no-op when
 # nothing changed. Uses the committed Cargo.lock; downloads nothing at configure time.
 if(DSVIEW_RUST_CORE)
-    find_program(CARGO_EXECUTABLE cargo REQUIRED)
+    find_program(CARGO_EXECUTABLE cargo)
+    if(NOT CARGO_EXECUTABLE)
+        message(WARNING "cargo not found: DSView-qt runs on the C core only (DSVIEW_RUST_CORE is off)")
+        set(DSVIEW_RUST_CORE OFF)
+    endif()
+endif()
+if(DSVIEW_RUST_CORE)
     set(DSVIEW_CARGO_TARGET_DIR ${CMAKE_BINARY_DIR}/cargo)
     set(DSVIEW_FFI_LIB ${DSVIEW_CARGO_TARGET_DIR}/release/libdsview_ffi.a)
     # PyO3 must build against the Python DSView links (the decoder engine
     # embeds it): the interpreter of the version find_package(Python3) found.
     find_program(DSVIEW_PYTHON NAMES python${Python3_VERSION_MAJOR}.${Python3_VERSION_MINOR} python3 REQUIRED)
-    message(STATUS "Rust core: PyO3 builds against ${DSVIEW_PYTHON}")
+    message(STATUS "Rust core: the default in DSView-qt (PyO3 builds against ${DSVIEW_PYTHON})")
     add_custom_target(dsview_ffi ALL
         COMMAND ${CMAKE_COMMAND} -E env PYO3_PYTHON=${DSVIEW_PYTHON}
-                ${CARGO_EXECUTABLE} build --release --locked -p dsview-ffi --target-dir ${DSVIEW_CARGO_TARGET_DIR}
+                ${CARGO_EXECUTABLE} build --release --locked -p dsview-ffi --features rust-default --target-dir ${DSVIEW_CARGO_TARGET_DIR}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         BYPRODUCTS ${DSVIEW_FFI_LIB}
         COMMENT "Building the Rust core (dsview-ffi)"
@@ -737,15 +746,17 @@ endif()
 if(DSVIEW_RUST_GUI)
     set(DSVIEW_GUI_TARGET_DIR ${CMAKE_BINARY_DIR}/cargo)
     set(DSVIEW_GUI_BIN ${DSVIEW_GUI_TARGET_DIR}/release/dsview)
+    # dsview-cli: headless captures, decoding and the selftest bundle
+    set(DSVIEW_CLI_BIN ${DSVIEW_GUI_TARGET_DIR}/release/dsview-cli)
     # the decoder engine embeds the Python DSView finds
     find_program(DSVIEW_GUI_PYTHON NAMES python${Python3_VERSION_MAJOR}.${Python3_VERSION_MINOR} python3 REQUIRED)
     message(STATUS "Rust GUI: installed as DSView, the Qt GUI as DSView-qt (PyO3: ${DSVIEW_GUI_PYTHON})")
     add_custom_target(dsview_gui ALL
         COMMAND ${CMAKE_COMMAND} -E env PYO3_PYTHON=${DSVIEW_GUI_PYTHON}
-                ${DSVIEW_CARGO} build --release --locked -p dsview-gui --target-dir ${DSVIEW_GUI_TARGET_DIR}
+                ${DSVIEW_CARGO} build --release --locked -p dsview-gui -p dsview-cli --target-dir ${DSVIEW_GUI_TARGET_DIR}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        BYPRODUCTS ${DSVIEW_GUI_BIN}
-        COMMENT "Building the Rust GUI (dsview-gui)"
+        BYPRODUCTS ${DSVIEW_GUI_BIN} ${DSVIEW_CLI_BIN}
+        COMMENT "Building the Rust GUI (dsview-gui) and dsview-cli"
         VERBATIM)
     set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME DSView-qt)
 endif()
@@ -801,6 +812,7 @@ else()
 
     if(DSVIEW_RUST_GUI)
         install(PROGRAMS ${DSVIEW_GUI_BIN} DESTINATION bin RENAME DSView)
+        install(PROGRAMS ${DSVIEW_CLI_BIN} DESTINATION bin)
     endif()
 
     if(CMAKE_SYSTEM_NAME MATCHES "Linux")
@@ -870,6 +882,17 @@ set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
 if(Qt6Core_FOUND)
     set(CPACK_DEBIAN_PACKAGE_DEPENDS "qt6-qpa-plugins | libqt6gui6t64")
     set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "qt6-wayland")
+endif()
+# The Rust GUI (winit, glow, wgpu) dlopens its windowing and GL libraries, so
+# shlibdeps cannot see them either: X11 and GL are required, Wayland, Vulkan
+# and D-Bus (the accessibility bridge) are used when present.
+if(DSVIEW_RUST_GUI)
+    list(APPEND CPACK_DEBIAN_PACKAGE_DEPENDS
+        "libgl1, libegl1, libx11-6, libx11-xcb1, libxcb1, libxcursor1, libxi6, libxrender1, libxkbcommon0, libxkbcommon-x11-0")
+    list(APPEND CPACK_DEBIAN_PACKAGE_RECOMMENDS
+        "libwayland-client0, libwayland-egl1, libvulkan1, libdbus-1-3")
+    list(JOIN CPACK_DEBIAN_PACKAGE_DEPENDS ", " CPACK_DEBIAN_PACKAGE_DEPENDS)
+    list(JOIN CPACK_DEBIAN_PACKAGE_RECOMMENDS ", " CPACK_DEBIAN_PACKAGE_RECOMMENDS)
 endif()
 
 include(CPack)

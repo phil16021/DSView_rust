@@ -2,6 +2,8 @@
 //! DSView once per implementation (DSVIEW_IMPL=c, then rust) and requires
 //! identical answers. The binary must be built with -DDSVIEW_RUST_CORE=ON and
 //! sit in an install layout (<prefix>/bin/DSView next to <prefix>/share/DSView).
+//! First it checks the release R1 default: started without DSVIEW_IMPL*, every
+//! subsystem runs Rust.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -27,9 +29,24 @@ impl Drop for Instance {
     }
 }
 
-/// Starts DSView headless with an isolated profile (first-run dialogs off).
-fn launch(bin: &Path, iml: &str) -> Result<Instance> {
-    let tag = format!("{}-{iml}", std::process::id());
+/// Every subsystem `DSVIEW_IMPL_<name>` selects (controlapi.cpp `version`).
+const SUBSYSTEMS: [&str; 8] = [
+    "FORMATS",
+    "STORE",
+    "DECODE",
+    "DRV_DEMO",
+    "DRV_FILE",
+    "DRV_DSLOGIC",
+    "DRV_DSCOPE",
+    "ACQ",
+];
+
+/// Starts DSView headless with an isolated profile (first-run dialogs off),
+/// with `DSVIEW_IMPL=iml`, or with no DSVIEW_IMPL* at all for `None`, where
+/// every subsystem must run Rust (the R1 default).
+fn launch(bin: &Path, iml: Option<&str>) -> Result<Instance> {
+    let expect = iml.unwrap_or("rust");
+    let tag = format!("{}-{}", std::process::id(), iml.unwrap_or("default"));
     let home = std::env::temp_dir().join(format!("dsview-ab-home-{tag}"));
     let conf = home.join(".config/DreamSourceLab");
     std::fs::create_dir_all(&conf)?;
@@ -41,9 +58,16 @@ fn launch(bin: &Path, iml: &str) -> Result<Instance> {
     let socket = PathBuf::from(format!("/tmp/dsview-ab-{tag}.sock"));
     let _ = std::fs::remove_file(&socket);
 
-    let child = Command::new(bin)
+    let mut cmd = Command::new(bin);
+    cmd.env_remove("DSVIEW_IMPL");
+    for sub in SUBSYSTEMS {
+        cmd.env_remove(format!("DSVIEW_IMPL_{sub}"));
+    }
+    if let Some(iml) = iml {
+        cmd.env("DSVIEW_IMPL", iml);
+    }
+    let child = cmd
         .arg("--mcp")
-        .env("DSVIEW_IMPL", iml)
         // same set iteration order in both runs' decoders
         .env("PYTHONHASHSEED", "0")
         .env("DSVIEW_MCP_SOCKET", &socket)
@@ -73,14 +97,14 @@ fn launch(bin: &Path, iml: &str) -> Result<Instance> {
                 .as_object()
                 .cloned()
                 .unwrap_or_default();
-            if imps.is_empty() || imps.values().any(|x| x != iml) {
-                bail!("DSView (DSVIEW_IMPL={iml}) reports implementations {imps:?}");
+            if imps.len() != SUBSYSTEMS.len() || imps.values().any(|x| x != expect) {
+                bail!("DSView (DSVIEW_IMPL={iml:?}) reports implementations {imps:?}");
             }
             return Ok(inst);
         }
         std::thread::sleep(Duration::from_millis(250));
     }
-    bail!("DSView ({iml}) did not open its control socket");
+    bail!("DSView ({iml:?}) did not open its control socket");
 }
 
 fn call(c: &mut Client, method: &str, params: Value) -> Value {
@@ -228,9 +252,12 @@ pub fn run(root: &Path, args: &[&str]) -> Result<()> {
     let corpus = Corpus::load(root)?;
     corpus.verify(root)?;
 
+    drop(launch(&bin, None)?);
+    println!("default: every subsystem runs Rust");
+
     let mut results = Vec::new();
     for imp in ["c", "rust"] {
-        let inst = launch(&bin, imp)?;
+        let inst = launch(&bin, Some(imp))?;
         let r = probe(&inst.socket, root, &corpus, imp);
         drop(inst);
         results.push(r);

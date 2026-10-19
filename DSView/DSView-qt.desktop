@@ -9,3 +9,8 @@ Icon=dsview
 StartupWMClass=DSView
 Terminal=false
 Categories=Development;Electronics;Qt;
+Actions=c-core;
+
+[Desktop Action c-core]
+Name=DSView (Qt, C core)
+Exec=env DSVIEW_IMPL=c DSView-qt

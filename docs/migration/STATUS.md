@@ -7,7 +7,7 @@
 | 2 Decoder engine | **done**: Rust/PyO3 engine behind `DSVIEW_IMPL_DECODE`; Rust becomes the default after one release of A/B | See "Phase 2" below |
 | 3 Drivers | **done except hardware steps**: 3a demo, 3b file, 3c USB layer, 3d DSLogic (replug tests passed 2026-10-18), 3e DSCope/MSO-E8 (`DSVIEW_IMPL_DRV_DEMO` / `_FILE` / `_DSLOGIC` / `_DSCOPE`). Open: a firmware upload from the host, the nightly runs, one DSCope/E8 hardware confirmation | See "Phase 3" below |
 | 4 Session + control API | **done**: 4a acquisition library in Rust behind `DSVIEW_IMPL_ACQ`; 4b capture session, control server, `dsview-cli serve --mcp` (transcript identical to the Qt GUI, 1 h soaks passed) | See "Phase 4" below |
-| 5 Rust GUI | **in progress**: M6.0, M6a-M6f done; the Rust GUI is the default on Linux (`DSVIEW_RUST_GUI`, Qt kept as `DSView-qt` for one release); M6g done 2026-10-19; next release R1 | PARITY.md 52 of 52 (2026-10-19); AccessKit live over AT-SPI |
+| 5 Rust GUI | **in progress**: M6.0, M6a-M6f done; the Rust GUI is the default on Linux (`DSVIEW_RUST_GUI`, Qt kept as `DSView-qt` for one release); M6g done 2026-10-19; release R1 built and checked locally (merge, tag and release open) | PARITY.md 52 of 52 (2026-10-19); AccessKit live over AT-SPI |
 | 6 Removal + packaging | planned after release R1: M7a removal and packaging, M7b post-parity fixes | PLAN.md (revised 2026-10-18): M6f → M6g → R1 → M7a/M7b |
 
 ## Phase 0 deliverables
@@ -1288,3 +1288,65 @@ the demo transcript is unchanged.
 - PARITY: the export row lists srzip.
 - PLAN: §5.6 marked done; R1 gets the Python layout and a manual A/B checklist; §6 points at R1.
 
+
+## Release R1 (the A/B release): local part done 2026-10-19
+**Defaults:**
+- `dsview-ffi` has a feature `rust-default`. With it, every `DSVIEW_IMPL_*` subsystem without a
+  variable runs Rust; `DSVIEW_IMPL=c` (or `DSVIEW_IMPL_<NAME>=c`) still selects C.
+- The CMake build of `DSView-qt` enables the feature, and on Linux `DSVIEW_RUST_CORE` is now on
+  by default (off with a warning when cargo is missing). The oracle builds `dsview-ffi` without
+  it, so the C side of every differential check stays C.
+- `cargo xtask control ab` first starts `DSView-qt` with no `DSVIEW_IMPL*` set and requires
+  "rust" for all eight subsystems of `version`, then runs its C/Rust probes. Passed on the local
+  build; all corpus captures read and export the same with C and Rust.
+- DSCope/E8: PLAN 3e kept their C drivers as the default until a hardware confirmation. Inside
+  `DSView-qt`, `DSVIEW_IMPL_ACQ=rust` runs every device on its Rust driver anyway (DEVIATIONS,
+  4a), and the user's decision for R1 is Rust everywhere. The Qt desktop entry has an action
+  "DSView (Qt, C core)" (`env DSVIEW_IMPL=c DSView-qt`) as the fallback for those owners.
+
+**Packages (`build.yml`):**
+- The Linux job gets the toolchain from `rust-toolchain.toml` (`rustup show`). CMake builds the
+  Rust GUI, `dsview-cli` (now installed) and `DSView-qt` on the Rust core.
+- The packaging steps moved into scripts:
+  - `tools/package/deb.sh DEB [PYTHON]`:
+    - bundles Python into `/usr/lib/dsview` (`bundle-python.sh`);
+    - gives `DSView-qt` the same RUNPATH and the old `PYTHONHOME` wrapper;
+    - drops the libpython dependency.
+  - `tools/package/appdir.sh APPDIR [PYTHON]`:
+    - the same bundle;
+    - drops the bundled libxkbcommon;
+    - writes an AppRun that starts the Rust GUI, or the Qt GUI with `--qt`.
+  - `tools/package/check-deb.sh DIR IMAGE…` and `check-appimage.sh APPIMAGE IMAGE…`: the
+    clean-container checks the job now runs.
+- Deb metadata: the Rust GUI's dlopen'ed libraries as Depends (GL/EGL, X11, xcb, xkbcommon) and
+  Recommends (Wayland, Vulkan, D-Bus).
+- The Windows installer and the release job read the version from `Cargo.toml`. Before, they
+  read it from CMakeLists.txt, which has no literal version since M6g. The installer step would
+  have failed, and the release title would have had an empty version.
+- The AppImage drops the `dsview-qt.desktop` entry (it is used through `--qt`).
+
+**Checked locally:** the Linux job ran unchanged inside `ubuntu:22.04` (Python 3.10, the
+runner's), with linuxdeploy and appimagetool:
+- **.deb** (25.6 MB), on clean `ubuntu:22.04`, `24.04` and `26.04` (`check-deb.sh`):
+  - `dsview-cli` lists the decoders, captures the demo and decodes 71 I²C annotations;
+  - both GUIs run (Rust under Xvfb, Qt offscreen);
+  - on 26.04 (no Python 3.10 there):
+    - the Rust GUI's `version` reports rust for all eight subsystems, and it lists 157 decoders;
+    - `DSVIEW_IMPL=c DSView-qt` reports c for all eight, with 157 decoders;
+    - the desktop action is installed;
+    - with the DSLogic Plus passed into the container, the packaged `dsview-cli verify-counter`
+      counts 16 channels × 16 777 216 samples with 0 breaks, and `capture` writes a `.dsl`.
+- **AppImage** (58 MB), on clean `ubuntu:22.04`, `24.04` and `26.04` with the desktop libraries
+  AppImage expects from the host:
+  - both GUIs answer on the control socket on the Rust core and list the decoders.
+  - Found and fixed: the bundled libxkbcommon 1.4 (from 22.04) logged "unrecognized keysym" for
+    26.04's Compose file.
+  - Not a regression: Qt's `libusb-1.0.so.0`, like GL, comes from the host (AppImage
+    excludelist), as with the Qt AppImage before.
+
+**Open for R1 (user):**
+- the manual A/B checklist (PLAN, R1): protocol export against Qt's dialog, the unplug
+  pcapng, the first start with and without an older `DSView.conf`;
+- the CI run on GitHub;
+- the merge of `philipp` into `master`, the tag and the release text (draft:
+  `docs/migration/RELEASE-R1.md`).

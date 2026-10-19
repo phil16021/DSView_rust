@@ -605,6 +605,17 @@ and the language switch; snapshots per theme and for Chinese.
 ### Release R1: the A/B release (S, 1-2 pw)
 *New 2026-10-18. It carries out the "C stays for exactly one release" rule of §1.2 for every
 subsystem at once.*
+
+*Status 2026-10-19 (STATUS.md, "Release R1"):*
+- *Done locally:*
+  - *the defaults (feature `rust-default`, set by CMake only, so the oracle stays C);*
+  - *`build.yml` with Rust, both GUIs and `dsview-cli`;*
+  - *the packaging scripts and clean-container checks: Ubuntu 22.04, 24.04 and 26.04, the DSLogic
+    from the installed package;*
+  - *draft release notes (`RELEASE-R1.md`).*
+- *Open:*
+  - *the manual checklist and the GitHub CI run;*
+  - *merge, tag and release (user).*
 - **Defaults:** `dsview-ffi/src/switch.rs` makes Rust the default for every `DSVIEW_IMPL_*`
   subsystem inside `DSView-qt`; `DSVIEW_IMPL=c` still selects C. The Rust GUI (`DSView`) is the
   default program.
@@ -867,10 +878,10 @@ alongside M6f.
 ## 6. Immediate next step
 *Updated 2026-10-19: Phases 0-4 and M6.0-M6g are done (STATUS.md); PARITY.md stands at 52 of 52.*
 
-**Release R1 (the A/B release)**:
-- Rust becomes the default for every `DSVIEW_IMPL_*` subsystem inside `DSView-qt`.
-- `build.yml` gets a Rust toolchain and packages both GUIs with the bundled Python.
-- The manual A/B checklist.
+**Release R1 (the A/B release)**: the defaults and the packages are done and checked locally
+(2026-10-19). Left:
+- the manual A/B checklist;
+- the first CI run on GitHub.
 
 The merge into `master`, the tag and the release are outward-facing steps; the user decides
 them.
