@@ -7,8 +7,8 @@
 | 2 Decoder engine | **done**: Rust/PyO3 engine behind `DSVIEW_IMPL_DECODE`; Rust becomes the default after one release of A/B | See "Phase 2" below |
 | 3 Drivers | **done except hardware steps**: 3a demo, 3b file, 3c USB layer, 3d DSLogic (replug tests passed 2026-10-18), 3e DSCope/MSO-E8 (`DSVIEW_IMPL_DRV_DEMO` / `_FILE` / `_DSLOGIC` / `_DSCOPE`). Open: a firmware upload from the host, the nightly runs, one DSCope/E8 hardware confirmation | See "Phase 3" below |
 | 4 Session + control API | **done**: 4a acquisition library in Rust behind `DSVIEW_IMPL_ACQ`; 4b capture session, control server, `dsview-cli serve --mcp` (transcript identical to the Qt GUI, 1 h soaks passed) | See "Phase 4" below |
-| 5 Rust GUI | **in progress**: M6.0, M6a-M6f done; the Rust GUI is the default on Linux (`DSVIEW_RUST_GUI`, Qt kept as `DSView-qt` for one release); M6g done 2026-10-19; release R1 built and checked locally (merge, tag and release open) | PARITY.md 52 of 52 (2026-10-19); AccessKit live over AT-SPI |
-| 6 Removal + packaging | planned after release R1: M7a removal and packaging, M7b post-parity fixes | PLAN.md (revised 2026-10-18): M6f → M6g → R1 → M7a/M7b |
+| 5 Rust GUI | **done**: M6.0-M6g; release R1 merged with M7a as DSViewR 1.0.0 (2026-10-19) | PARITY.md 52 of 52; AccessKit live over AT-SPI |
+| 6 Removal + packaging | **M7a done 2026-10-19**: the Qt GUI and all C/C++ code removed (tag `c-final` keeps them), cargo-deb and AppImage packages of DSViewR 1.0.0 checked on Ubuntu 22.04/24.04/26.04 and Fedora 44. Open: M7b post-parity fixes; merge, tag and release (user) | See "M7a" below |
 
 ## Phase 0 deliverables
 
@@ -1344,9 +1344,80 @@ runner's), with linuxdeploy and appimagetool:
   - Not a regression: Qt's `libusb-1.0.so.0`, like GL, comes from the host (AppImage
     excludelist), as with the Qt AppImage before.
 
-**Open for R1 (user):**
-- the manual A/B checklist (PLAN, R1): protocol export against Qt's dialog, the unplug
-  pcapng, the first start with and without an older `DSView.conf`;
-- the CI run on GitHub;
-- the merge of `philipp` into `master`, the tag and the release text (draft:
-  `docs/migration/RELEASE-R1.md`).
+**First GitHub CI runs (2026-10-19, PR #1 on github.com/phil16021/DSView_rust):**
+- `Build` was green at once.
+- `Rust` found what local runs had not:
+  - GCC 11 and Qt 6.2 on Ubuntu 22.04 could not build the oracle;
+  - LeakSanitizer flagged the embedded interpreter;
+  - snapshots differed by 1-3 anti-aliased pixels;
+  - the zbus "unmaintained" notices;
+  - the C decoder load order in the A/B check;
+  - real defects: F33 (the analog envelope writes past its ring), F34 (`ds_lib_exit` leaves a
+    dangling device, so `oracle-dsl` crashed) and V/div 0 in the demo driver (fuzzer, F21).
+- All of these were fixed before the C code was removed.
+
+**R1 changed course (user, 2026-10-19):** no A/B package. The Qt GUI and the C code were removed
+right away (M7a below), and the product became DSViewR 1.0.0. The manual A/B checklist
+(protocol export against Qt's dialog, Qt's first start) no longer applies. The unplug pcapng
+stays a manual hardware step.
+
+## M7a removal and packaging, as DSViewR 1.0.0: done 2026-10-19
+**Removed** (commit `3f86aa6f`, about 140k lines):
+- `DSView/` (Qt GUI), `libsigrok4DSL/`, the C engine of `libsigrokdecode4DSL/` and `common/`;
+- CMake, the Windows installer and cross-compile files;
+- `crates/dsview-ffi`, `dev/dsview-oracle` (all C-vs-Rust checks), `tools/gen` and
+  `xtask control ab`/`gen-header`.
+- Tag `c-final` (`a6cf7a7d`) is the last tree with them.
+
+**Kept and moved:**
+- **`assets/`**, the data directory in the source tree, installed as `share/dsview`:
+  - `res`, `demo`, `lang` and `decoders` (the 342 Python decoders);
+  - the icons the GUI embeds, the udev rule, `dsviewr.desktop`, the manuals and the debian
+    scripts.
+  - A cargo build finds `assets/` through `dsview_session::data_dir_for`.
+- **The Rust decoder runner** (`rust-decode` with `capture`, `rust_run` and `watchdog`) is now in
+  `dsview-testkit`. `cargo xtask golden check` compares the Rust reader and engine with the
+  stored C goldens (all pass), plus a Rust write/read-back check.
+- **Frozen from C:**
+  - the config key numbers (`crates/dsview-core/tests/config_keys.txt`);
+  - `dsl/tables.rs`, now edited directly.
+
+**DSViewR 1.0.0** (user's decisions):
+- **Names:** `DSViewR` and `dsviewr-cli`, with the window title, app id, About, log file and CLI
+  texts to match.
+- **Help menu:** Bug Report and Update open github.com/phil16021/DSView_rust. About credits
+  phil16021, DreamSourceLab and Schildkroet.
+- **Unchanged:** the internal crate names, and the settings and profile paths.
+
+**Packaging:**
+- **cargo-deb**, with the metadata in `crates/dsview-gui/Cargo.toml`:
+  - the package `dsviewr`, which replaces and conflicts with `dsview`;
+  - the dlopen'ed libraries as Depends/Recommends;
+  - the udev rule in `/usr/lib/udev/rules.d` with postinst/postrm.
+- **`tools/package/`:**
+  - `deb.sh` bundles Python;
+  - `stage.sh` and `appdir.sh` build the AppImage (no Qt plugin; 25 MB, before 58 MB);
+  - `check-deb.sh` and `check-appimage.sh` run the container checks.
+- **CI:**
+  - `build.yml` is Linux only: cargo-deb, the AppImage, the container checks and the release job.
+  - `rust.yml` runs without C, Qt, glib or FFTW: lint, tests on 22.04/24.04, the golden check,
+    fuzz, e2e-mcp, Miri, supply chain and portability.
+
+**Checked locally:**
+- **Workspace:** clippy, all 230 tests, the golden check and the fuzz targets compile.
+- **Packages:** the Linux job replayed in `ubuntu:22.04`.
+  - The `.deb` (21 MB) on clean Ubuntu 22.04, 24.04 and 26.04: `dsviewr-cli` decodes the demo
+    (71 I²C annotations), and DSViewR runs under Xvfb.
+  - The AppImage on the same three and on **Fedora 44**: DSViewR answers on its control socket
+    and lists the decoders.
+- **DSLogic Plus from the installed `.deb`** (26.04 container):
+  - `verify-counter`: 16 channels × 16 777 216 samples, 0 breaks;
+  - `hwmatrix --quick --cycles 20`: 37 of 37.
+- **Screenshots** for the README (`docs/screenshots/`), taken headless under Xvfb over the
+  control socket.
+
+**Open:**
+- the merge of `philipp` into `master`, the tag `v1.0.0` and the release (user; draft notes in
+  `RELEASE-R1.md`);
+- M7b, the post-parity fixes;
+- the wgpu default renderer (PLAN, follow-on TODO).

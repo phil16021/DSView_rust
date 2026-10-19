@@ -645,6 +645,15 @@ subsystem at once.*
 *Rewritten 2026-10-18 from an inventory of the remaining C tree. Starts after R1.*
 
 #### M7a removal and packaging (3-5 pw), in this order
+*Status 2026-10-19: done together with R1, as DSViewR 1.0.0 (STATUS.md, "M7a").*
+- *Differences from the steps below:*
+  - *the oracle is archived by tag only, no worktree build or archive workflow;*
+  - *the Windows installer files are deleted too.*
+- *Open:*
+  - *the Fedora AppImage check;*
+  - *the DSLogic matrix on the packaged build;*
+  - *merge, tag and release (user).*
+
 1. **Assets out of `DSView/`.**
    - Move `res/` (bitstreams, FX2 firmware, default profiles, `license.txt`), `demo/`, `icons/`, the
      udev rule, the desktop file (without `Qt;`), `packaging/debian/{postinst,postrm}`, `README` and
@@ -720,12 +729,24 @@ subsystem at once.*
   - `loom` for the store's publication, once readers stop locking. `loom` needs a fetch.
 
 ### Follow-on (not scheduled; listed so nothing is lost)
-- **Windows and macOS ports:**
+- **GUI renderer: wgpu as the default (TODO, user 2026-10-19; not started, glow stays the default
+  until then).**
+  - **Change:** eframe already builds with both backends. wgpu (Vulkan on Linux, DX12 or Vulkan on
+    Windows) becomes the default; glow (OpenGL) is the fallback, with `DSVIEW_RENDERER=glow` or
+    automatically when wgpu finds no adapter (`crates/dsview-gui/src/main.rs`, renderer choice).
+  - **Why:**
+    - the same code builds for Windows (MSVC) into one `.exe`;
+    - Wayland and X11 with HiDPI and fractional scaling come through winit;
+    - `egui_wgpu` paint callbacks allow a custom shader for the trace area later, without a
+      framework change.
+  - **Before switching:** measure on a real GPU. On this VM's llvmpipe glow was faster (the M6.0
+    table in §5.1), which is why glow is the default today.
+- **Windows and macOS ports** (after the wgpu default):
   - the `cfg` fixes (`localtime_r`, `/proc` in the soak tools);
   - a control transport other than a Unix socket (named pipe or TCP on localhost);
-  - installers, re-using `installer/windows`.
+  - installers (the Qt-era `installer/windows` is at tag `c-final`).
 - **Hardware:**
-  - the DSCope/E8 confirmation through `dsview-cli selftest` bundles;
+  - the DSCope/E8 confirmation through `dsviewr-cli selftest` bundles;
   - a host firmware upload test, which needs a device without flash firmware and the 16 missing
     `.fw` files;
   - the GPU frame budget (≤ 8 ms at 4K × 32) on a real GPU;
@@ -876,17 +897,15 @@ alongside M6f.
 | Missing crates offline (nusb, pyo3, egui_dock, cbindgen, criterion not cached) | First fetch needs network; optionally `cargo vendor` |
 
 ## 6. Immediate next step
-*Updated 2026-10-19: Phases 0-4 and M6.0-M6g are done (STATUS.md); PARITY.md stands at 52 of 52.*
+*Updated 2026-10-19:*
+- *Phases 0-5 are done, and so is M7a:*
+  - *DSViewR 1.0.0, 100 % Rust plus the Python decoders;*
+  - *packaged with cargo-deb and as an AppImage (STATUS.md, "M7a").*
 
-**Release R1 (the A/B release)**: the defaults and the packages are done and checked locally
-(2026-10-19). Left:
-- the manual A/B checklist;
-- the first CI run on GitHub.
-
-The merge into `master`, the tag and the release are outward-facing steps; the user decides
-them.
-
-After R1 comes Phase 6 (M7a, with M7b alongside).
+**Next:**
+- the merge of `philipp` into `master`, the tag `v1.0.0` and the release (the user decides; draft
+  notes in `RELEASE-R1.md`);
+- then M7b (post-parity fixes) and the follow-on list, starting with the wgpu renderer default.
 
 Each milestone ends with a commit, STATUS/DEVIATIONS updates, and a report before the next one
 starts. Steps that need the network (`accesskit_winit`, cargo-deb, loom) are asked for when they

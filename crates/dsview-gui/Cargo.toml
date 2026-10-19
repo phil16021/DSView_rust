@@ -56,7 +56,8 @@ analyzers and DSCope oscilloscopes, with more than 150 protocol decoders. It \
 is a Rust rewrite of DSView. The package holds the GUI (DSViewR) and \
 dsviewr-cli, with its own Python for the decoders."""
 depends = "$auto, libgl1, libegl1, libx11-6, libx11-xcb1, libxcb1, libxcursor1, libxi6, libxrender1, libxkbcommon0, libxkbcommon-x11-0"
-recommends = "libwayland-client0, libwayland-egl1, libvulkan1, libdbus-1-3"
+# the file dialogs (rfd) go through the desktop portal
+recommends = "libwayland-client0, libwayland-egl1, libvulkan1, libdbus-1-3, xdg-desktop-portal"
 conflicts = "dsview"
 replaces = "dsview"
 maintainer-scripts = "../../assets/packaging/debian/"

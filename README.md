@@ -1,73 +1,110 @@
-![DreamSourceLab Logo](DSView/icons/dsl_logo.svg)
+# DSViewR
 
-# DSView
+DSViewR is logic analyzer and oscilloscope software for
+[DreamSourceLab](https://www.dreamsourcelab.com) instruments (DSLogic, DSCope, and the Hermelin
+MSO-E8). It is a rewrite of [DSView](https://github.com/DreamSourceLab/DSView) in Rust. The GUI,
+drivers, file formats, sample stores and decoder engine are all Rust; the more than 150 protocol
+decoders are the sigrok Python decoders DSView ships.
 
-DSView is a GUI program for supporting various instruments from [DreamSourceLab](http://www.dreamsourcelab.com), including logic analyzers, oscilloscopes, etc. DSView is based on the [sigrok project](https://sigrok.org).
+![Logic capture with I²C, UART, SPI and CAN-FD decoders](docs/screenshots/logic-decoders.png)
 
-The sigrok project aims at creating a portable, cross-platform, Free/Libre/Open-Source signal analysis software suite that supports various device types (such as logic analyzers, oscilloscopes, multimeters, and more).
+| Protocol table | Oscilloscope |
+|---|---|
+| ![Decoder dock with the protocol table](docs/screenshots/protocol-table.png) | ![DSO view of the demo oscilloscope](docs/screenshots/oscilloscope.png) |
 
-# Changes in this fork
+## Features
 
-This fork tracks upstream DSView and adds the following.
+- **Logic analyzer:** buffer and stream capture at every rate of the DSLogic channel modes;
+  simple, advanced (multi-stage) and serial triggers; cursors, measurements and edge search.
+- **Protocol decoders:** 150+ decoders (I²C, SPI, UART, CAN/CAN-FD, I3C, SMBus/PMBus, JTAG,
+  SENT, DShot, …), stacked decoders, a protocol table with search and export.
+- **Oscilloscope and data acquisition:** V/div and timebase controls, trigger settings,
+  measurements, math channels, FFT, Lissajous view, persistence, reference waveforms,
+  histograms, channel-to-channel measurements, and a demo oscilloscope for use without hardware.
+- **Files:** opens and saves DSView's `.dsl` captures and `.dsc` profiles; exports CSV, VCD and
+  srzip (readable by sigrok-cli and PulseView).
+- **`dsviewr-cli`:** captures, exports and decodes from the command line, and runs DSViewR
+  headless behind its control socket (`serve --mcp`).
+- **Automation:** a JSON-RPC control socket (`DSViewR --mcp`) and an MCP server
+  ([`dsview-mcp`](dsview-mcp/README.md)), so scripts and AI agents can drive captures and read
+  the results.
+- **Interface:** dark, light, Catppuccin Latte and Frappé themes; English, German and Chinese;
+  keyboard shortcuts; accessible to screen readers (AT-SPI).
 
-## Oscilloscope
+## Install
 
-- **Histogram** — value and period histograms with jitter statistics, from the captured waveform.
-- **Channel-to-channel measurement** — phase, delay and skew between two DSO channels.
-- **Reference waveforms** — freeze a channel's waveform and overlay it on the live view for comparison.
-- **More math operations** — alongside add/subtract/multiply/divide: running integral, derivative, absolute value, square, signed square root, and moving-average low-pass and high-pass with a configurable window.
-- **Persistence** — DPO-style display where earlier frames fade out over a configurable time, making jitter and rare glitches visible.
-- **Split channels** — give each DSO channel its own row instead of sharing one grid.
-- **Y-scale reset**, and a wider calibration range.
-- A **demo oscilloscope device**, so the DSO interface can be used without hardware.
+Linux, x86-64. Packages are on the [releases page](https://github.com/phil16021/DSView_rust/releases):
 
-## Display and interface
+- **Debian/Ubuntu (`dsviewr_*.deb`):** `sudo apt install ./dsviewr_*.deb`. It replaces an
+  installed `dsview` package, carries its own Python, and installs the udev rule that gives
+  users access to the instruments.
+- **AppImage (`DSViewR-x86_64.AppImage`):** `chmod +x` it and run it. For USB access the udev
+  rule has to be installed once; DSViewR shows the command for it on its first start.
 
-- **Trace and font scaling** — configurable trace font size, plus vertical zoom with `Ctrl+Shift+wheel`. Both persist across sessions.
-- **Logic trace appearance** — adjustable signal line width and optional per-channel divider lines.
-- **Catppuccin Latte and Frappé themes**, in addition to the existing light and dark ones.
-- **German translation.**
-- **Sample points** drawn on logic and oscilloscope traces when zoomed in far enough, and faster oscilloscope drawing at long time/div.
-- Smooth scrolling on high-resolution mice and touchpads.
-- Tabbed right-hand docks, reworked titlebar, clearer protocol-decoder colours, and an option to skip the save prompt on exit.
+Tested on Ubuntu 22.04, 24.04 and 26.04.
 
-## Platform and packaging
+## First steps
 
-- **Ported to Qt6** (Qt5 still builds).
-- **Wayland** — fixed window dragging.
-- **Continuous builds** for Linux (`.deb` and AppImage) and Windows (portable zip and an Inno Setup installer). The installer also stages the WinUSB driver binding, so a fresh Windows system detects the hardware without manual driver setup; the `.deb` reloads udev rules on install for the same reason.
+Start `DSViewR`. Without an instrument, choose *Demo Logic* or *Demo Oscilloscope* in the
+device list and press **Start**. *File → Open* opens `.dsl` captures, for example the demo in
+`/usr/share/dsview/demo/logic/protocol.demo`, which comes with I²C, UART, SPI and CAN-FD decoders.
 
-## Protocol decoders
+## dsviewr-cli
 
-- **MCP230XX** — Microchip 8/16-bit I²C I/O expanders.
-- **TMP112** — Texas Instruments I²C temperature sensor.
-- **I3C** (SDR mode), **SMBus/PMBus**, **SENT (SAE J2716)**, **DShot** and **HDQ**.
-- **MAX7219** daisy-chain support, an optional **I²C glitch filter**, and a much faster **JTAG** decoder.
+```sh
+dsviewr-cli devices                                   # instruments and demo devices
+dsviewr-cli capture --device dslogic --samplerate 10000000 --samples 1000000 --out cap.dsl
+dsviewr-cli export cap.dsl cap.csv                    # .csv, .vcd or .srzip
+dsviewr-cli decode cap.dsl --decoder i2c:scl=0,sda=1  # one line per annotation
+dsviewr-cli verify-counter --device dslogic           # DSLogic internal test mode
+dsviewr-cli selftest --out report/                    # a report bundle for bug reports
+dsviewr-cli serve --mcp                               # headless, behind the control socket
+```
 
-See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the full per-version change list.
+`dsviewr-cli --help` lists every option.
 
-# Status
+## Building from source
 
-The DSView software is in a usable state and has official tarball releases. However, it is still a work in progress. Some basic functionality is available and working, but other things are always on the TODO list.
+Requirements: Rust (the version in `rust-toolchain.toml`, installed by rustup) and the Python
+development files (`python3-dev`).
 
-# Download
+```sh
+cargo build --release -p dsview-gui -p dsview-cli
+target/release/dsview        # DSViewR; finds its data in assets/
+target/release/dsview-cli    # dsviewr-cli
+```
 
-Pre-built binaries are available on the [releases page](https://github.com/Schildkroet/DSView/releases).
+The packages are built by `.github/workflows/build.yml` with `cargo deb` and the scripts in
+`tools/package/`. Tests: `cargo nextest run --workspace` and `cargo xtask golden check`.
 
-# Useful links
+## Project status
 
-- [dreamsourcelab.com](https://www.dreamsourcelab.com)
-- [kickstarter.com](https://www.kickstarter.com/projects/dreamsourcelab/dslogic-multifunction-instruments-for-everyone)
-- [sigrok.org](https://sigrok.org)
+DSViewR 1.0 has the features of the Qt DSView it replaces, as listed in
+[docs/migration/PARITY.md](docs/migration/PARITY.md) (gnuplot export is gone; srzip is new). It was ported subsystem by subsystem and
+compared with the original C/C++ code at each step: file formats, sample stores and decoder
+output byte for byte, and USB traffic on a DSLogic Plus. The tag `c-final` holds the last tree
+with that C code and the comparison tools.
 
-# Copyright and license
+- How the port was done, and what is left: [docs/migration/PLAN.md](docs/migration/PLAN.md),
+  [docs/migration/STATUS.md](docs/migration/STATUS.md).
+- Where DSViewR intentionally behaves differently, and the defects of the original that were
+  found: [docs/migration/DEVIATIONS.md](docs/migration/DEVIATIONS.md).
+- **DSCope and MSO-E8 owners:** the drivers are checked against the C drivers on a simulated
+  device but not yet on real hardware. Please run `dsviewr-cli selftest --out DIR` and attach
+  the directory to an issue, whether it works or not.
 
-DSView software is licensed under the terms of the GNU General Public License
-(GPL), version 3 or later.
+Bugs and requests: [issues](https://github.com/phil16021/DSView_rust/issues).
 
-While some individual source code files are licensed under the GPLv2+, and
-some files are licensed under the GPLv3+, this doesn't change the fact that
-the program as a whole is licensed under the terms of the GPLv3+ (e.g. also
-due to the fact that it links against GPLv3+ libraries).
+## Credits
 
-Please see the individual source files for the full list of copyright holders.
+- [DreamSourceLab](https://www.dreamsourcelab.com), for DSView and the instruments.
+- The [sigrok project](https://sigrok.org), on which DSView is based, and the authors of the
+  protocol decoders.
+- [Schildkroet's DSView fork](https://github.com/Schildkroet/DSView), the starting point of this
+  rewrite.
+
+## License
+
+GNU General Public License, version 3 or later ([COPYING](COPYING)). The protocol decoders,
+firmware and FPGA bitstreams in `assets/` keep the licenses stated in their files (see
+`assets/res/license.txt`).
