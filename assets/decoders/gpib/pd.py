@@ -175,7 +175,14 @@ class Decoder(srd.Decoder):
             waitcond.append({'skip': lsn})
         while True:
             if lsn:
-                waitcond[1]['skip'] = lsn - self.samplenum - 1
+                skip = lsn - self.samplenum - 1
+                if skip > 0:
+                    waitcond[1]['skip'] = skip
+                else:
+                    # DSViewR F16: the sample was reached; 'skip: 0' would
+                    # return this same sample again, forever
+                    del waitcond[1:]
+                    lsn = 0
             (d1, d2, d3, d4, d5, d6, d7, d8, eoi, dav, nrfd, ndac, ifc, srq, atn, ren) = self.wait(waitcond)
             pins = (d1, d2, d3, d4, d5, d6, d7, d8, eoi, dav, nrfd, ndac, ifc, srq, atn, ren)
             self.handle_bits(pins)

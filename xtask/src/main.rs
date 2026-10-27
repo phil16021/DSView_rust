@@ -13,6 +13,10 @@
 //!   cargo xtask control dump OUT  run it and write the transcript to OUT
 //!   cargo xtask usb record [--iface usbmonN] [--out DIR] [--dry-run] [--only NAME]
 //!                                record DSLogic USB traffic per scenario (tools/usb/README.md)
+//!   cargo xtask decoders soak [--runs N] [--seed S] [--jobs J] [--stack-timeout SECS]
+//!                             [--max-mem MB] [--keep DIR] [--allow ID,..]
+//!                                every decoder on random captures under a time and
+//!                                memory limit (`decoder-soak`); fails on a hang
 
 mod mcp;
 mod usb;
@@ -48,9 +52,10 @@ fn main() -> Result<()> {
         ["mcp", "suite", bin, out] => mcp::suite(&root, bin, Some(Path::new(out))),
         ["mcp", "compare", a, b] => mcp::compare(Path::new(a), Path::new(b)),
         ["usb", "record", rest @ ..] => usb::record(&root, rest),
+        ["decoders", "soak", rest @ ..] => decoders_soak(&root, rest),
         _ => {
             eprintln!(
-                "usage: cargo xtask <corpus init|corpus verify|golden check|golden bless|control record|control check|control dump OUT|mcp suite BIN [OUT]|mcp compare A B|usb record>"
+                "usage: cargo xtask <corpus init|corpus verify|golden check|golden bless|control record|control check|control dump OUT|mcp suite BIN [OUT]|mcp compare A B|usb record|decoders soak>"
             );
             std::process::exit(2);
         }
@@ -386,5 +391,26 @@ fn rewrite_logic(src: &Path, dst: &Path) -> Result<()> {
     };
     let refs: Vec<&[u8]> = bits.iter().map(Vec::as_slice).collect();
     writer.write(std::fs::File::create(dst)?, &refs)?;
+    Ok(())
+}
+
+/// `decoders soak`: builds `rust-decode` and `decoder-soak` (release) and runs
+/// the soak with `args`.
+fn decoders_soak(root: &Path, args: &[&str]) -> Result<()> {
+    let st = Command::new(env!("CARGO"))
+        .args(["build", "--release", "-p", "dsview-testkit", "--bins"])
+        .current_dir(root)
+        .status()?;
+    if !st.success() {
+        bail!("building the decoder soak failed");
+    }
+    let st = Command::new(root.join("target/release/decoder-soak"))
+        .args(args)
+        .current_dir(root)
+        .status()
+        .context("running decoder-soak")?;
+    if !st.success() {
+        bail!("decoder soak failed");
+    }
     Ok(())
 }

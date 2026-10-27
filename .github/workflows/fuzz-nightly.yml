@@ -51,3 +51,29 @@ jobs:
         with:
           name: fuzz-artifacts-${{ matrix.target }}
           path: fuzz/artifacts/${{ matrix.target }}
+
+  decoder-soak:
+    # Every protocol decoder on random captures with random options, each
+    # stack limited to 10 s and each process to 2 GB (DEVIATIONS F16): a
+    # decoder that hangs or runs out of memory fails the job. The seed moves
+    # on every night; the log prints the stack and chunk size that replay a
+    # finding with rust-decode, and the captures are uploaded.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      RUST_DEPS: pkg-config python3-dev
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build dependencies
+        run: sudo apt-get update && sudo apt-get install -y $RUST_DEPS
+      - name: 100 runs
+        run: |
+          mkdir -p soak
+          cargo xtask decoders soak --runs 100 --seed $(( ${{ github.run_number }} * 1000 )) \
+            --jobs 4 --max-mem 2048 --keep "$PWD/soak"
+      - name: Captures of the findings
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: decoder-soak
+          path: soak/*.dsl

@@ -82,7 +82,9 @@ class Decoder(srd.Decoder):
         self.out_ann = self.register(srd.OUTPUT_ANN)
 
     def convert_ternary_str(self, n):
-        if n == 0:
+        # DSViewR F16: a negative n never reaches 0 below (divmod by 3 keeps
+        # it at -1) and the list grows forever
+        if n <= 0:
             return [0, 0, 0]
         nums = []
         while n:
@@ -111,6 +113,11 @@ class Decoder(srd.Decoder):
                 addr |= mask
 
         addr -= 0x04
+        # 27 addresses (three pins of three levels); others are no LTC26x7
+        if not 0 <= addr < 27:
+            ann = ['Unknown address 0x%02X' % data, 'Unknown addr', 'Unk']
+            self.put(self.ss, self.es, self.out_ann, [0, ann])
+            return
         ternary_values = self.convert_ternary_str(addr)
         for i in range(len(ann)):
             ann[i] = ann[i] % (slave_address[ternary_values[0]][i],

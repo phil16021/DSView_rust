@@ -112,7 +112,9 @@ class Decoder(srd.Decoder):
             try:
                 self.irmp = irmp_library.IrmpLibrary()
             except Exception as e:
-                txt = e.args[0]
+                # DSViewR does not ship the IRMP C library (F16)
+                txt = 'IRMP library not installed; ir_irmp needs %s (%s)' % (
+                    irmp_library.IrmpLibrary._library_filename(None), e)
                 raise LibraryError(txt)
         if not self.irmp:
             raise LibraryError('Cannot access IRMP library.')

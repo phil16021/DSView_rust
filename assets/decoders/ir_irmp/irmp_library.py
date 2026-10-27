@@ -116,7 +116,9 @@ class IrmpLibrary:
         Release a disposed library instance.
         '''
 
-        if self._inst:
+        # DSViewR F16: after a failed LoadLibrary() neither _lib nor _inst
+        # exists, and reading them raised AttributeError here
+        if getattr(self, '_inst', None):
             self._lib.irmp_instance_free(self._inst)
         self._inst = None
 

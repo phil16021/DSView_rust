@@ -27,7 +27,10 @@ pub fn data_dir() -> PathBuf {
     repo_root().join("assets")
 }
 
-/// The Python protocol decoders.
+/// The Python protocol decoders; `DSVIEW_DECODER_DIR` overrides them (the
+/// decoder soak compares patched decoders with a copy of the originals).
 pub fn decoder_dir() -> PathBuf {
-    data_dir().join("decoders")
+    std::env::var_os("DSVIEW_DECODER_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| data_dir().join("decoders"))
 }
