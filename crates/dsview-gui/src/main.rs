@@ -187,9 +187,8 @@ fn main() -> eframe::Result {
             // PLAN.md §5.1 (trace meshes are never feathered, so the option
             // touches lines and text only)
             // CJK glyphs for Chinese (and the language menu's 中文)
-            if let Some(p) = dsview_gui::i18n::add_cjk_font(&cc.egui_ctx) {
-                dsview_gui::log::info(&format!("CJK font: {}", p.display()));
-            }
+            let from = dsview_gui::i18n::add_cjk_font(&cc.egui_ctx);
+            dsview_gui::log::info(&format!("CJK font: {from}"));
             match saved {
                 Some(o) => {
                     dsview_gui::i18n::load(

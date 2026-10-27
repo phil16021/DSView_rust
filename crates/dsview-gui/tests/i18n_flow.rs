@@ -30,10 +30,6 @@ fn root() -> PathBuf {
 
 #[test]
 fn switch_to_chinese_and_back() {
-    if dsview_gui::i18n::cjk_font().is_none() {
-        eprintln!("no CJK font on this system: skipped");
-        return;
-    }
     let s = Session::new(
         Paths {
             data_dir: root().join("assets"),

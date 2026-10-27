@@ -1712,3 +1712,18 @@ only read state, and the path cannot be tested on DSCope hardware here.
 
 **B4 checks after the ingest redesign:** `xtask golden check` ok; `xtask control check` 38 steps
 against `dsview-cli serve --mcp`; `xtask mcp suite` 30 tools, 37 steps (headless `dsview-cli`).
+
+## M7b B5: built-in CJK font (2026-10-27)
+
+- `assets/fonts/NotoSansCJKsc-DSViewR-subset.otf` (810 KB, 4046 glyphs): Noto Sans CJK SC from
+  Ubuntu's `fonts-noto-cjk` 1:20230817, cut to the CJK characters of `assets/lang/cn`, 中文, the 3755
+  hanzi of GB 2312 level 1, CJK punctuation and fullwidth forms. `tools/fonts/make-cjk-subset.sh`
+  rebuilds it byte for byte. Licence: `assets/fonts/OFL.txt`, installed to
+  `share/dsview/fonts/OFL.txt` by the deb and the AppImage staging.
+- `i18n::add_cjk_font` still prefers a system CJK font (full coverage) and falls back to the
+  built-in one, so Chinese works on systems without one; the log says which is used.
+- Tests: `i18n::tests::bundled_cjk_font_covers_the_translation` (every CJK character of the
+  translation has a glyph; a hanzi outside the subset makes it fail); `i18n_flow` no longer skips
+  without a system font. `app_chinese.png` re-blessed: the same text, slightly different
+  anti-aliasing of the subset (no hinting).
+- Still open in B5: wgpu as the default renderer needs `--bench` on real GPUs.

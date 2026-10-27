@@ -249,15 +249,30 @@ pub fn cjk_font() -> Option<(PathBuf, u32)> {
         .map(|(p, i)| (PathBuf::from(p), *i))
 }
 
-/// A system font with CJK glyphs, added as the last fallback of every
-/// family (egui's own fonts have none). Returns where it came from.
-pub fn add_cjk_font(ctx: &eframe::egui::Context) -> Option<PathBuf> {
+/// Noto Sans CJK SC cut down to the Chinese translation's characters, the
+/// 3755 common hanzi (GB 2312 level 1) and CJK punctuation; used where the
+/// system has none of [`CJK_FONTS`] (`assets/fonts/OFL.txt`).
+pub const BUNDLED_CJK_FONT: &[u8] =
+    include_bytes!("../../../assets/fonts/NotoSansCJKsc-DSViewR-subset.otf");
+
+/// A font with CJK glyphs, added as the last fallback of every family
+/// (egui's own fonts have none): a system one, else the bundled subset.
+/// Returns where it came from.
+pub fn add_cjk_font(ctx: &eframe::egui::Context) -> String {
     use eframe::egui::{FontData, FontFamily};
     use eframe::epaint::text::{FontInsert, FontPriority, InsertFontFamily};
-    let (path, index) = cjk_font()?;
-    let bytes = std::fs::read(&path).ok()?;
-    let mut data = FontData::from_owned(bytes);
-    data.index = index;
+    let system = cjk_font().and_then(|(path, index)| {
+        let bytes = std::fs::read(&path).ok()?;
+        let mut data = FontData::from_owned(bytes);
+        data.index = index;
+        Some((data, path.display().to_string()))
+    });
+    let (data, from) = system.unwrap_or_else(|| {
+        (
+            FontData::from_static(BUNDLED_CJK_FONT),
+            "bundled Noto Sans CJK SC subset".into(),
+        )
+    });
     ctx.add_font(FontInsert::new(
         "cjk-fallback",
         data,
@@ -272,7 +287,7 @@ pub fn add_cjk_font(ctx: &eframe::egui::Context) -> Option<PathBuf> {
             },
         ],
     ));
-    Some(path)
+    from
 }
 
 #[cfg(test)]
@@ -281,6 +296,35 @@ mod tests {
 
     fn repo_lang() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/lang")
+    }
+
+    /// Every CJK character of the Chinese translation (and the language
+    /// menu's 中文) has a glyph in the bundled font.
+    #[test]
+    fn bundled_cjk_font_covers_the_translation() {
+        use eframe::egui::{self, FontData, FontDefinitions, FontFamily, FontId};
+        let ctx = egui::Context::default();
+        let mut defs = FontDefinitions::empty();
+        defs.font_data
+            .insert("cjk".into(), FontData::from_static(BUNDLED_CJK_FONT).into());
+        defs.families
+            .insert(FontFamily::Proportional, vec!["cjk".into()]);
+        ctx.set_fonts(defs);
+        let mut out = ctx.run_ui(Default::default(), |_| {});
+        out.textures_delta.clear();
+        let mut text = String::from("中文");
+        for e in std::fs::read_dir(repo_lang().join("cn")).unwrap() {
+            text += &std::fs::read_to_string(e.unwrap().path()).unwrap_or_default();
+        }
+        let font = FontId::proportional(14.0);
+        let mut missing: Vec<char> = ctx.fonts_mut(|f| {
+            text.chars()
+                .filter(|&c| c >= '\u{2e80}')
+                .filter(|&c| !f.has_glyphs(&font, &c.to_string()))
+                .collect()
+        });
+        missing.dedup();
+        assert!(missing.is_empty(), "no glyph for {missing:?}");
     }
 
     #[test]

@@ -775,7 +775,7 @@ orders.
 | Region dialog (F29) | Built, never opened | Not ported | M6e ✔ |
 | Settings storage | `QSettings` INI (`DSView.conf`); `windowState` as Qt's dock blob | JSON (`dsview-rs.json`), the Qt file imported once on the first start; `windowState` is not imported (egui has no equivalent) | M6f ✔ |
 | Text lookup | `L_S(page, id, default)` at each call site | The GUI's English texts are looked up through Qt's English text of the same id (`lang/en`), without accelerators, ellipsis or colon; texts Qt does not have stay English. Device option and decoder texts by text and `idn` as in Qt | M6f ✔ |
-| CJK glyphs | Qt's font fallback | A system CJK font (Droid Sans Fallback, Noto Sans CJK SC, WenQuanYi) as egui's last fallback; a shipped font comes with the packaging (Phase 6) | M6f ✔ |
+| CJK glyphs | Qt's font fallback | A system CJK font (Droid Sans Fallback, Noto Sans CJK SC, WenQuanYi) as egui's last fallback, else a Noto Sans CJK SC subset built into the binary (M7b: the translation's characters, the 3755 common hanzi of GB 2312 level 1, CJK punctuation; 810 KB, OFL) | M6f ✔ |
 | Dark theme colours | Trace area rgb(38,38,38), widgets from `dark.qss` | The Rust GUI's dark colours since M6a (trace area 24, header 34, ruler 30); light, latte and frappé take the qss palettes | M6f ✔ |
 | Icons | Every bar button and many widgets (212 SVGs incl. widget decorations) | The bar buttons and menu entries (27 icons, dark and light sets), rasterised with resvg 0.44; egui draws its own checkboxes, arrows and scrollbars | M6f ✔ |
 | Esc in dialogs | Closes the focused dialog | Closes every open dialog window (egui has no focused window) | M6f ✔ |

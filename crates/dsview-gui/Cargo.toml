@@ -79,4 +79,6 @@ assets = [
     ["../../assets/dsviewr.desktop", "usr/share/applications/dsviewr.desktop", "644"],
     ["../../assets/icons/logo.svg", "usr/share/icons/hicolor/scalable/apps/dsviewr.svg", "644"],
     ["../../assets/icons/logo.svg", "usr/share/pixmaps/dsviewr.svg", "644"],
+    # the licence of the CJK font built into the binary
+    ["../../assets/fonts/OFL.txt", "usr/share/dsview/fonts/OFL.txt", "644"],
 ]

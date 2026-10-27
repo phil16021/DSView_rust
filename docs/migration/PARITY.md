@@ -50,7 +50,7 @@ Milestones: **a** viewer, **b** logic capture, **c** decoders, **d** DSO/analog,
 - [x] (f) Shortcuts: S, I, T, D, M, R, O, PgUp/PgDn, ←/→ zoom, 0/1 select DSO channel, ↑/↓ V/div, Esc; 200 ms debounce
 - [x] (f) Settings (app options, window state, user history, fonts, per-decoder format); first-run import of the Qt `DSView.conf`
 - [x] (a/f) `.dsl` open/save; `.dsc` profiles, including automatic `<driver><mode>.ses.dsc` and the shipped defaults
-- [x] (f) i18n: cn/en/de from `lang/*.json`, runtime switching, CJK font (the system's; a shipped font with the packaging, Phase 6)
+- [x] (f) i18n: cn/en/de from `lang/*.json`, runtime switching, CJK font (the system's, else a built-in Noto Sans CJK SC subset)
 - [x] (f) Themes: dark, light, frappé, latte; about 250 SVG icons (the 27 icons on bars and menus, both sets; Qt's widget-decoration SVGs have no use in egui)
 - [x] (f) Help: user guide PDFs, bug-report and release URLs, open log file
 - [x] (a) Control API (`--mcp`) hosted natively: the 31 methods and `testdata/control/demo-scenario.json` pass

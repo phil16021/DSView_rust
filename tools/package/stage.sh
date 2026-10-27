@@ -17,5 +17,7 @@ rsync -a --exclude '__pycache__' \
     "$REPO/assets/ug25.pdf" "$REPO/assets/ug31.pdf" "$REPO/assets/DreamSourceLab.rules" \
     "$PREFIX/share/dsview/"
 install -m 644 "$REPO/assets/icons/logo.svg" "$PREFIX/share/dsview/logo.svg"
+# the licence of the CJK font built into the binary
+install -D -m 644 "$REPO/assets/fonts/OFL.txt" "$PREFIX/share/dsview/fonts/OFL.txt"
 install -m 644 "$REPO/assets/dsviewr.desktop" "$PREFIX/share/applications/dsviewr.desktop"
 install -m 644 "$REPO/assets/icons/logo.svg" "$PREFIX/share/icons/hicolor/scalable/apps/dsviewr.svg"

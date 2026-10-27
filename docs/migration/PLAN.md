@@ -541,8 +541,8 @@ offline registry.
      texts and decoder `idn` are looked up too.
    - **Switching:** at run time, together with the per-language profile names and manuals.
    - **CJK:** egui's fonts have no CJK glyphs. A fallback face is loaded only for Chinese: the
-     system's Noto Sans CJK (TTC index) or Droid Sans Fallback. A shipped OFL subset font follows with
-     the packaging (Phase 6).
+     system's Noto Sans CJK (TTC index) or Droid Sans Fallback, else a Noto Sans CJK SC subset (OFL)
+     built into the binary since M7b.
 7. **Themes and icons.**
    - Four `Visuals` from the qss palettes: dark `#1F1F1F`, light `#F8F8F8`, frappé `#303446`, latte
      `#eff1f5`, with accent and text colours.

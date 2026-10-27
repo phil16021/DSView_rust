@@ -97,8 +97,9 @@ retired", parts 1–4. F24/F26 (item 6) reviewed 2026-10-27: F26's three envelop
   - measure with `--bench` on Intel, AMD and NVIDIA plus Mesa llvmpipe;
   - switch the default, keeping `DSVIEW_RENDERER=glow` as the fallback;
   - CI already uses Mesa for wgpu snapshots.
-- **Shipped CJK font:** bundle Noto Sans CJK SC (subset) in the deb and the AppImage. `i18n_flow`
-  then stops being skipped.
+- ✔ **Shipped CJK font:** bundle Noto Sans CJK SC (subset) in the deb and the AppImage. `i18n_flow`
+  then stops being skipped. Done 2026-10-27: an 810 KB subset built into the binary
+  (`tools/fonts/make-cjk-subset.sh`), used when the system has no CJK font.
 - **DSO/analog only verified on the demo/sim:** the auto-set path has unit tests only. See B6.
 
 ### B6. Hardware coverage
