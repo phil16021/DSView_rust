@@ -1595,3 +1595,19 @@ Other decoders that raise on unusual data are recorded as DEVIATIONS F35, a foll
 - workspace tests and clippy;
 - control transcript (38 steps);
 - MCP suite (30 tools).
+
+## M7b: Qt quirks retired, part 3: the time-aligned protocol table (2026-10-27)
+
+- **The fix:** the protocol table puts annotations that start at the same sample on one line, in
+  time order, with a new Time column. Qt put annotation n of every row on line n, so the I²C
+  fields and EEPROM operations sat next to unrelated addresses.
+- **One function:** `decode::align_rows` serves both the table and the CSV/TXT export, so the two
+  always agree.
+- **Tests:**
+  - `decode::tests::rows_align_by_start`;
+  - the export tests unchanged;
+  - the 262k-row table test passes;
+  - snapshots updated after review: `protocol_dock`, `protocol_export_dialog`,
+    `protocol_list_options`, `decoder_show_buttons`.
+- **A flaky test fixed:** `decoder_show_buttons` assumed the decoder stack is rebuilt within one
+  frame after OK; it now waits up to 10 s. It had failed under load twice in this session.

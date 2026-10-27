@@ -734,6 +734,12 @@ fn decoder_show_buttons() {
     harness.snapshot("decoder_show_buttons");
     harness.get_by_label("OK").click();
     harness.run();
+    // the rebuild may take a few frames on a busy machine
+    let t0 = std::time::Instant::now();
+    while Arc::ptr_eq(&t, &s.state().decoders[0]) && t0.elapsed() < Duration::from_secs(10) {
+        std::thread::sleep(Duration::from_millis(20));
+        harness.run();
+    }
     let t2 = s.state().decoders[0].clone();
     assert!(!Arc::ptr_eq(&t, &t2), "the stack was rebuilt");
     let k2 = t2

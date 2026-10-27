@@ -1330,38 +1330,29 @@ pub fn export_protocol_with(
     } else {
         w(&mut out, csv_line(&header))?;
     }
-    let mut read = vec![0usize; rows.len()];
-    let (mut written, mut line) = (0usize, 0u64);
-    while written < total {
-        let sample = anns
+    let mut written = 0usize;
+    for (n, line) in crate::decode::align_rows(&anns).iter().enumerate() {
+        let sample = line
             .iter()
-            .zip(&read)
-            .filter_map(|(a, &i)| a.get(i).map(|x| x.start))
-            .min()
+            .zip(&anns)
+            .find_map(|(i, a)| i.map(|i| a[i].start))
             .unwrap_or(0);
         let mut cells = Vec::with_capacity(rows.len() + 2);
-        line += 1;
-        cells.push(line.to_string());
+        cells.push((n + 1).to_string());
         cells.push(dsview_formats::cfmt::fmt_f(
             sample as f64 * ns_per_sample,
             2,
         ));
-        for (k, a) in anns.iter().enumerate() {
-            match a.get(read[k]) {
-                Some(x) if x.start == sample => {
-                    cells.push(x.text_in(st.format()));
-                    read[k] += 1;
-                    written += 1;
-                }
-                _ => cells.push(String::new()),
-            }
+        for (i, a) in line.iter().zip(&anns) {
+            cells.push(i.map_or(String::new(), |i| a[i].text_in(st.format())));
         }
+        written += line.iter().flatten().count();
         if txt {
             table.push(cells);
         } else {
             w(&mut out, csv_line(&cells))?;
         }
-        if !progress((written * 100 / total) as u32) {
+        if !progress((written * 100 / total.max(1)) as u32) {
             break;
         }
     }

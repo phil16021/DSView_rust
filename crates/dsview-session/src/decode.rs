@@ -150,6 +150,42 @@ pub struct Ann {
     pub num: Option<Arc<NumText>>,
 }
 
+/// Lines of a protocol table or export over `cols` (each sorted by start):
+/// each line holds, per column, the index of its annotation starting at the
+/// smallest start sample left in any column, or None. Annotations that
+/// start together share a line; Qt's table put annotation n of every
+/// column on line n instead (F27).
+pub fn align_rows(cols: &[Vec<Ann>]) -> Vec<Vec<Option<usize>>> {
+    let total: usize = cols.iter().map(Vec::len).sum();
+    let mut read = vec![0usize; cols.len()];
+    let mut lines = Vec::new();
+    let mut done = 0;
+    while done < total {
+        let Some(sample) = cols
+            .iter()
+            .zip(&read)
+            .filter_map(|(c, &i)| c.get(i).map(|a| a.start))
+            .min()
+        else {
+            break;
+        };
+        let line = cols
+            .iter()
+            .zip(read.iter_mut())
+            .map(|(c, i)| match c.get(*i) {
+                Some(a) if a.start == sample => {
+                    *i += 1;
+                    done += 1;
+                    Some(*i - 1)
+                }
+                _ => None,
+            })
+            .collect();
+        lines.push(line);
+    }
+    lines
+}
+
 /// Interned annotation texts: the hex lines and the numeric source.
 type Texts = HashMap<String, (Arc<Vec<String>>, Option<Arc<NumText>>)>;
 
@@ -947,6 +983,37 @@ pub fn opt_json(v: &OptValue) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn ann(start: u64) -> Ann {
+        Ann {
+            start,
+            end: start + 1,
+            ty: 0,
+            lines: Arc::new(vec![start.to_string()]),
+            num: None,
+        }
+    }
+
+    /// Annotations starting together share a line; the others get a line of
+    /// their own, in time order (F27).
+    #[test]
+    fn rows_align_by_start() {
+        let cols = vec![
+            vec![ann(10), ann(30), ann(50)],
+            vec![ann(10), ann(20), ann(50), ann(60)],
+        ];
+        assert_eq!(
+            align_rows(&cols),
+            vec![
+                vec![Some(0), Some(0)],
+                vec![None, Some(1)],
+                vec![Some(1), None],
+                vec![Some(2), Some(2)],
+                vec![None, Some(3)],
+            ]
+        );
+        assert!(align_rows(&[]).is_empty());
+    }
 
     #[test]
     fn indexed_subset_matches_a_scan() {

@@ -365,6 +365,11 @@ GPU, only Mesa llvmpipe (GL) and lavapipe (Vulkan).
   - Kinetic scroll stalls because of int truncation.
   - Cursor colours and numbers shift when a cursor is deleted.
   - The protocol table puts annotation *n* of each row in one table row, not time-aligned.
+    **Fixed 2026-10-27:**
+    - the table is time-aligned: annotations that start together share a line, with a Time
+      column;
+    - one function, `decode::align_rows`, serves the table and the export;
+    - the search and jump work on the aligned lines.
   - The protocol export's TXT is the same as its CSV. **Fixed 2026-10-27:** TXT is an aligned table,
     and CSV quotes cells containing `,`, `"` or line breaks.
   - The FFT uses `PI = 3.1415`. **Fixed 2026-10-27:** the true π.

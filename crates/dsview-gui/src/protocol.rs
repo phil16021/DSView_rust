@@ -257,6 +257,21 @@ impl AddDialog {
 
 /// What the cached table columns depend on: the trace, its listed rows,
 /// its results (run and count), the capture length and the number format.
+/// The listed rows' annotations and the table's lines over them
+/// (`align_rows`: one line per start sample).
+struct Table {
+    cols: Vec<Vec<Ann>>,
+    lines: Vec<Vec<Option<usize>>>,
+}
+
+impl Table {
+    /// The annotation of column `col` on line `line`.
+    fn at(&self, line: usize, col: usize) -> Option<&Ann> {
+        let i = (*self.lines.get(line)?.get(col)?)?;
+        self.cols[col].get(i)
+    }
+}
+
 type ColsKey = (
     usize,
     Vec<usize>,
@@ -279,7 +294,7 @@ pub struct ProtocolDock {
     filtered_for: (usize, usize, String, u64),
     /// The table's columns, sorted, until the trace, its listed rows or
     /// its results change (100k+ rows stay interactive).
-    cols_cache: Option<(ColsKey, Arc<Vec<Vec<Ann>>>)>,
+    cols_cache: Option<(ColsKey, Arc<Table>)>,
     export: Option<Export>,
     pub message: Option<String>,
     /// The annotation clicked: the view jumps to it.
@@ -853,19 +868,23 @@ impl ProtocolDock {
             sample_count,
             t.stack.format(),
         );
-        let cols = match &self.cols_cache {
+        let table = match &self.cols_cache {
             Some((k, c)) if *k == key => c.clone(),
             _ => {
-                let c: Arc<Vec<Vec<Ann>>> = Arc::new(
-                    rows.iter()
-                        .map(|(i, _)| t.stack.row_sorted(*i, sample_count))
-                        .collect(),
-                );
+                let cols: Vec<Vec<Ann>> = rows
+                    .iter()
+                    .map(|(i, _)| t.stack.row_sorted(*i, sample_count))
+                    .collect();
+                // time-aligned: annotations that start together share a
+                // line (Qt put annotation n of every row on line n, F27)
+                let lines = dsview_session::decode::align_rows(&cols);
+                let c = Arc::new(Table { cols, lines });
                 self.cols_cache = Some((key, c.clone()));
                 c
             }
         };
-        let n = cols.iter().map(Vec::len).max().unwrap_or(0);
+        let n = table.lines.len();
+        let rate = t.stack.sample_rate().max(1);
 
         // search in the chosen column (case-sensitive, as Qt's filter)
         ui.horizontal(|ui| {
@@ -885,11 +904,12 @@ impl ProtocolDock {
                 self.matches = if self.filter.is_empty() {
                     Vec::new()
                 } else {
-                    cols[self.filter_col]
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, a)| a.text_in(fmt).contains(&self.filter))
-                        .map(|(i, _)| i)
+                    (0..n)
+                        .filter(|&l| {
+                            table
+                                .at(l, self.filter_col)
+                                .is_some_and(|a| a.text_in(fmt).contains(&self.filter))
+                        })
                         .collect()
                 };
                 self.cur_match = 0;
@@ -898,8 +918,8 @@ impl ProtocolDock {
             if !self.filter.is_empty() {
                 ui.label(format!("{} matches", self.matches.len()));
                 let jump = |m: &mut Self, k: usize| {
-                    if let Some(&i) = m.matches.get(k)
-                        && let Some(a) = cols[m.filter_col].get(i)
+                    if let Some(&l) = m.matches.get(k)
+                        && let Some(a) = table.at(l, m.filter_col)
                     {
                         m.jump = Some((a.start, a.end));
                     }
@@ -943,10 +963,14 @@ impl ProtocolDock {
         TableBuilder::new(ui)
             .striped(true)
             .column(Column::exact(60.0))
+            .column(Column::initial(90.0).resizable(true))
             .columns(Column::initial(width).resizable(true), rows.len())
             .header(18.0, |mut h| {
                 h.col(|ui| {
                     ui.strong("#");
+                });
+                h.col(|ui| {
+                    ui.strong(tr("Time"));
                 });
                 for (k, (_, title)) in rows.iter().enumerate() {
                     h.col(|ui| {
@@ -967,9 +991,15 @@ impl ProtocolDock {
                     row.col(|ui| {
                         ui.label((i + 1).to_string());
                     });
-                    for col in cols.iter() {
+                    let start = (0..table.cols.len()).find_map(|c| table.at(i, c).map(|a| a.start));
+                    row.col(|ui| {
+                        if let Some(s) = start {
+                            ui.label(dsview_viewmodel::ruler::format_real_time(s as i64, rate));
+                        }
+                    });
+                    for c in 0..table.cols.len() {
                         row.col(|ui| {
-                            if let Some(a) = col.get(i)
+                            if let Some(a) = table.at(i, c)
                                 && ui
                                     .add(
                                         egui::Label::new(a.text_in(fmt))
