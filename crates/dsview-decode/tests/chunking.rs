@@ -1,8 +1,10 @@
 //! Chunking invariance: a decoder gives the same annotations whatever the
 //! chunks the samples arrive in (DecoderStack sends what the capture has;
 //! a stream sends many small pieces). UART and I²C, from two samples to the
-//! whole capture per chunk. The engine keeps libsigrokdecode's chunk-edge
-//! behaviour (F32): positions may move by one sample.
+//! whole capture per chunk. libsigrokdecode moved an annotation by one
+//! sample when a wait() ended on a chunk's first sample, and chunks of one
+//! sample decoded nothing (F32); the engine gives the same output for every
+//! chunking.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -126,19 +128,9 @@ fn annotations_do_not_depend_on_the_chunks() {
             "{id}: {} annotations {whole:?}",
             whole.len()
         );
-        // chunks of one sample decode nothing, in C as well (F32)
-        for chunk in [2, 3, 7, 8, 9, 64, 100, 511, 4096] {
+        for chunk in [1, 2, 3, 7, 8, 9, 64, 100, 511, 4096] {
             let got = decode(id, channels, levels, chunk);
-            assert_eq!(got.len(), whole.len(), "{id} in chunks of {chunk}");
-            for (a, b) in got.iter().zip(&whole) {
-                // the same annotations; one that ends a wait() on a chunk's
-                // first sample moves by one sample, as in C (F32)
-                let near = a.0.abs_diff(b.0) <= 1 && a.1.abs_diff(b.1) <= 1;
-                assert!(
-                    near && a.2 == b.2 && a.3 == b.3,
-                    "{id} in chunks of {chunk}: {a:?} vs {b:?}"
-                );
-            }
+            assert_eq!(got, whole, "{id} in chunks of {chunk}");
         }
     }
 }

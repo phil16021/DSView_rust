@@ -19,6 +19,9 @@ pub const OUTPUT_ANN: i32 = 0;
 pub const OUTPUT_PYTHON: i32 = 1;
 pub const OUTPUT_BINARY: i32 = 2;
 pub const OUTPUT_META: i32 = 3;
+/// libsigrokdecode's `SRD_OUTPUT_LOGIC`, which DSView's engine lacks:
+/// `[channel, bytes]` of the decoder's `logic_output_channels`.
+pub const OUTPUT_LOGIC: i32 = 4;
 pub const SRD_CONF_SAMPLERATE: i32 = 10000;
 
 /// Longest numeric annotation string (`DECODE_NUM_HEX_MAX_LEN`).
@@ -166,6 +169,23 @@ impl Decoder {
                         // Python reports "returned a result with an exception set"
                         Err(e) => e.restore(py),
                     }
+                }
+            }
+            OUTPUT_LOGIC => {
+                if sess.has_callback(OUTPUT_LOGIC)
+                    && let Some((channel, bytes)) = convert_logic(&di, &data)
+                {
+                    sess.emit(
+                        py,
+                        &di,
+                        &pdo,
+                        start,
+                        end,
+                        OutputData::Logic {
+                            channel,
+                            data: &bytes,
+                        },
+                    );
                 }
             }
             t => err(&format!(
@@ -389,23 +409,19 @@ enum Step {
     Matched(u64, u64, Vec<u8>),
 }
 
-/// The instance's pin tuple, refilled in place as C does. `PyTuple_SetItem`
-/// refuses while the decoder still holds the previous result (refcount > 1)
-/// and leaves a SystemError set; the stale tuple is then returned with the
-/// error pending, like C (Python reports "returned a result with an
-/// exception set").
+/// A fresh tuple of the pin values per `wait()` (F13). C refilled one tuple
+/// per instance with `PyTuple_SetItem`, which CPython refuses while the
+/// decoder still holds the previous result: decoders written as
+/// `pins = self.wait(...)` (`pjdl`, `ieee488`) then failed on their next
+/// `wait()` with a SystemError.
 fn fill_pin_tuple(py: Python<'_>, di: &Instance, pins: &[u8]) -> Py<PyAny> {
-    let Some(t) = &di.py_pinvalues else {
+    if di.py_pinvalues.is_none() {
         return PyTuple::empty(py).into_any().unbind();
-    };
-    for (i, &v) in pins.iter().enumerate() {
-        let item = (v as i64).into_pyobject(py).expect("int").into_ptr();
-        // SAFETY: t is a tuple of len(pins); SetItem steals `item` (also on failure).
-        unsafe {
-            pyo3::ffi::PyTuple_SetItem(t.as_ptr(), i as pyo3::ffi::Py_ssize_t, item);
-        }
     }
-    t.clone_ref(py)
+    PyTuple::new(py, pins.iter().map(|&v| v as i64))
+        .expect("int tuple")
+        .into_any()
+        .unbind()
 }
 
 enum ConditionList {
@@ -479,11 +495,21 @@ fn set_new_condition_list(
                     bad = Some("Failed to get number of samples to skip.");
                     break;
                 }
-                // PyLong_AsUnsignedLongLong: a negative or too large value
-                // gives u64::MAX and leaves an OverflowError pending, which C
-                // does not clear (wait() then fails with a SystemError)
-                // SAFETY: v is an int.
-                let n = unsafe { pyo3::ffi::PyLong_AsUnsignedLongLong(v.as_ptr()) };
+                // a negative count is `skip: 0`: the sample asked for is
+                // already behind (`flexray` waits for `pos - samplenum`).
+                // C's PyLong_AsUnsignedLongLong left an OverflowError pending
+                // instead, and a later wait() failed with a SystemError (F14)
+                let n = match v.extract::<i64>() {
+                    Ok(n) => n.max(0) as u64,
+                    Err(_) => match v.extract::<u64>() {
+                        Ok(n) => n,
+                        Err(_) => {
+                            err("Failed to get number of samples to skip.");
+                            bad = Some("Failed to get number of samples to skip.");
+                            break;
+                        }
+                    },
+                };
                 terms.push(Term {
                     ty: TermType::Skip,
                     channel: 0,
@@ -677,6 +703,45 @@ fn convert_binary(di: &Instance, obj: &Bound<'_, PyAny>) -> Option<(i32, Vec<u8>
     Some((cls, bytes.as_bytes().to_vec()))
 }
 
+/// `convert_logic` (libsigrokdecode): `[channel, bytes]`, the channel one of
+/// the decoder's `logic_output_channels`.
+fn convert_logic(di: &Instance, obj: &Bound<'_, PyAny>) -> Option<(i32, Vec<u8>)> {
+    let name = &di.decoder.name;
+    let bad = |what: &str| {
+        err(&format!(
+            "Protocol decoder {name} submitted SRD_OUTPUT_LOGIC {what}."
+        ));
+        None
+    };
+    let Ok(list) = obj.cast::<PyList>() else {
+        return bad("that is not a list");
+    };
+    if list.len() != 2 {
+        return bad(&format!("list with {} elements instead of 2", list.len()));
+    }
+    let Ok(channel) = list.get_item(0).ok()?.extract::<i64>() else {
+        return bad("list, but first element was not an integer");
+    };
+    let channels = di
+        .py_inst
+        .bind(obj.py())
+        .getattr("logic_output_channels")
+        .ok()
+        .and_then(|c| c.len().ok())
+        .unwrap_or(0) as i64;
+    if !(0..channels).contains(&channel) {
+        return bad(&format!("with unknown logic output channel {channel}"));
+    }
+    let second = list.get_item(1).ok()?;
+    let Ok(bytes) = second.cast::<PyBytes>() else {
+        return bad("list, but second element was not bytes");
+    };
+    if bytes.as_bytes().is_empty() {
+        return bad("with empty data set");
+    }
+    Some((channel as i32, bytes.as_bytes().to_vec()))
+}
+
 /// Meta value of an OUTPUT_META put.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MetaValue {
@@ -713,6 +778,7 @@ pub fn output_type_name(t: i32) -> &'static str {
         OUTPUT_PYTHON => "OUTPUT_PYTHON",
         OUTPUT_BINARY => "OUTPUT_BINARY",
         OUTPUT_META => "OUTPUT_META",
+        OUTPUT_LOGIC => "OUTPUT_LOGIC",
         _ => "(invalid)",
     }
 }
@@ -724,6 +790,7 @@ pub(crate) fn populate(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("OUTPUT_PYTHON", OUTPUT_PYTHON)?;
     m.add("OUTPUT_BINARY", OUTPUT_BINARY)?;
     m.add("OUTPUT_META", OUTPUT_META)?;
+    m.add("OUTPUT_LOGIC", OUTPUT_LOGIC)?;
     m.add("SRD_CONF_SAMPLERATE", SRD_CONF_SAMPLERATE)?;
     m.add("Terminate", m.py().get_type::<Terminate>())?;
     Ok(())

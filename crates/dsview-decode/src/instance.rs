@@ -5,7 +5,8 @@
 //! worker thread. `wait()` releases the GIL and scans the chunk the session
 //! thread handed over (`send`) until a condition matches; `send` returns
 //! once the chunk is used up. The matching code is transliterated with its
-//! quirks (constant-chunk shortcut, `skip: 0` handling, sample-0 seeding).
+//! quirks (constant-chunk shortcut, `skip: 0` handling, sample-0 seeding),
+//! except the chunk-edge step (F32).
 
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::JoinHandle;
@@ -95,7 +96,8 @@ pub struct Instance {
     pub decoder: Arc<DecoderInfo>,
     pub inst_id: String,
     pub(crate) py_inst: Py<PyAny>,
-    /// The pin tuple wait() returns; refilled in place like C does.
+    /// Set when the decoder has channels; wait() returns a fresh pin
+    /// tuple each time (F13; C refilled this one in place).
     pub(crate) py_pinvalues: Option<Py<PyAny>>,
     pub(crate) channelmap: Mutex<Vec<i32>>,
     pub(crate) pd_output: Mutex<Vec<PdOutput>>,
@@ -402,6 +404,11 @@ fn find_match_in(st: &mut State, n: usize, conds: &mut [Option<Vec<Term>>]) -> b
             st.abs_cur += 1;
         }
     }
+    // the step past the last match is taken: when it used up the chunk, the
+    // next chunk starts at its first sample. C kept the flag and stepped
+    // again there, skipping that sample (an annotation moved by one; chunks
+    // of one sample decoded nothing, F32)
+    st.abs_cur_matched = false;
     false
 }
 

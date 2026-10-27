@@ -27,15 +27,16 @@ F-numbers refer to DEVIATIONS.md; PLAN.md's M7b section stays the summary and li
 
 ### B2. Decoder engine and decoders
 
-1. **F13, fresh pin tuple per `wait()`.** Fixes `pjdl` and `ieee488` (`dsview-decode`).
+1. ✔ (done 2026-10-27) **F13, fresh pin tuple per `wait()`.** Fixes `pjdl` and `ieee488` (`dsview-decode`).
    - Test: both decoders on generated captures produce annotations; add both to
      `testdata/decoders/coverage.toml`.
-2. **F14, check of the `skip` count** (`flexray`).
-3. **`OUTPUT_LOGIC`** for `pca9571` and `tca6408a`.
-4. **F32 chunk-edge shift** (±1 sample; 1-sample chunks decode nothing).
+2. ✔ (done 2026-10-27) **F14, check of the `skip` count** (`flexray`).
+3. ✔ (done 2026-10-27) **`OUTPUT_LOGIC`** for `pca9571` and `tca6408a`.
+4. ✔ (done 2026-10-27) **F32 chunk-edge shift** (±1 sample; 1-sample chunks decode nothing).
    - Fix the chunk boundary handling.
    - Tighten `dsview-decode/tests/chunking.rs` from "within 1 sample" to exact equality.
-5. **`Quirks::FIXED` is not implemented.**
+5. ✔ (resolved 2026-10-27, not built: the F32 fix makes the engine chunk-independent and the
+   golden is unchanged) **`Quirks::FIXED` is not implemented.**
    - Implement it.
    - List every annotation that changes under DEVIATIONS "Planned deviations".
    - Re-bless `testdata/golden/decode` deliberately, with `xtask golden bless` and a reviewed diff.

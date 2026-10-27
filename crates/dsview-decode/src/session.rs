@@ -33,6 +33,11 @@ pub enum OutputData<'a> {
         data: &'a [u8],
     },
     Meta(MetaValue),
+    /// OUTPUT_LOGIC: the levels of one logic output channel.
+    Logic {
+        channel: i32,
+        data: &'a [u8],
+    },
     /// OUTPUT_PYTHON (tests only; the callback runs with the GIL held).
     Python(&'a Bound<'a, PyAny>),
 }
@@ -114,6 +119,15 @@ impl SessionInner {
                     inst: di,
                     pdo,
                     data: OutputData::Meta(v),
+                })
+            }),
+            OutputData::Logic { channel, data } => py.detach(|| {
+                cb(&Output {
+                    start,
+                    end,
+                    inst: di,
+                    pdo,
+                    data: OutputData::Logic { channel, data },
                 })
             }),
         }

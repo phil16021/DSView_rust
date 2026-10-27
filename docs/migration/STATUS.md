@@ -1506,3 +1506,34 @@ Each fix has a test that failed before it.
 - golden check ok;
 - control transcript: 38 steps;
 - MCP suite: 30 tools, 37 steps.
+
+## M7b: decoder engine fixes F13, F14, OUTPUT_LOGIC, F32 (2026-10-27)
+
+Each fix has a test that failed before it.
+
+| Item | Fix | Test |
+|---|---|---|
+| F13 | `wait()` returns a fresh pin tuple; a kept result no longer makes the next `wait()` fail (the `pjdl` and `ieee488` pattern) | `tests/keep_pins.rs` |
+| F14 | A negative `skip` is `skip: 0`; a count too large for 64 bits fails at once. No error is left pending, so F17 is moot | `tests/pending_error.rs` |
+| `OUTPUT_LOGIC` | `srd.OUTPUT_LOGIC` (4), checked and passed to a callback if registered. `pca9571` and `tca6408a` start | `tests/logic_output.rs` |
+| F32 | The step past a match on a chunk's last sample no longer repeats on the next chunk | `tests/chunking.rs`, exact for chunks of 1 to 4096 |
+
+**F32 on the demo** (`rust-decode protocol.demo --max-chunk N` against the default chunking):
+
+| Chunk size | Lines that differed before | After |
+|---|---|---|
+| 64 | 43 | 0 |
+| 77 | 42 | 0 |
+| 1000 | 3 | 0 |
+
+**`Quirks::FIXED`:** not built. The engine is chunk-independent, and DSView's chunking still gives
+the stored golden.
+
+**Checked:**
+- workspace: 244 tests pass, and clippy `-D warnings` is clean;
+- golden check ok, decoder golden unchanged;
+- control transcript: 38 steps;
+- MCP suite: 30 tools, 37 steps.
+
+**Not covered:** no PJDL, GPIB, FlexRay or PCA9571/TCA6408A capture is in the tree, so those
+decoders are covered by the engine tests only.

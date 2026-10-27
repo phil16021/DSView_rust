@@ -136,7 +136,8 @@ fn event_line(o: &Output<'_>) -> Option<String> {
                 }
             }
         }
-        OutputData::Python(_) => return None,
+        // DSView shows no logic outputs; the goldens predate them
+        OutputData::Python(_) | OutputData::Logic { .. } => return None,
     }
     Some(s)
 }

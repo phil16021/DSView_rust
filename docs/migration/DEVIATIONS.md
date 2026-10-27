@@ -24,6 +24,11 @@ evaluates conditions differently at chunk edges.
 - The Rust engine's default mode `Quirks::C_COMPAT` must reproduce this behaviour bit for bit.
 - `Quirks::FIXED` will make output independent of chunking. Every annotation it changes must be listed
   under "Planned deviations".
+- **Resolved 2026-10-27 (M7b, F32)** without a second mode:
+  - the one engine's output no longer depends on chunking;
+  - DSView's own chunking still gives the stored golden line for line, so nothing needed listing
+    or re-blessing;
+  - `Quirks::FIXED` is not built.
 
 ### F2. Stopping a capture is asynchronous on real hardware
 **Observed on a DSLogic Plus (PID 0x0034, Phase 0 dry run):**
@@ -181,8 +186,12 @@ exception set`.
 - Decoders written as `pins = self.wait(...)` therefore stop at their second `wait()`: `pjdl` and `ieee488`.
 - Decoders that unpack immediately, `(a, b) = self.wait(...)`, are unaffected.
 
-**Rust behaviour:** identical (same tuple, same `PyTuple_SetItem`), so the outputs match. A fresh tuple per
-call would fix these decoders; that change is planned for after the Rust engine becomes the default.
+**Rust behaviour: fixed 2026-10-27 (M7b).** `wait()` returns a fresh tuple each time, so a kept result
+no longer blocks the next call.
+- Test: `tests/keep_pins.rs`, with a test decoder written like `pjdl`; before the fix it failed with
+  exactly this SystemError.
+- No PJDL or GPIB capture is in the tree, so `pjdl` and `ieee488` themselves are only covered by
+  that mechanism test.
 
 ### F14. A negative or oversized `skip` count makes wait() fail later
 **Observed (Phase 2, `flexray`):** `create_term_list` reads the count with `PyLong_AsUnsignedLongLong`
@@ -191,7 +200,12 @@ and does not check for an error. A negative count becomes 2^64−1 and leaves an
 set, so Python raises the same SystemError as in F13. `flexray` computes `pos - self.samplenum`, which can
 be negative.
 
-**Rust behaviour:** identical (the error is left pending the same way).
+**Rust behaviour: fixed 2026-10-27 (M7b).**
+- A negative count is `skip: 0`: the sample asked for is already behind, and the decoder carries on.
+- A count that does not fit 64 bits fails that `wait()` at once with "Failed to get number of
+  samples to skip."
+- No error is left pending any more, so F17 cannot arise.
+- Tests: `tests/pending_error.rs` (both cases).
 
 ### F15. Decoder strings are cut at the first NUL character
 **Observed (Phase 2, `amulet_ascii`):** annotation texts, metadata strings and condition values go through
@@ -214,9 +228,17 @@ Other decoder failures seen identically in both engines:
 - `lfast`: NameError, `bMoreMatch` is not defined.
 - `ir_irmp`: needs `libirmp.so`, which is not built.
 - `pca9571` and `tca6408a`: need `OUTPUT_LOGIC`, which DSView's engine does not have.
+  - **Added 2026-10-27 (M7b):** `srd.OUTPUT_LOGIC` (4, as libsigrokdecode). Puts are checked
+    (`[channel, bytes]`, the channel one of `logic_output_channels`) and go to an `OUTPUT_LOGIC`
+    callback if there is one.
+  - DSViewR shows no logic outputs; the decoders' annotations now work.
+  - Tests: `tests/logic_output.rs`. Without the constant, `pca9571` failed in `start()` with the
+    AttributeError.
 - `ir_irmp`'s `__del__` raises AttributeError at exit.
 
 ### F17. Whether a pending wait() error survives depends on CPython's type cache
+**Moot since 2026-10-27:** the F14 fix leaves no error pending.
+
 **Observed (Phase 2, `decode-diff` seed 100354, `flexray`):** after a match, `Decoder_wait` stores
 `self.samplenum` and `self.matched` while the F14 OverflowError is still pending.
 - On a type-attribute-cache miss, CPython's `_PyType_Lookup` clears any live exception (3.12
@@ -536,8 +558,16 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
   chunk size tried (whole, 64, 1). So the Rust engine keeps C's behaviour, as Phase 2 required.
 - DSView's own chunks (the decoder thread's blocks) are far larger than one sample, so the empty
   case never happens in the application. The ±1 shift does.
-- **Plan:** the fix belongs to M7b, with the other post-parity fixes. `tests/chunking.rs` checks
-  invariance up to that one sample for chunks of 2 samples and more.
+- **Fixed 2026-10-27 (M7b).**
+  - **Cause:** after a match on a chunk's last sample, the next `wait()` used up the chunk with the
+    step past the match, but kept the "matched" flag. With the next chunk it stepped again and
+    skipped that chunk's first sample.
+  - **Fix:** the flag is cleared once the step is taken (`instance.rs`, `find_match_in`).
+  - **Tests:** `tests/chunking.rs` requires identical output for chunks of 1, 2, 3, … 4096
+    samples.
+  - **`rust-decode protocol.demo`:** with chunks of 64, 77 and 1000 samples, 43, 42 and 3 lines
+    used to differ from the default chunking; now none do. The default output equals the stored
+    golden.
 
 ### F33. The analog envelope writes one entry past its ring (R1, first CI run)
 - **Found by** the `oracle-asan` CI job: it had never run before the branch was pushed. One
@@ -673,9 +703,9 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
 | Lock-free store readers verified with `loom` (Phase 1b) | The FFI wraps each store in a mutex, like the C++ classes | The C++ GUI locks around every call anyway; lock-free readers matter for the Rust GUI and capture path (Phase 4/5) |
 | Annotation store in `dsview-store` (Phase 1b) | Moved to Phase 2 | Annotations are produced and owned by the decoder engine |
 | Decoder pin identity in the store tests | The differential tests track DecoderStack's pinned leaf by position, not address | DecoderStack compares leaf addresses; glibc may give a new leaf a freed leaf's address, so the C++ behaviour itself depends on the allocator |
-| Phase 2: fresh pin tuple per `wait()` | Kept C's refilled tuple (F13) | The exit gate is identical output on all decoders; the fix waits for the default flip |
-| Phase 2: `Quirks::FIXED` mode | Not implemented | Nothing needs it before the default flip |
-| Phase 2: `OUTPUT_LOGIC` for `pca9571`/`tca6408a` | Not added | It would change their output from C's (an error); added later with the fixes |
+| Phase 2: fresh pin tuple per `wait()` | Kept C's refilled tuple (F13) until M7b; fixed 2026-10-27 | The exit gate is identical output on all decoders; the fix waited for the default flip |
+| Phase 2: `Quirks::FIXED` mode | Not built: the F32 fix makes the one engine chunk-independent (2026-10-27) | DSView's chunking gives the golden unchanged, so a second mode has nothing to do |
+| Phase 2: `OUTPUT_LOGIC` for `pca9571`/`tca6408a` | Added 2026-10-27 (M7b) | It changed their output from C's (an error), so it waited for the fixes |
 | Phase 2: decoder options from files reset (`objdump`, `elffile`, `mapping`) | Moved to the GUI work (Phase 4/5) | The Qt GUI applies saved options (StoreSession); the engine cannot tell where an option came from |
 | Phase 2: decoder corpus from sigrok-dumps and `dsview-siggen` | I2C, SPI and UART generators inside `decode-diff`, plus noise signals and protocol.demo | Raised decoder coverage from about 80 to 120 of 153 without new test data; sigrok-dumps comes with the CLI (Phase 4) |
 | Phase 2: one interpreter per build, tested on 3.10 and 3.12 | Both engines use the same interpreter (`PYO3_PYTHON`, else `python3`); the oracle no longer uses pkg-config `python3-embed` | A single process needs a single libpython; CI uses the runner's Python |
