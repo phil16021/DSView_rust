@@ -679,23 +679,30 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
 - The oracle now starts the library once per process and opens the next file as DSView does
   (`csrc/oracle_dsl.c`). The goldens are unchanged.
 
-### F35. Decoders that raise on unusual data (decoder soak, 2026-10-27)
-The first decoder soak (200 runs from seed 100000) found decoders that stop with a Python exception
-on data or options they did not expect. Each stops only its own stack. Not fixed yet; tracked as a
-follow-up.
-
-| Decoder | Runs | Exception |
-|---|---|---|
-| `st7735` | 61 | `KeyError` for an unknown command byte (`META[cmd]`) |
-| `spdif` | 77 | `ValueError` from `int(bits, 2)` on a bit string with digits other than 0/1 |
-| `fsi` | 18 | `AttributeError`: `direction` read before it is set |
-| `i2s` | 7 | `struct.error`: a sample outside `'<I'` |
-| `seven_segment` | 31 | `IndexError` |
-| `smart_qspi` | 4 | `IndexError` |
-
-Expected configuration errors from random channel maps and options are not listed: SPI without
-MISO or MOSI, `ac97`, `ieee488`, `graycode`'s contiguous channels, and `rgb_led_ws281x`'s colour
-orders.
+### F35. Shipped decoders that raise on data (M7b, decoder soak)
+- **Found by** `cargo xtask decoders soak --runs 200 --seed 100000`. Each decoder raised a Python
+  exception on some random capture and stopped decoding that stack.
+- **The defects**, each fixed in the decoder with a `DSViewR` comment:
+  - `st7735`: `if META[cmd]` raised KeyError for a command byte not in the table, so the
+    "Unknown command" branch under it could never run. It now tests `cmd in META`, and unknown
+    commands are annotated with their data.
+  - `spdif`: a preamble-length pulse inside a subframe is stored as bit `2`, and
+    `int(sam, 2)` raised ValueError. Such a subframe is now annotated `Aux ?`, `Sample ?` and
+    `Audio ?`. Decoding continues, and the next preamble resyncs.
+  - `fsi`: `direction` was set only by the DIRECTION bit of an address command. The response to
+    a poll (D/E/I_POLL, no address) reads it, which raised AttributeError. `reset()` now sets
+    it to 0.
+  - `i2s`: word sizes go up to 128 bits, but the WAV sample is packed as `'<I'`, which raised
+    struct.error above 32 bits. The WAV stream is 32-bit, so wider words now keep their 32 most
+    significant bits. The annotations still show the whole word.
+  - `seven_segment`: with `common-anode` and no DP channel, inverting cut the pins to seven,
+    and then the DP pin was read (IndexError). DP is now read only when it is mapped.
+  - `smart_qspi`: a dual or quad step (for example the address of Quad I/O Fast Read) with IO1,
+    or IO2/IO3, unmapped indexed an empty list (IndexError). It now puts
+    "Dual needs IO1" / "Quad needs IO1-IO3" on the Other row and drops the command.
+- **Reach:** C DSView runs the same Python files, so it fails in the same places.
+- **Tests:** `dsview-decode/tests/decoder_hangs.rs`, one minimal input per decoder. Each test
+  failed with the soak's exception before the fix. The goldens are unchanged.
 
 ## Planned behaviour deviations (Rust intentionally differs)
 

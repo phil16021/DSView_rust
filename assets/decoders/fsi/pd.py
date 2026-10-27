@@ -68,6 +68,9 @@ class Decoder(srd.Decoder):
         self.samplenum = 0
         self.samplenum_prev = 0
         self.fsi_data_prev = 0
+        # DSViewR: only address commands carry a DIRECTION bit, but the
+        # response to a poll reads it too (AttributeError).
+        self.direction = 0
         self.fsi_data_break_prev = 0
         self.crc_internal = 0
         self.response_received = 0
