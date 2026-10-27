@@ -4,9 +4,10 @@
 
 use realfft::RealFftPlanner;
 
-/// `PI` as spectrumstack.cpp defines it (DEVIATIONS.md: kept for parity).
-#[allow(clippy::approx_constant)]
-pub const PI: f64 = 3.1415;
+/// π for the FFT windows. spectrumstack.cpp defines `PI` as 3.1415, so its
+/// windows are slightly off (a Hann window not 0 at its end); DSViewR uses
+/// the true value (F27).
+pub const PI: f64 = std::f64::consts::PI;
 
 /// The FFT windows of the FFT options dialog.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -122,9 +123,10 @@ mod tests {
     #[test]
     fn windows_match_their_formulas() {
         assert_eq!(Window::Rectangle.at(3, 16), 1.0);
-        // Qt's PI = 3.1415 makes the Hann window not quite 0 at the end
+        // 0 at both ends (Qt's PI = 3.1415 left about 2e-9 at the end)
         let h = Window::Hann.at(15, 16);
-        assert!(h > 0.0 && h < 1e-6, "{h}");
+        assert!(h.abs() < 1e-15, "{h}");
+        assert!(Window::Hann.at(0, 16).abs() < 1e-15);
         assert!((Window::Hamming.at(0, 16) - 0.08).abs() < 1e-12);
     }
 }

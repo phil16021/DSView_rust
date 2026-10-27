@@ -198,6 +198,63 @@ fn protocol_export_merges_rows_by_start() {
     s.exit();
 }
 
+/// The protocol export as `.txt`: the same lines as the CSV, as a table whose
+/// columns line up (F27: Qt's TXT was the CSV text).
+#[test]
+fn protocol_export_txt_is_a_table() {
+    let (_g, s) = session("Demo Logic");
+    assert!(s.start_capture(false));
+    wait(&s, "decoded", |st| {
+        st.ended_seq > 0 && !st.working && !st.decoding
+    });
+    let t = s.state().decoders[0].clone();
+    let rows: Vec<usize> = t
+        .stack
+        .rows()
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| r.list_shown)
+        .map(|(i, _)| i)
+        .collect();
+    let count = s.data().logic.lock().unwrap().ring_sample_count();
+    let dir = std::env::temp_dir().join(format!("dsv-proto-txt-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (csv, txt) = (dir.join("p.csv"), dir.join("p.txt"));
+    dsview_session::store::export_protocol(&t, &rows[..2], count, &csv).unwrap();
+    dsview_session::store::export_protocol(&t, &rows[..2], count, &txt).unwrap();
+    let csv = std::fs::read_to_string(&csv).unwrap();
+    let txt = std::fs::read_to_string(&txt).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(csv.lines().count(), txt.lines().count());
+    assert!(
+        !txt.lines().next().unwrap().contains(','),
+        "no CSV separators"
+    );
+    // each column starts at the same character in every line
+    let starts = |l: &str, n: usize| -> Vec<usize> {
+        let cells: Vec<&str> = l.split("  ").filter(|c| !c.trim().is_empty()).collect();
+        cells
+            .iter()
+            .take(n)
+            .map(|c| l.char_indices().count() - l[l.find(c.trim()).unwrap()..].chars().count())
+            .collect()
+    };
+    let header = txt.lines().next().unwrap();
+    assert!(header.starts_with("Id"), "{header}");
+    let cols = starts(header, 3);
+    assert_eq!(cols.len(), 3, "{header}");
+    for l in txt.lines().skip(1).take(50) {
+        // the Id and Time columns are always filled
+        assert_eq!(starts(l, 2), cols[..2], "{l}");
+    }
+    // the same values as the CSV's first data line
+    let first_csv: Vec<&str> = csv.lines().nth(1).unwrap().split(',').collect();
+    let first_txt = txt.lines().nth(1).unwrap();
+    assert!(first_txt.starts_with(first_csv[0]), "{first_txt}");
+    assert!(first_txt.contains(first_csv[1]), "{first_txt}");
+    s.exit();
+}
+
 /// A range between cursors: the CSV export holds exactly the full export's
 /// rows from the start sample on, and a saved .dsl reloads as the range.
 #[test]

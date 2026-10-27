@@ -1276,9 +1276,10 @@ pub fn export_range_with(
 }
 
 /// `ProtocolExp::save_proc`: rows `rows` (indexes into the stack's rows) of
-/// decoder trace `t` as CSV. Each line holds the annotations starting at the
-/// smallest start sample left in any column: `Id,Time[ns],<row titles>`.
-/// (Qt's TXT export writes the same text.)
+/// decoder trace `t`. Each line holds the annotations starting at the
+/// smallest start sample left in any column: `Id, Time[ns], <row titles>`.
+/// A `.txt` path gets a table whose columns line up; any other path CSV
+/// (cells quoted where they need it). Qt's TXT was the CSV text (F27).
 pub fn export_protocol(
     t: &crate::session::DecodeTrace,
     rows: &[usize],
@@ -1303,6 +1304,9 @@ pub fn export_protocol_with(
     if rows.is_empty() {
         return Err("There is no decoded row to export.".into());
     }
+    let txt = path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("txt"));
     let st = &t.stack;
     let titles: Vec<String> = rows.iter().map(|&r| st.rows()[r].title()).collect();
     let anns: Vec<Vec<crate::decode::Ann>> = rows
@@ -1317,7 +1321,15 @@ pub fn export_protocol_with(
     let w = |out: &mut std::io::BufWriter<std::fs::File>, s: String| {
         out.write_all(s.as_bytes()).map_err(|e| e.to_string())
     };
-    w(&mut out, format!("Id,Time[ns],{}\n", titles.join(",")))?;
+    let mut header = vec!["Id".to_owned(), "Time[ns]".to_owned()];
+    header.extend(titles);
+    // a TXT table needs every line for its column widths
+    let mut table: Vec<Vec<String>> = Vec::new();
+    if txt {
+        table.push(header);
+    } else {
+        w(&mut out, csv_line(&header))?;
+    }
     let mut read = vec![0usize; rows.len()];
     let (mut written, mut line) = (0usize, 0u64);
     while written < total {
@@ -1327,7 +1339,13 @@ pub fn export_protocol_with(
             .filter_map(|(a, &i)| a.get(i).map(|x| x.start))
             .min()
             .unwrap_or(0);
-        let mut cells = Vec::with_capacity(rows.len());
+        let mut cells = Vec::with_capacity(rows.len() + 2);
+        line += 1;
+        cells.push(line.to_string());
+        cells.push(dsview_formats::cfmt::fmt_f(
+            sample as f64 * ns_per_sample,
+            2,
+        ));
         for (k, a) in anns.iter().enumerate() {
             match a.get(read[k]) {
                 Some(x) if x.start == sample => {
@@ -1338,18 +1356,71 @@ pub fn export_protocol_with(
                 _ => cells.push(String::new()),
             }
         }
-        line += 1;
-        w(
-            &mut out,
-            format!(
-                "{line},{},{}\n",
-                dsview_formats::cfmt::fmt_f(sample as f64 * ns_per_sample, 2),
-                cells.join(",")
-            ),
-        )?;
+        if txt {
+            table.push(cells);
+        } else {
+            w(&mut out, csv_line(&cells))?;
+        }
         if !progress((written * 100 / total) as u32) {
             break;
         }
     }
+    if txt {
+        let n = table[0].len();
+        let widths: Vec<usize> = (0..n)
+            .map(|c| {
+                table
+                    .iter()
+                    .map(|r| r[c].chars().count())
+                    .max()
+                    .unwrap_or(0)
+            })
+            .collect();
+        for r in &table {
+            let mut l = String::new();
+            for (c, cell) in r.iter().enumerate() {
+                if c > 0 {
+                    l.push_str("  ");
+                }
+                l.push_str(cell);
+                l.extend(std::iter::repeat_n(' ', widths[c] - cell.chars().count()));
+            }
+            let l = l.trim_end();
+            w(&mut out, format!("{l}\n"))?;
+        }
+    }
     out.flush().map_err(|e| e.to_string())
+}
+
+/// One CSV line; a cell with a comma, a quote or a line break is quoted.
+fn csv_line(cells: &[String]) -> String {
+    let mut l = String::new();
+    for (i, c) in cells.iter().enumerate() {
+        if i > 0 {
+            l.push(',');
+        }
+        if c.contains([',', '"', '\n', '\r']) {
+            l.push('"');
+            l.push_str(&c.replace('"', "\"\""));
+            l.push('"');
+        } else {
+            l.push_str(c);
+        }
+    }
+    l.push('\n');
+    l
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn csv_cells_with_separators_are_quoted() {
+        let cells = ["1", "a,b", "say \"hi\"", "two\nlines", "plain"].map(String::from);
+        assert_eq!(
+            csv_line(&cells),
+            "1,\"a,b\",\"say \"\"hi\"\"\",\"two\nlines\",plain\n"
+        );
+    }
 }

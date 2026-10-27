@@ -1570,3 +1570,12 @@ decoders are covered by the engine tests only.
 Other decoders that raise on unusual data are recorded as DEVIATIONS F35, a follow-up.
 
 **Checked:** workspace tests (249) and clippy `-D warnings`, golden check unchanged.
+
+## M7b: Qt quirks retired, part 1 (2026-10-27)
+
+| Item | Change | Test |
+|---|---|---|
+| FFT window π | The windows use the true π instead of Qt's `3.1415`; a Hann window is now 0 at both ends. The FFT snapshot is unchanged | `spectrum::tests::windows_match_their_formulas` |
+| Protocol export TXT | `.txt` gives a table whose columns line up (Qt's TXT was the CSV text) | `session::protocol_export_txt_is_a_table` |
+| Protocol export CSV | Cells with `,`, `"` or line breaks are quoted (RFC 4180); before, they shifted the columns | `store::tests::csv_cells_with_separators_are_quoted` |
+| Cursor numbers | Stable numbers and colours, also in the measure dock's rows (DEVIATIONS F27) | `cursors::tests::numbers_are_stable`, snapshot `ruler_cursor_strips` |

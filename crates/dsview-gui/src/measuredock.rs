@@ -41,12 +41,13 @@ fn mode_index(mode: i32) -> usize {
     }
 }
 
-/// A cursor's number button in its colour; a click opens the chooser.
+/// A cursor's number button in its colour; a click opens the chooser of
+/// the cursors' `numbers`.
 fn cursor_button(
     ui: &mut Ui,
     id: impl std::hash::Hash + std::fmt::Debug,
     sel: &mut Option<usize>,
-    cursors: usize,
+    numbers: &[usize],
 ) {
     let text = sel.map_or(String::new(), |n| n.to_string());
     let fill = sel.map_or(ui.visuals().widgets.inactive.bg_fill, cursor_colour);
@@ -58,7 +59,7 @@ fn cursor_button(
     egui::Popup::menu(&resp).id(popup).show(|ui| {
         // `popup_all_coursors`: a grid of the cursors
         ui.horizontal_wrapped(|ui| {
-            for n in 1..=cursors {
+            for &n in numbers {
                 let b = egui::Button::new(egui::RichText::new(n.to_string()).color(Color32::WHITE))
                     .fill(cursor_colour(n));
                 if ui.add(b).clicked() {
@@ -67,7 +68,7 @@ fn cursor_button(
                 }
             }
         });
-        if cursors == 0 {
+        if numbers.is_empty() {
             ui.label(tr("No cursors"));
         }
     });
@@ -91,12 +92,15 @@ impl MeasureDock {
         let rate = s.state().cur_snap_samplerate.max(1);
         let trig = s.state().trigger_pos;
         let cursors = view.cursors.samples.clone();
-        let n = cursors.len();
+        let numbers = view.cursors.numbers();
+        // the sample of the cursor numbered `n`
+        let sample_of = |n: usize| numbers.iter().position(|&x| x == n).map(|i| cursors[i]);
         let rows = &mut self.rows[mode_index(s.mode())];
-        // cursors past the end are forgotten (`update_dist`)
+        // deleted cursors are forgotten (`update_dist`); rows keep the
+        // numbers of the others (F27)
         for r in rows.dist.iter_mut().chain(rows.edge.iter_mut()) {
-            r.c1 = r.c1.filter(|&c| c <= n);
-            r.c2 = r.c2.filter(|&c| c <= n);
+            r.c1 = r.c1.filter(|c| numbers.contains(c));
+            r.c2 = r.c2.filter(|c| numbers.contains(c));
         }
 
         egui::CollapsingHeader::new("Mouse measurement")
@@ -148,12 +152,13 @@ impl MeasureDock {
                         {
                             del = Some(i);
                         }
-                        cursor_button(ui, ("dist1", i), &mut r.c1, n);
+                        cursor_button(ui, ("dist1", i), &mut r.c1, &numbers);
                         ui.label("-");
-                        cursor_button(ui, ("dist2", i), &mut r.c2, n);
+                        cursor_button(ui, ("dist2", i), &mut r.c2, &numbers);
                         ui.label("=");
-                        if let (Some(a), Some(b)) = (r.c1, r.c2) {
-                            let (sa, sb) = (cursors[a - 1], cursors[b - 1]);
+                        if let (Some(a), Some(b)) = (r.c1, r.c2)
+                            && let (Some(sa), Some(sb)) = (sample_of(a), sample_of(b))
+                        {
                             let delta = sa as i64 - sb as i64;
                             // get_cm_delta: the unsigned distance; its sign follows
                             let mut t = if a == b {
@@ -197,9 +202,9 @@ impl MeasureDock {
                         {
                             del = Some(i);
                         }
-                        cursor_button(ui, ("edge1", i), &mut r.c1, n);
+                        cursor_button(ui, ("edge1", i), &mut r.c1, &numbers);
                         ui.label("-");
-                        cursor_button(ui, ("edge2", i), &mut r.c2, n);
+                        cursor_button(ui, ("edge2", i), &mut r.c2, &numbers);
                         let at = ui.label("@").on_hover_text(tr("Channel")).id;
                         if !channels.contains(&r.channel) {
                             r.channel = channels.first().copied().unwrap_or(0);
@@ -215,19 +220,14 @@ impl MeasureDock {
                             .response
                             .labelled_by(at);
                         ui.label("=");
-                        let text = match (r.c1, r.c2) {
+                        let text = match (r.c1.and_then(sample_of), r.c2.and_then(sample_of)) {
                             (Some(a), Some(b)) => {
                                 let store =
                                     s.data().logic.lock().unwrap_or_else(|e| e.into_inner());
-                                measure::edge_counts(
-                                    &store,
-                                    r.channel,
-                                    cursors[b - 1],
-                                    cursors[a - 1],
-                                )
-                                .map_or("-/-/-".to_string(), |(rise, fall)| {
-                                    format!("{rise}/{fall}/{}", rise + fall)
-                                })
+                                measure::edge_counts(&store, r.channel, b, a)
+                                    .map_or("-/-/-".to_string(), |(rise, fall)| {
+                                        format!("{rise}/{fall}/{}", rise + fall)
+                                    })
                             }
                             _ => "-/-/-".to_string(),
                         };
@@ -255,9 +255,9 @@ impl MeasureDock {
                             del = Some(i + 1);
                         }
                         let b = egui::Button::new(
-                            egui::RichText::new((i + 1).to_string()).color(Color32::WHITE),
+                            egui::RichText::new(numbers[i].to_string()).color(Color32::WHITE),
                         )
-                        .fill(cursor_colour(i + 1))
+                        .fill(cursor_colour(numbers[i]))
                         .min_size(egui::vec2(24.0, 18.0));
                         if ui.add(b).on_hover_text(tr("Go to")).clicked() {
                             goto = Some(c);

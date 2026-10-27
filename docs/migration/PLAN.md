@@ -365,8 +365,10 @@ GPU, only Mesa llvmpipe (GL) and lavapipe (Vulkan).
   - Kinetic scroll stalls because of int truncation.
   - Cursor colours and numbers shift when a cursor is deleted.
   - The protocol table puts annotation *n* of each row in one table row, not time-aligned.
-  - The protocol export's TXT is the same as its CSV.
-  - The FFT uses `PI = 3.1415`.
+  - The protocol export's TXT is the same as its CSV. **Fixed 2026-10-27:** TXT is an aligned table,
+    and CSV quotes cells containing `,`, `"` or line breaks.
+  - The FFT uses `PI = 3.1415`. **Fixed 2026-10-27:** the true π.
+  - Cursor numbers: **fixed 2026-10-27**, see DEVIATIONS F27.
 
 **What the Rust session already gives the GUI:**
 - devices, modes, the sampling bar, the simple trigger;

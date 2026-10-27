@@ -1239,6 +1239,7 @@ impl TimeView {
                     if let Some((pos, pulse)) = target {
                         let mut c = Cursors {
                             samples: vec![pos as u64],
+                            ..Cursors::default()
                         };
                         c.drag(1, pos, pulse);
                         self.search = Some((c.samples[0], false));
@@ -1915,7 +1916,7 @@ impl TimeView {
             if x >= area.left() && x <= area.right() {
                 let grabbed = self.ruler_grab == Some(i + 1)
                     || matches!(self.action, Action::Cursor(n) if n == i + 1);
-                let c = hsva(i + 1);
+                let c = hsva(self.cursors.number(i));
                 if grabbed {
                     dashed(x, c.gamma_multiply(1.5), 2.0);
                 } else {
@@ -1930,10 +1931,15 @@ impl TimeView {
                 let (x, y) = local(p);
                 (ruler::cursor_close_rect(b).contains(x, y), b.contains(x, y))
             });
-            let c = hsva(k);
+            let c = hsva(self.cursors.number(k - 1));
             let fill = if !in_close && in_label { orange } else { c };
             painter.rect_filled(r, 0.0, fill);
-            arrow(r, fill, &k.to_string(), Color32::BLACK);
+            arrow(
+                r,
+                fill,
+                &self.cursors.number(k - 1).to_string(),
+                Color32::BLACK,
+            );
             painter.rect_filled(close, 0.0, if in_close { red } else { orange });
             let st = Stroke::new(1.0, Color32::BLACK);
             painter.line_segment([close.min + vec2(2.0, 2.0), close.max - vec2(2.0, 2.0)], st);
@@ -2040,7 +2046,12 @@ impl TimeView {
             painter.add(egui::Shape::convex_polygon(pts, fill0, Stroke::NONE));
             for k in 1..=n {
                 let br = rr(ruler::cursor_sel_rect(sx, k, h));
-                let fill = if over == Some(k) { orange } else { hsva(k) };
+                let number = self.cursors.number(k - 1);
+                let fill = if over == Some(k) {
+                    orange
+                } else {
+                    hsva(number)
+                };
                 painter.rect_filled(br, 0.0, fill);
                 painter.extend(egui::Shape::dashed_line(
                     &[
@@ -2054,7 +2065,7 @@ impl TimeView {
                 painter.text(
                     br.center(),
                     egui::Align2::CENTER_CENTER,
-                    k.to_string(),
+                    number.to_string(),
                     font.clone(),
                     Color32::BLACK,
                 );

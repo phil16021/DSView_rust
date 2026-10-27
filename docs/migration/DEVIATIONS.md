@@ -501,6 +501,12 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
   the damping rounds it to 0 after a few ticks instead of easing out.
 - **Cursor numbers are list positions.** Deleting a cursor renumbers (and recolours) every cursor
   after it.
+  - **Fixed 2026-10-27 (M7b):** a cursor keeps its number and colour until it is deleted, and a new
+    cursor takes the lowest free number.
+  - Shown on the ruler label, line marker, go-to strip and measure dock.
+  - The measure dock's distance and edge rows keep pointing at the same cursors.
+  - Tests: `cursors::tests::numbers_are_stable`; snapshot `ruler_cursor_strips`, where the surviving
+    cursor stays "3".
 - **Ruler labels.** The tick spacing is a multiple of 10 samples that leaves room for a label, not
   a 1-2-5 sequence (`ScaleUnits` is declared and unused), so labels are not round numbers.
 
