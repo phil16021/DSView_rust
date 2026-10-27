@@ -413,6 +413,17 @@ class Decoder(srd.Decoder):
                 elif cur_state.mode == process_mode.QUAD:
                     size = 4
 
+                # DSViewR: a dual/quad step needs IO1 (and IO2, IO3); without
+                # them ddata/qdata stay empty and indexing raised IndexError.
+                # Say so and drop the command.
+                if (size == 2 and len(ddata) < 2) or (size == 4 and len(qdata) < 4):
+                    self.put(ss, es, self.out_ann, [7, ['Dual needs IO1' if size == 2
+                        else 'Quad needs IO1-IO3']])
+                    self.command = 0
+                    self.diagram = []
+                    self.state_count = 0
+                    return
+
                 while i < size:
                     if size == 1:
                         if cur_state.enum == process_enum.READ_BYTE and self.have_io1:

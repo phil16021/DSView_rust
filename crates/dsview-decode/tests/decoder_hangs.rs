@@ -1,5 +1,6 @@
 //! Shipped decoders that never returned or failed on ordinary input
-//! (DEVIATIONS F16), each on the smallest input that showed it. A decoder
+//! (DEVIATIONS F16, and F35 from the decoder soak), each on the smallest
+//! input that showed it. A decoder
 //! that loops holds the GIL in its thread, so a hang cannot be recovered
 //! from: the watchdog aborts the test process with the decoder's name.
 
@@ -254,4 +255,180 @@ fn which(name: &str) -> Result<PathBuf, ()> {
                 .find(|f| f.is_file())
         })
         .ok_or(())
+}
+
+/// Bits of `bytes`, MSB first.
+fn bits_msb(bytes: &[u8]) -> Vec<bool> {
+    bytes
+        .iter()
+        .flat_map(|&b| (0..8).rev().map(move |i| b >> i & 1 == 1))
+        .collect()
+}
+
+/// A clock (first channel) and `lines` clocked with it: each bit is set up
+/// while the clock is low and held over its rising edge, 4 samples per half
+/// clock; the clock ends low.
+fn clocked(lines: &[Vec<bool>]) -> Vec<Vec<bool>> {
+    let h = 4;
+    let mut out = vec![vec![false; 8]; lines.len() + 1];
+    for k in 0..lines[0].len() {
+        for c in [false, true] {
+            out[0].extend(std::iter::repeat_n(c, h));
+            for (o, l) in out[1..].iter_mut().zip(lines) {
+                o.extend(std::iter::repeat_n(l[k], h));
+            }
+        }
+    }
+    // a last falling edge, then idle
+    out[0].extend(std::iter::repeat_n(false, 8));
+    for o in &mut out[1..] {
+        let last = *o.last().unwrap();
+        o.extend(std::iter::repeat_n(last, 8));
+    }
+    out
+}
+
+/// `st7735`: a command byte missing from its table raised KeyError instead of
+/// taking its "Unknown command" branch (F35).
+#[test]
+fn st7735_unknown_command_is_annotated() {
+    let _w = Watchdog::start("st7735");
+    // command 0x42 (not in the table), then NOP so 0x42 is described
+    let mosi = bits_msb(&[0x42, 0x00]);
+    let n = mosi.len();
+    let mut l = clocked(&[vec![false; n], mosi, vec![false; n]]);
+    // the helper puts the clock first; st7735 wants CS#, CLK, MOSI, DC
+    l.swap(0, 1);
+    let (texts, res) = decode("st7735", None, &["cs", "clk", "mosi", "dc"], &[], &l);
+    res.expect("no KeyError");
+    assert!(
+        texts.iter().any(|t| t.starts_with("Unknown command: 42")),
+        "{texts:?}"
+    );
+}
+
+/// `i2s`: words wider than 32 bits overflowed the WAV sample packing (F35).
+#[test]
+fn i2s_wide_words_decode() {
+    let _w = Watchdog::start("i2s");
+    // three 64-bit words of ones; WS flips every 64 bits
+    let n = 64 * 3 + 2;
+    let ws: Vec<bool> = (0..n).map(|k| (k / 64) % 2 == 1).collect();
+    let l = clocked(&[ws, vec![true; n]]);
+    let (texts, res) = decode(
+        "i2s",
+        None,
+        &["sck", "ws", "sd"],
+        &[("wordsize", OptValue::Int(64))],
+        &l,
+    );
+    res.expect("no struct.error");
+    assert!(
+        texts.iter().any(|t| t.ends_with(": ffffffffffffffff")),
+        "{texts:?}"
+    );
+}
+
+/// `seven_segment`: common-anode without a DP channel cut the pins to seven,
+/// then read the eighth (IndexError, F35).
+#[test]
+fn seven_segment_common_anode_without_dp() {
+    let _w = Watchdog::start("seven_segment");
+    // segments of "1" (b, c) driven low (common anode), then all off
+    let mut levels = vec![vec![true; 300]; 7];
+    for seg in [1, 2] {
+        for s in &mut levels[seg][50..150] {
+            *s = false;
+        }
+    }
+    let (texts, res) = decode(
+        "seven_segment",
+        None,
+        &["a", "b", "c", "d", "e", "f", "g"],
+        &[("polarity", OptValue::Str("common-anode".into()))],
+        &levels,
+    );
+    res.expect("no IndexError");
+    assert!(texts.iter().any(|t| t == "1"), "{texts:?}");
+}
+
+/// `smart_qspi`: a quad step (here the address of Quad I/O Fast Read) with
+/// IO1 not mapped indexed an empty list (IndexError, F35).
+#[test]
+fn smart_qspi_quad_step_without_io1() {
+    let _w = Watchdog::start("smart_qspi");
+    // command 0xEB on IO0, then one byte time of address; IO2/IO3 carry
+    // bytes that are neither 0x00 nor 0xFF so the quad mode is chosen
+    let mut l = clocked(&[
+        bits_msb(&[0xEB, 0x12]),
+        bits_msb(&[0x5A, 0x5A]),
+        bits_msb(&[0x3C, 0x3C]),
+    ]);
+    // buffers go by decoder channel: an idle slot for the unmapped IO1
+    l.insert(2, vec![false; l[0].len()]);
+    let (texts, res) = decode("smart_qspi", None, &["clk", "io0", "io2", "io3"], &[], &l);
+    res.expect("no IndexError");
+    assert!(
+        texts.iter().any(|t| t.contains("needs IO1-IO3")),
+        "{texts:?}"
+    );
+}
+
+/// `fsi`: an E_POLL carries no address and so no direction bit, but its
+/// response reads the direction (AttributeError, F35). The frames were found
+/// by a search over random bits; one level per half clock.
+#[test]
+fn fsi_poll_without_direction() {
+    let _w = Watchdog::start("fsi");
+    let bits = "00101111001011011001000010100110100110100101101111010110110100111010110000001111101001011011111";
+    let (mut data, mut clk) = (vec![true; 2], vec![false; 2]);
+    for (k, b) in bits.bytes().enumerate() {
+        data.extend([b == b'1'; 2]);
+        clk.extend([k % 2 == 1; 2]);
+    }
+    let (texts, res) = decode("fsi", None, &["data", "clock"], &[], &[data, clk]);
+    res.expect("no AttributeError");
+    assert!(
+        texts.iter().any(|t| t.starts_with("Command: E_POLL")),
+        "{texts:?}"
+    );
+}
+
+/// `spdif`: a preamble-length pulse inside a subframe went into its bits as
+/// a `2`, and the value conversion raised ValueError (F35).
+#[test]
+fn spdif_long_pulse_in_subframe() {
+    let _w = Watchdog::start("spdif");
+    // biphase mark, pulse widths in unit intervals: preambles B, W, M, W,
+    // then 28 bits each ('1' = two short pulses, '0' = one of two UI)
+    let bits = [1, 0, 1, 1, 0, 0, 1, 0].repeat(3);
+    let mut widths = Vec::new();
+    for k in 0..6 {
+        widths.extend(match k % 4 {
+            0 => [3, 1, 1, 3],
+            2 => [3, 3, 1, 1],
+            _ => [3, 2, 1, 2],
+        });
+        for &b in bits.iter().chain(&[0, 1, 0, 0]) {
+            widths.extend(if b == 1 { &[1, 1][..] } else { &[2][..] });
+        }
+    }
+    // subframe 3: its second bit, a '0', becomes a 3-UI pulse
+    let per = widths.len() / 6;
+    assert_eq!(widths[3 * per + 6], 2);
+    widths[3 * per + 6] = 3;
+    let mut data = vec![false; 8];
+    let mut level = false;
+    for w in widths {
+        level = !level;
+        data.extend(std::iter::repeat_n(level, w * 4));
+    }
+    data.extend([!level; 8]);
+    let (texts, res) = decode("spdif", None, &["data"], &[], &[data]);
+    res.expect("no ValueError");
+    assert!(texts.iter().any(|t| t == "Sample ?"), "{texts:?}");
+    assert!(
+        texts.iter().any(|t| t == "Sample 0xb2b2b2"),
+        "valid subframes keep their values: {texts:?}"
+    );
 }

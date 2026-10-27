@@ -138,7 +138,11 @@ class Decoder(srd.Decoder):
         return h
 
     def wav_sample(self, sample):
-        return struct.pack('<I', self.data)
+        # DSViewR: words wider than 32 bits overflowed '<I'; the WAV stream
+        # is 32-bit, so keep the 32 most significant bits.
+        if self.wordlength > 32:
+            sample >>= self.wordlength - 32
+        return struct.pack('<I', sample & 0xffffffff)
 
     def decode(self):
         left_high = (self.options['ws_polarity'] == 'left-high')

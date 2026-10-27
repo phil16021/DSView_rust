@@ -123,10 +123,10 @@ class Decoder(srd.Decoder):
             digit = self.pins_to_hex(oldpins[:7])
 
             if digit is not None:
-                dp = oldpins[7]
-
                 # Check if decimal point is present and active.
-                if self.have_dp and dp == 1:
+                # DSViewR: read the DP pin only when it exists; common-anode
+                # inversion leaves 7 pins without it (IndexError).
+                if self.have_dp and oldpins[7] == 1:
                     digit += '.'
 
                 self.putb(lastpos, self.samplenum, [0, [digit]])

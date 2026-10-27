@@ -247,6 +247,9 @@ C.
 - **F16:** `gpib`, `onewire_link` and `ltc26x7` can loop forever; `onewire_link` also grows memory
   without bound. Plus `lfast` (NameError), `ir_irmp` (missing `libirmp.so`), and `pca9571`/`tca6408a`
   (no `OUTPUT_LOGIC`).
+- **F35:** the decoder soak (M7b) found `st7735`, `spdif`, `fsi`, `i2s`, `seven_segment` and
+  `smart_qspi` raising on data (KeyError, ValueError, AttributeError, struct.error, IndexError).
+  All six are fixed in the decoders.
 
 **Left for later:**
 - Making Rust the default (after one release of A/B), then deleting `libsigrokdecode4DSL/*.c`.
@@ -1537,3 +1540,28 @@ the stored golden.
 
 **Not covered:** no PJDL, GPIB, FlexRay or PCA9571/TCA6408A capture is in the tree, so those
 decoders are covered by the engine tests only.
+
+## M7b: F35 fixed, decoders that raise on soak data (2026-10-27)
+
+`cargo xtask decoders soak --runs 200 --seed 100000` (30600 stacks) found six shipped decoders
+that raise on random data and stop decoding. Each fix is in the decoder (`DSViewR` comment) and
+has a test in `dsview-decode/tests/decoder_hangs.rs` that failed with the soak's exception before
+it.
+
+| Decoder | Stacks failing before | Exception | Fix |
+|---|---|---|---|
+| `st7735` | 61 | `KeyError` (unknown command) | `cmd in META`; unknown commands are annotated |
+| `spdif` | 77 | `ValueError` (bit `2` in a subframe) | Such a subframe is annotated `?` |
+| `fsi` | 18 | `AttributeError: direction` (poll response) | `reset()` sets `direction` |
+| `i2s` | 7 | `struct.error` (words over 32 bits) | WAV keeps the top 32 bits |
+| `seven_segment` | 31 | `IndexError` (common anode, no DP) | DP read only when mapped |
+| `smart_qspi` | 4 | `IndexError` (dual/quad step, IO1 unmapped) | Warning, command dropped |
+
+**After:** the same soak shows none of them, 0 findings. The Python errors left are configuration
+errors: `ChannelError` for missing required channels (SPI-stacked decoders, `ac97`, `ieee488`),
+graycode's `ChannelMapError`, `rgb_led_ws281x` color-order options, and `ir_irmp` without
+`libirmp.so` (F16).
+
+**Checked:**
+- workspace: 255 tests pass, and clippy `-D warnings` is clean;
+- golden check ok, decoder golden unchanged.

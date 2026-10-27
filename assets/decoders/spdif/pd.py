@@ -97,6 +97,22 @@ class Decoder(srd.Decoder):
         if key == srd.SRD_CONF_SAMPLERATE:
             self.samplerate = value
 
+    def put_values(self, aux_audio_data, sample, sam, sam_rot):
+        # DSViewR: a long (preamble) pulse inside a subframe is stored as
+        # bit '2', and int(sam, 2) raised ValueError. Such a subframe has no
+        # value; mark it and go on.
+        if sam.strip('01'):
+            self.putx(aux_audio_data[0][1], aux_audio_data[3][2], [3, ['Aux ?', '?']])
+            self.putx(sample[0][1], sample[19][2], [3, ['Sample ?', '?']])
+            self.putx(aux_audio_data[0][1], sample[19][2], [4, ['Audio ?', '?']])
+            return
+        self.putx(aux_audio_data[0][1], aux_audio_data[3][2], \
+                  [3, ['Aux 0x%x' % int(sam[:4], 2), '0x%x' % int(sam[:4], 2)]])
+        self.putx(sample[0][1], sample[19][2], \
+                  [3, ['Sample 0x%x' % int(sam, 2), '0x%x' % int(sam, 2)]])
+        self.putx(aux_audio_data[0][1], sample[19][2], \
+                  [4, ['Audio 0x%x' % int(sam_rot, 2), '0x%x' % int(sam_rot, 2)]])
+
     def get_pulse_type(self):
         if self.range1 == 0 or self.range2 == 0:
             return -1
@@ -278,12 +294,7 @@ class Decoder(srd.Decoder):
                 channel_status = subframe[26:27]
                 parity = subframe[27:28]
 
-                self.putx(aux_audio_data[0][1], aux_audio_data[3][2], \
-                      [3, ['Aux 0x%x' % int(sam[:4], 2), '0x%x' % int(sam[:4], 2)]])
-                self.putx(sample[0][1], sample[19][2], \
-                        [3, ['Sample 0x%x' % int(sam, 2), '0x%x' % int(sam, 2)]])
-                self.putx(aux_audio_data[0][1], sample[19][2], \
-                        [4, ['Audio 0x%x' % int(sam_rot, 2), '0x%x' % int(sam_rot, 2)]])
+                self.put_values(aux_audio_data, sample, sam, sam_rot)
                 if validity[0][0] == 0:
                     self.putx(validity[0][1], validity[0][2], [5, ['V']])
                 else:
@@ -358,12 +369,7 @@ class Decoder(srd.Decoder):
             channel_status = self.subframe[26:27]
             parity = self.subframe[27:28]
 
-            self.putx(aux_audio_data[0][1], aux_audio_data[3][2], \
-                      [3, ['Aux 0x%x' % int(sam[:4], 2), '0x%x' % int(sam[:4], 2)]])
-            self.putx(sample[0][1], sample[19][2], \
-                      [3, ['Sample 0x%x' % int(sam, 2), '0x%x' % int(sam, 2)]])
-            self.putx(aux_audio_data[0][1], sample[19][2], \
-                      [4, ['Audio 0x%x' % int(sam_rot, 2), '0x%x' % int(sam_rot, 2)]])
+            self.put_values(aux_audio_data, sample, sam, sam_rot)
             if validity[0][0] == 0:
                 self.putx(validity[0][1], validity[0][2], [5, ['V']])
             else:
