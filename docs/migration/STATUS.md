@@ -1711,7 +1711,9 @@ device repeats the FPGA and security checks (without the second interface claim)
 only read state, and the path cannot be tested on DSCope hardware here.
 
 **B4 checks after the ingest redesign:** `xtask golden check` ok; `xtask control check` 38 steps
-against `dsview-cli serve --mcp`; `xtask mcp suite` 30 tools, 37 steps (headless `dsview-cli`).
+against `dsview-cli serve --mcp`; `xtask mcp suite` 30 tools, 37 steps (headless `dsview-cli`);
+`dsview-cli soak --mode loop --minutes 10` on the demo: RSS 96,892–97,056 KiB, trend +0.22 % over
+the last 5 min (flat with the leaf pool).
 
 ## M7b B5: built-in CJK font (2026-10-27)
 
