@@ -1802,3 +1802,24 @@ it so. Changes, each a `cfg` with Linux and macOS unchanged:
 
 Not done: building, linking or running on Windows (needs a Windows Python and libusb/WinUSB setup),
 installers. Linux: nextest 268 of 268; `xtask mcp suite` 30 tools, 37 steps.
+
+## M7b B7: a start/end race in `exec_capture` (2026-10-27)
+
+- **Found by the stressed nextest loop:** `session::unaligned_dsl_round_trip` timed out waiting
+  for a file load (4 of 24 stressed runs). State at the timeout: `ended_seq = 1`,
+  `working = true`.
+- **Cause:** `exec_capture` set `working` and `started_seq` *after* `start_collect()` returned. A
+  short capture (a 1001-sample file) could end, its `COLLECT_TASK_END` clearing `working`,
+  before that line ran, which left the session "working" for good. The live decoders started
+  late the same way, so `ended && !working && !decoding` could hold for a moment before decoding
+  began. That is the likely cause of CI's one `decoder_show_buttons` snapshot mismatch (named by
+  the new annotation step; not reproduced locally in 40 stressed runs).
+- **Fix:** both happen before the collect thread starts. If the start fails, they are rolled
+  back: `working`, `started_seq`, and the decoders are stopped.
+- **Checks:**
+  - `unaligned_dsl_round_trip`: 0 of 120 stressed runs fail;
+  - three full `nextest --profile ci -j 4` runs with CPU burners: 268 of 268 each;
+  - control transcript 38 steps, MCP suite 37 steps, golden check ok;
+  - `single_capture_runs_the_demo_decoders` keeps its exact annotation counts.
+- **GitHub CI for `5abc3a31` and `a0e13f94`:** the new `windows-check`, `bench-gate` and widened
+  `miri` jobs passed in all four runs.

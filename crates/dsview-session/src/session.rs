@@ -1935,10 +1935,8 @@ impl Session {
         }
         self.commit_trigger();
         self.capture_data().clear();
-        if self.0.lib.start_collect(true).is_err() {
-            sr_err!("Start collect error!");
-            return false;
-        }
+        // started before the collect thread runs: a short capture (a small
+        // file) can end, and clear `working`, before start_collect returns
         {
             let mut st = self.state();
             st.working = true;
@@ -1949,8 +1947,24 @@ impl Session {
                 .map(|c| (c.index, c.vdiv))
                 .collect();
         }
+        // the live decoders too: until they run, `decoding` is false and a
+        // capture that already ended would look done to whoever waits for it
         if live {
             self.start_all_decoders();
+        }
+        if self.0.lib.start_collect(true).is_err() {
+            sr_err!("Start collect error!");
+            {
+                let mut st = self.state();
+                st.working = false;
+                st.started_seq -= 1;
+            }
+            if live {
+                // no data will come: the decoders end on what there is
+                self.0.capture_ended.store(true, Ordering::Release);
+                self.clear_all_decode_tasks();
+            }
+            return false;
         }
         self.notify();
         self.emit(SessionEvent::CaptureStarted);
