@@ -58,6 +58,17 @@ jobs:
           cargo install --locked cargo-nextest
       - name: Unit tests
         run: cargo nextest run --workspace --locked --profile ci
+      - name: Failed tests as annotations
+        # readable through the checks API, where the job log may not be
+        if: failure()
+        run: |
+          python3 - target/nextest/ci/junit.xml <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          for case in ET.parse(sys.argv[1]).iter("testcase"):
+              for f in list(case.iter("failure")) + list(case.iter("error")):
+                  msg = (f.get("message") or (f.text or "")[-400:]).replace("\n", " ")
+                  print(f"::error title={case.get('classname')} {case.get('name')}::{msg}")
+          PY
       - name: Corpus hashes
         run: cargo xtask corpus verify
       - name: Golden check (the Rust reader and decoder engine reproduce the C goldens)
