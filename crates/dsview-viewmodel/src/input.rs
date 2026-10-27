@@ -82,8 +82,12 @@ pub fn wheel(
 /// (`_drag_strength`, `updateDragVelocity`, `on_drag_timer`).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Kinetic {
-    /// Pixels per tick; an integer as in Qt (so it stops abruptly, F27).
-    pub strength: i32,
+    /// Pixels per tick. Qt kept it as an integer, so below 20 the damping
+    /// took off a whole pixel per tick and the swipe stopped at about half
+    /// its distance (F27); here it eases out geometrically.
+    pub strength: f64,
+    /// The fraction of a pixel not moved yet.
+    carry: f64,
     delta_t: u64,
     delta_x: i32,
 }
@@ -95,7 +99,7 @@ impl Kinetic {
         self.delta_x += dx;
         if self.delta_t > DRAG_VELOCITY_MEASURE_INTERVAL_MS {
             let velocity = self.delta_x as f64 / self.delta_t as f64;
-            self.strength = (velocity * 12.0) as i32;
+            self.strength = f64::from((velocity * 12.0) as i32);
             self.delta_t = 0;
             self.delta_x = 0;
         }
@@ -103,13 +107,14 @@ impl Kinetic {
 
     /// The button was released: true if the view keeps scrolling.
     pub fn release(&mut self) -> bool {
-        if self.strength.abs() > MINOR_DRAG_RATE_UP {
-            if self.strength.abs() >= MINOR_DRAG_OFFSET_UP {
-                self.strength *= 5;
+        self.carry = 0.0;
+        if self.strength.abs() > f64::from(MINOR_DRAG_RATE_UP) {
+            if self.strength.abs() >= f64::from(MINOR_DRAG_OFFSET_UP) {
+                self.strength *= 5.0;
             }
             true
         } else {
-            self.strength = 0;
+            self.strength = 0.0;
             false
         }
     }
@@ -117,12 +122,15 @@ impl Kinetic {
     /// One timer tick: moves the view; false when it stopped.
     pub fn tick(&mut self, vp: &mut Viewport, tb: &Timebase) -> bool {
         let off = vp.x_offset;
-        if self.strength != 0 && off < vp.max_offset(tb) && off > vp.min_offset() {
-            vp.set_scale_offset(vp.scale, off + self.strength as i64, tb);
-            self.strength = (self.strength as f64 / DRAG_DAMPING) as i32;
-            self.strength != 0
+        if self.strength.abs() >= 0.5 && off < vp.max_offset(tb) && off > vp.min_offset() {
+            let step = self.strength + self.carry;
+            let whole = step.trunc();
+            self.carry = step - whole;
+            vp.set_scale_offset(vp.scale, off + whole as i64, tb);
+            self.strength /= DRAG_DAMPING;
+            self.strength.abs() >= 0.5
         } else {
-            self.strength = 0;
+            self.strength = 0.0;
             false
         }
     }
@@ -202,7 +210,7 @@ mod tests {
         vp.set_scale_offset(1e-6, 5000, &tb);
         let mut k = Kinetic::default();
         k.track(30, 12); // 2.5 px/ms -> strength 30
-        assert_eq!(k.strength, 30);
+        assert_eq!(k.strength, 30.0);
         assert!(k.release());
         let mut ticks = 0;
         while k.tick(&mut vp, &tb) {
@@ -214,6 +222,45 @@ mod tests {
             vp.x_offset
         );
         assert!(!Kinetic::default().release());
+    }
+
+    /// F27: the swipe eases out geometrically (1/1.05 per tick) down to
+    /// sub-pixel steps. Qt's integer strength fell by a whole pixel per tick
+    /// below 20 and stopped after about half the distance.
+    #[test]
+    fn swipe_eases_out() {
+        let tb = Timebase {
+            snap_samplerate: 1e6,
+            samplerate: 1e6,
+            sample_limit: 100_000_000,
+            dso_view_time: None,
+        };
+        let mut vp = Viewport {
+            width: 1000,
+            ..Viewport::default()
+        };
+        vp.update_limits(&tb);
+        vp.set_scale_offset(1e-6, 5000, &tb);
+        let mut k = Kinetic::default();
+        k.track(30, 12);
+        assert!(k.release());
+        let mut moves = Vec::new();
+        let mut last = vp.x_offset;
+        while k.tick(&mut vp, &tb) {
+            moves.push(vp.x_offset - last);
+            last = vp.x_offset;
+        }
+        moves.push(vp.x_offset - last);
+        let total: i64 = moves.iter().sum();
+        // 30 × (1 + 1/1.05 + 1/1.05² + …) down to half a pixel ≈ 620 px
+        assert!(
+            (600..=640).contains(&total),
+            "{total} px in {} ticks",
+            moves.len()
+        );
+        // whole pixels of a falling speed: a step may round up by one
+        assert!(moves.windows(2).all(|w| w[1] <= w[0] + 1), "{moves:?}");
+        assert!(moves.len() > 60, "eases out over {} ticks", moves.len());
     }
 
     #[test]

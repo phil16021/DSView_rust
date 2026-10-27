@@ -1579,3 +1579,19 @@ Other decoders that raise on unusual data are recorded as DEVIATIONS F35, a foll
 | Protocol export TXT | `.txt` gives a table whose columns line up (Qt's TXT was the CSV text) | `session::protocol_export_txt_is_a_table` |
 | Protocol export CSV | Cells with `,`, `"` or line breaks are quoted (RFC 4180); before, they shifted the columns | `store::tests::csv_cells_with_separators_are_quoted` |
 | Cursor numbers | Stable numbers and colours, also in the measure dock's rows (DEVIATIONS F27) | `cursors::tests::numbers_are_stable`, snapshot `ruler_cursor_strips` |
+
+## M7b: Qt quirks retired, part 2: the time view (2026-10-27)
+
+| Quirk | Before | After | Test |
+|---|---|---|---|
+| Zoom drift (F27) | 4–6 zoom-ins moved the sample under the pointer by about 5 px | Zooming carries its sub-pixel remainder | `viewport_props::zooming_in_does_not_drift` |
+| Kinetic scroll (F27) | Stopped after 340 px | Eases out over about 620 px | `input::tests::swipe_eases_out` |
+| Ruler (F27) | Uneven steps | 1-2-5 major steps, so labels are round. The DSO ruler now matches its time/div grid | `ruler::tests::major_ticks_follow_1_2_5` |
+| Hover snapping (F29) | Counted from sample 0 | Snaps to the minor ticks, counted from the trigger | `hover_snaps_to_ticks_counted_from_the_trigger` |
+
+**Snapshots** with a ruler were updated after review: 13 views, plus `theme_latte`.
+
+**Checked:**
+- workspace tests and clippy;
+- control transcript (38 steps);
+- MCP suite (30 tools).

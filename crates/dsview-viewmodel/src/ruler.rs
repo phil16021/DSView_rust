@@ -122,7 +122,7 @@ pub struct RulerTicks {
     pub ticks: Vec<Tick>,
     /// The SI prefix the cursor labels use (`_cur_prefix`).
     pub prefix: i32,
-    /// Smallest tick period (`_min_period`), for hover snapping.
+    /// The major tick period; hover snaps to its minor ticks, a tenth of it.
     pub min_period: f64,
     /// y of the major ticks' top, of the minor ticks' top.
     pub major_y1: i32,
@@ -166,15 +166,23 @@ pub fn logic_ticks(
             format_time(time_prep, prefix, 2).chars().count()
         }) as f64
         + MIN_VALUE_SPACING;
-    let mut tick_period = 0.0;
-    loop {
-        tick_period += min_period;
-        // C's do-while: until the period leaves room for a label (NaN ends it)
-        let room = typical_width.partial_cmp(&(tick_period / scale));
-        if room != Some(std::cmp::Ordering::Greater) || min_period <= 0.0 {
-            break;
-        }
-    }
+    // the major period: the smallest 1, 2 or 5 × 10^n (seconds, or samples
+    // when the ruler counts samples) that keeps the minimum spacing, room
+    // for a label and 10 samples (so minor ticks are a sample or more
+    // apart). Qt took the first multiple of `min_period` with room for a
+    // label, which gave labels such as 1.48 ms (F27).
+    let unit = if show_samples { 1.0 / rate } else { 1.0 };
+    let need = (typical_width * scale).max(min_period).max(abs_min_period) / unit;
+    let tick_period = if need.is_finite() && need > 0.0 {
+        let pow = 10f64.powf(need.log10().floor());
+        let d = [1.0, 2.0, 5.0, 10.0]
+            .into_iter()
+            .find(|d| d * pow >= need * (1.0 - 1e-9))
+            .unwrap_or(10.0);
+        d * pow * unit
+    } else {
+        min_period
+    };
     let text_height = font.height().round() as i32;
     let minor_tick_period = tick_period / MIN_PERIOD_SCALE as f64;
     let minor_order = (minor_tick_period as f32).log10().floor() as i32;
@@ -233,7 +241,7 @@ pub fn logic_ticks(
     RulerTicks {
         ticks,
         prefix,
-        min_period,
+        min_period: tick_period,
         major_y1,
         minor_y1,
     }
@@ -417,6 +425,58 @@ mod tests {
         assert_eq!(format_freq(0.0, 2), "########");
     }
 
+    /// F27: major ticks are 1, 2 or 5 times a power of ten apart (in time,
+    /// or in samples when the ruler shows samples), so labels are round.
+    #[test]
+    fn major_ticks_follow_1_2_5() {
+        for rate in [
+            1_000_000u64,
+            25_000_000,
+            100_000_000,
+            400_000_000,
+            1_000_000_000,
+        ] {
+            for spp in [0.05, 0.3, 1.0, 3.7, 20.0, 133.0, 2048.0, 50_000.0] {
+                for show_samples in [false, true] {
+                    let scale = spp / rate as f64;
+                    let r = logic_ticks(
+                        scale,
+                        12_345,
+                        1500,
+                        1500,
+                        50,
+                        rate,
+                        777,
+                        show_samples,
+                        &Mono,
+                    );
+                    let majors: Vec<i32> = r
+                        .ticks
+                        .iter()
+                        .filter(|t| t.kind == TickKind::Major)
+                        .map(|t| t.x)
+                        .collect();
+                    if majors.len() < 3 {
+                        continue;
+                    }
+                    // the gap between the first and last major, per gap
+                    let px =
+                        f64::from(majors[majors.len() - 1] - majors[0]) / (majors.len() - 1) as f64;
+                    let unit = if show_samples { 1.0 / rate as f64 } else { 1.0 };
+                    let period = px * scale / unit;
+                    let mantissa = period / 10f64.powf(period.log10().floor());
+                    let near = [1.0, 2.0, 5.0, 10.0]
+                        .iter()
+                        .any(|m| (mantissa - m).abs() / m < 0.02);
+                    assert!(
+                        near,
+                        "rate {rate}, {spp} samples/px, samples {show_samples}: period {period}"
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn ticks_cover_the_ruler_and_major_every_ten() {
         // protocol.demo at 20 samples per pixel on 1830 px
@@ -521,16 +581,17 @@ mod tests {
 }
 
 /// `View::eventFilter`: in logic mode the hover point snaps to the nearest
-/// multiple of the ruler's smallest period (`get_min_period`, `_min_period
-/// / MinPeriodScale`) within 10 px. `x` is relative to the view.
-pub fn snap_hover(x: f64, x_offset: i64, scale: f64, min_period: f64) -> f64 {
+/// minor ruler tick (`min_period / MinPeriodScale`, counted from the trigger
+/// at `trigger_time` seconds, as the ruler counts) within 10 px. `x` is
+/// relative to the view. Qt counted from sample 0, so with the trigger off
+/// that grid it snapped between the ticks (F29).
+pub fn snap_hover(x: f64, x_offset: i64, scale: f64, min_period: f64, trigger_time: f64) -> f64 {
     let period = min_period / MIN_PERIOD_SCALE as f64;
     if period <= 0.0 || scale <= 0.0 {
         return x;
     }
-    let periods = (x + x_offset as f64) * scale / period;
-    // C assigns to an int
-    let snapped = (periods.round() * period / scale - x_offset as f64) as i64 as f64;
+    let periods = ((x + x_offset as f64) * scale - trigger_time) / period;
+    let snapped = (periods.round() * period + trigger_time) / scale - x_offset as f64;
     if (x - snapped).abs() < 10.0 {
         snapped
     } else {
@@ -542,17 +603,30 @@ pub fn snap_hover(x: f64, x_offset: i64, scale: f64, min_period: f64) -> f64 {
 mod hover_tests {
     use super::*;
 
+    /// F29: the hover point snaps to the ruler's minor ticks, which count
+    /// from the trigger; Qt counted from sample 0, so with a trigger off the
+    /// grid it snapped between the ticks.
+    #[test]
+    fn hover_snaps_to_ticks_counted_from_the_trigger() {
+        // 1 µs minor ticks at 10 ns per pixel (100 px apart), trigger at
+        // 0.33 µs: ticks at 33, 133, 233 px
+        let (scale, min_period, trig) = (10e-9, 10e-6, 0.33e-6);
+        assert!((snap_hover(130.0, 0, scale, min_period, trig) - 133.0).abs() < 1e-6);
+        assert!((snap_hover(40.0, 0, scale, min_period, trig) - 33.0).abs() < 1e-6);
+        assert_eq!(snap_hover(80.0, 0, scale, min_period, trig), 80.0);
+    }
+
     #[test]
     fn hover_snaps_within_ten_pixels() {
         // a 1 µs smallest period at 10 ns per pixel: every 100 px
         let (scale, min_period) = (10e-9, 10e-6);
-        assert_eq!(snap_hover(103.0, 0, scale, min_period), 100.0);
-        assert_eq!(snap_hover(149.0, 0, scale, min_period), 149.0);
-        assert_eq!(snap_hover(195.0, 0, scale, min_period), 200.0);
+        assert!((snap_hover(103.0, 0, scale, min_period, 0.0) - 100.0).abs() < 1e-6);
+        assert!((snap_hover(149.0, 0, scale, min_period, 0.0) - 149.0).abs() < 1e-6);
+        assert!((snap_hover(195.0, 0, scale, min_period, 0.0) - 200.0).abs() < 1e-6);
         // with the view scrolled by 30 px
-        assert_eq!(snap_hover(72.0, 30, scale, min_period), 70.0);
+        assert!((snap_hover(72.0, 30, scale, min_period, 0.0) - 70.0).abs() < 1e-6);
         // periods 25 px apart: 12 px off stays, 8 px off snaps
-        assert_eq!(snap_hover(112.0, 0, 40e-9, 10e-6), 112.0);
-        assert_eq!(snap_hover(108.0, 0, 40e-9, 10e-6), 100.0);
+        assert!((snap_hover(112.0, 0, 40e-9, 10e-6, 0.0) - 112.0).abs() < 1e-6);
+        assert!((snap_hover(108.0, 0, 40e-9, 10e-6, 0.0) - 100.0).abs() < 1e-6);
     }
 }

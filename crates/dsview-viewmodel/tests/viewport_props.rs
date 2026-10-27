@@ -81,4 +81,35 @@ proptest! {
         let slack = (spp0 + spp1).ceil() as u64 + 1;
         prop_assert!(after.abs_diff(before) <= slack, "{before} -> {after}, slack {slack}");
     }
+
+    /// F27: zooming in step by step at a pixel keeps the sample that was
+    /// under it there. Qt's integer offset rounded down by up to a pixel per
+    /// step, and earlier errors grow with every further zoom-in, so the view
+    /// drifted away from the pointer (up to about 3 px).
+    #[test]
+    fn zooming_in_does_not_drift(
+        tb in timebase(),
+        width in 200i32..4000,
+        n in 4usize..20,
+        px in 0i32..4000,
+    ) {
+        let px = px % width;
+        let mut v = view(&tb, width, &[(2, width / 2)]);
+        // the exact sample under the pixel (the offset with its fraction)
+        let start = (v.x_offset as f64 + v.x_frac + f64::from(px)) * v.samples_per_pixel(&tb);
+        for _ in 0..n {
+            v.zoom(1.0, px, &tb);
+            let clamped = v.x_offset <= v.min_offset()
+                || v.x_offset >= v.max_offset(&tb)
+                || v.scale <= v.min_scale
+                || v.scale >= v.max_scale;
+            prop_assume!(!clamped);
+        }
+        // where that sample is drawn now: within the pixel the offset rounds off
+        let at = start / v.samples_per_pixel(&tb) - v.x_offset as f64;
+        prop_assert!(
+            (at - f64::from(px)).abs() <= 1.0,
+            "the sample under pixel {px} moved to {at} after {n} steps"
+        );
+    }
 }

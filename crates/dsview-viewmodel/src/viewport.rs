@@ -3,8 +3,10 @@
 //! (`x_offset`), their limits, zooming around a point, `show_region`, and
 //! the sample ↔ pixel mapping.
 //!
-//! As in Qt the offset is an integer pixel count, so zooming loses the
-//! sub-pixel position (kept for parity; see DEVIATIONS.md F27).
+//! As in Qt the offset is an integer pixel count, which everything draws
+//! from. Zooming carries the fraction it rounds off (`x_frac`) to the next
+//! zoom, so repeated zooming stays on the point under the pointer; Qt lost
+//! it at every step and drifted (F27).
 
 /// `View::MaxViewRate`: the whole capture fits the width at most zoom-out.
 pub const MAX_VIEW_RATE: f64 = 1.0;
@@ -45,6 +47,9 @@ pub struct Viewport {
     pub scale: f64,
     /// Pixels from the capture start to the view's left edge.
     pub x_offset: i64,
+    /// The fraction of a pixel the last zoom rounded off `x_offset` (0..1);
+    /// 0 after any other change.
+    pub x_frac: f64,
     /// The previous scale and offset (`_preScale`, `_preOffset`).
     pub pre_scale: f64,
     pub pre_offset: i64,
@@ -63,6 +68,7 @@ impl Default for Viewport {
         Viewport {
             scale: 10.0,
             x_offset: 0,
+            x_frac: 0.0,
             pre_scale: 10.0,
             pre_offset: 0,
             min_scale: 1e-15,
@@ -113,7 +119,11 @@ impl Viewport {
             }
         }
         self.scale = self.clamp_scale(self.scale);
-        self.x_offset = self.clamp_offset(self.x_offset, tb);
+        let off = self.clamp_offset(self.x_offset, tb);
+        if off != self.x_offset {
+            self.x_frac = 0.0;
+        }
+        self.x_offset = off;
         self.pre_scale = self.scale;
         self.pre_offset = self.x_offset;
     }
@@ -130,6 +140,7 @@ impl Viewport {
         self.pre_offset = self.x_offset;
         self.scale = self.clamp_scale(scale);
         self.x_offset = self.clamp_offset(offset, tb);
+        self.x_frac = 0.0;
         self.scale != self.pre_scale || self.x_offset != self.pre_offset
     }
 
@@ -155,9 +166,17 @@ impl Viewport {
     /// The offset after a scale change around pixel `px` (also after a DSO
     /// timebase step, which sets `scale` itself).
     pub fn zoom_offset(&mut self, px: i32, tb: &Timebase) -> bool {
-        let off = ((self.x_offset + px as i64) as f64 * (self.pre_scale / self.scale) - px as f64)
-            .floor() as i64;
-        self.x_offset = self.clamp_offset(off, tb);
+        let exact = (self.x_offset as f64 + self.x_frac + px as f64)
+            * (self.pre_scale / self.scale)
+            - px as f64;
+        let off = exact.floor() as i64;
+        let clamped = self.clamp_offset(off, tb);
+        self.x_frac = if clamped == off {
+            exact - off as f64
+        } else {
+            0.0
+        };
+        self.x_offset = clamped;
         self.scale != self.pre_scale || self.x_offset != self.pre_offset
     }
 

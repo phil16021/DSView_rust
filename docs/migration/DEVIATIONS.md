@@ -497,8 +497,17 @@ Found while porting `SigSession`, `DecoderStack`, `SamplingBar` and `DsoSignal` 
 The Rust GUI's viewmodel reproduces these for parity; they are candidates for fixing after M6e.
 - **Integer view offset.** `View::_x_offset` is a whole pixel count, so each zoom step loses the
   sub-pixel position and repeated zooming drifts away from the point under the mouse.
+  - **Fixed 2026-10-27 (M7b):** zooming carries the fraction it rounds off (`Viewport::x_frac`) to
+    the next zoom. Drawing still uses whole pixels.
+  - Before the fix, 4–6 zoom-ins moved the sample under the pointer by up to about 5 px.
+  - Test: `viewport_props::zooming_in_does_not_drift`.
 - **Kinetic scroll stops abruptly.** The swipe's strength is an integer number of pixels per tick;
   the damping rounds it to 0 after a few ticks instead of easing out.
+  - **Fixed 2026-10-27:** the strength is fractional and damped geometrically, with a sub-pixel
+    carry.
+  - A 30 px/tick swipe now travels about 620 px over more than 60 ticks; it travelled 340 px in
+    25 ticks.
+  - Test: `input::tests::swipe_eases_out`.
 - **Cursor numbers are list positions.** Deleting a cursor renumbers (and recolours) every cursor
   after it.
   - **Fixed 2026-10-27 (M7b):** a cursor keeps its number and colour until it is deleted, and a new
@@ -509,6 +518,12 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
     cursor stays "3".
 - **Ruler labels.** The tick spacing is a multiple of 10 samples that leaves room for a label, not
   a 1-2-5 sequence (`ScaleUnits` is declared and unused), so labels are not round numbers.
+  - **Fixed 2026-10-27:** major ticks are 1, 2 or 5 × 10ⁿ apart, in seconds, or in samples when the
+    ruler counts samples; still at least 10 samples and room for a label.
+  - The logic ruler reads 1.20, 1.40 … ms (was 1.27, 1.38 …).
+  - The DSO ruler now lines up with the time/div grid: 0.50 µs ticks on 0.5 µs divisions, where it
+    had 0.40 µs.
+  - Test: `ruler::tests::major_ticks_follow_1_2_5`; snapshots with a ruler updated.
 
 ### F28. Oscilloscope view findings (M6d)
 - **The Y measurement is unreachable.** `Viewport::onDsoMouseRelease` starts `DSO_YM` only when
@@ -543,7 +558,9 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
   Ported as it is.
 - **Hover snapping ignores the trigger.** `View::eventFilter` snaps the hover point to multiples
   of the smallest ruler period counted from sample 0, while the ruler counts from the trigger.
-  Ported as it is.
+  - **Fixed 2026-10-27:** the hover point snaps to the ruler's minor ticks, counted from the
+    trigger.
+  - Test: `ruler::hover_tests::hover_snaps_to_ticks_counted_from_the_trigger`.
 - **The first view of a hardware capture.** Qt starts at `_scale(10)` (10 s per pixel), which the
   first limit update clamps to the whole capture. The Rust view started at 10 ns per pixel, so
   a first DSLogic capture opened zoomed far in (found on the DSLogic Plus); fixed.

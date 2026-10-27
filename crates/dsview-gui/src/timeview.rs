@@ -164,6 +164,8 @@ pub struct TimeView {
     trig_centred: u64,
     /// The logic ruler's smallest tick period, for hover snapping.
     min_period: std::cell::Cell<f64>,
+    /// The trigger's time (s), from which the ruler and the snapping count.
+    snap_trigger: std::cell::Cell<f64>,
     /// The capture the view was fitted to.
     fitted_capture: u64,
     pub vertical_scroll_is_zoom: bool,
@@ -302,6 +304,7 @@ impl Default for TimeView {
             trig_in_middle: true,
             trig_centred: 0,
             min_period: std::cell::Cell::new(0.0),
+            snap_trigger: std::cell::Cell::new(0.0),
             fitted_capture: u64::MAX,
             vertical_scroll_is_zoom: true,
             quick_scroll: true,
@@ -1813,6 +1816,8 @@ impl TimeView {
             &m,
         );
         self.min_period.set(ticks.min_period);
+        self.snap_trigger
+            .set(trig_pos as f64 / tb.snap_samplerate.max(1.0));
         let fg = self.palette.tick;
         for t in &ticks.ticks {
             let x = rect.left() + t.x as f32;
@@ -2273,6 +2278,7 @@ impl TimeView {
             self.vp.x_offset,
             self.vp.scale,
             self.min_period.get(),
+            self.snap_trigger.get(),
         ) as f32
     }
 
