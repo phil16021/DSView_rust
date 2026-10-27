@@ -1,0 +1,18 @@
+[package]
+name = "dsview-testkit"
+version.workspace = true
+description = "Golden files, corpus manifest and diff helpers for the DSView Rust port"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+dsview-decode = { path = "../../crates/dsview-decode" }
+dsview-formats = { path = "../../crates/dsview-formats" }
+zip = { version = "9", default-features = false, features = ["deflate"] }
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+flate2 = "1"

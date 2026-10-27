@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 33dce98e4c9f9dd99ec27fa43ef87d6af2fcf849f0e2a1fba8f54e47d2100b4a # shrinks to tb = Timebase { snap_samplerate: 10000.0, samplerate: 10000.0, sample_limit: 8267, dso_view_time: None }, width = 205, n = 5, px = 661

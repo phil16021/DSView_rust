@@ -1,0 +1,186 @@
+# Rust workspace: lint, tests, the golden check, fuzzing, MCP end-to-end,
+# Miri and the supply-chain check. See docs/migration/PLAN.md. Tools are
+# installed with `cargo install --locked` rather than third-party actions;
+# the toolchain comes from rust-toolchain.toml.
+#
+# The C-vs-Rust differential checks ran against the C code until tag
+# `c-final` (docs/migration/STATUS.md, M7a); the goldens they produced are
+# checked against Rust here.
+
+name: Rust
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # PyO3 embeds the system Python (the decoder engine)
+  RUST_DEPS: pkg-config python3-dev
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build dependencies
+        run: sudo apt-get update && sudo apt-get install -y $RUST_DEPS
+      - name: Toolchain
+        run: rustup show
+      - name: rustfmt
+        run: cargo fmt --all -- --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  test:
+    # Python 3.10 (Ubuntu 22.04) and 3.12 (24.04): the interpreters the
+    # packages are built against.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      # the GUI snapshot tests render with wgpu on Mesa's software drivers
+      # (lavapipe, llvmpipe); the Qt packages used to pull them in
+      - name: Build dependencies and software rendering
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y $RUST_DEPS mesa-vulkan-drivers libgl1-mesa-dri libegl1
+      - name: Toolchain and nextest
+        run: |
+          rustup show
+          cargo install --locked cargo-nextest
+      - name: Unit tests
+        run: cargo nextest run --workspace --locked --profile ci
+      - name: Failed tests as annotations
+        # readable through the checks API, where the job log may not be
+        if: failure()
+        run: |
+          python3 - target/nextest/ci/junit.xml <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          for case in ET.parse(sys.argv[1]).iter("testcase"):
+              for f in list(case.iter("failure")) + list(case.iter("error")):
+                  msg = (f.get("message") or (f.text or "")[-400:]).replace("\n", " ")
+                  print(f"::error title={case.get('classname')} {case.get('name')}::{msg}")
+          PY
+      - name: Corpus hashes
+        run: cargo xtask corpus verify
+      - name: Golden check (the Rust reader and decoder engine reproduce the C goldens)
+        run: cargo xtask golden check
+
+  fuzz-smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Nightly and cargo-fuzz
+        run: |
+          rustup toolchain install nightly --profile minimal
+          cargo install --locked cargo-fuzz
+      - name: Build dependencies
+        run: sudo apt-get update && sudo apt-get install -y $RUST_DEPS
+      - name: Fuzz each target for 60 s
+        working-directory: fuzz
+        # -detect_leaks=0 stops libFuzzer's per-input check; LeakSanitizer
+        # still reports the embedded interpreter at exit without this
+        env:
+          ASAN_OPTIONS: detect_leaks=0
+        run: |
+          for t in $(cargo +nightly fuzz list); do
+            mkdir -p "corpus/$t" "seeds/$t"
+            cargo +nightly fuzz run "$t" "corpus/$t" "seeds/$t" -- -max_total_time=60 -rss_limit_mb=2048 -detect_leaks=0
+          done
+
+  e2e-mcp:
+    # Every dsview-mcp tool against the headless dsviewr-cli on the demo
+    # devices (the transcript recorded from the Qt GUI, which DSViewR passes too).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build dependencies
+        run: sudo apt-get update && sudo apt-get install -y $RUST_DEPS
+      - name: MCP suite on dsviewr-cli
+        env:
+          DSVIEW_ARGS: --data-dir ${{ github.workspace }}/assets
+        run: |
+          rustup show
+          cargo build --locked -p dsview-cli -p dsview-mcp
+          cargo xtask mcp suite "$PWD/target/debug/dsview-cli"
+      - name: One-shot commands on the demo
+        run: cargo test --locked -p dsview-cli --test oneshot
+
+  miri:
+    # The store's unsafe code (leaf blocks, raw block pointers, the leaf
+    # pool) under Miri: every unit test of the logic, DSO and analog stores
+    # but the length proptest (hours under Miri); about 5 min (M7b B7).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Nightly with Miri
+        run: rustup toolchain install nightly --profile minimal --component miri,rust-src
+      - name: Store tests under Miri
+        env:
+          MIRIFLAGS: -Zmiri-disable-isolation
+        run: cargo +nightly miri test --locked -p dsview-store --lib -- --skip any_length_reads_back
+
+  bench-gate:
+    # The store's ingest rate (cargo bench -p dsview-store, M7b B4): a floor
+    # well under the 1.1-1.3 GiB/s of the development VM, so a shared runner
+    # passes and a regression to the old page-fault-bound path (~650 MiB/s
+    # there) on a comparable runner does not.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Ingest benchmark with a floor
+        env:
+          DSVIEW_BENCH_MIN_MIBS: "500"
+        run: cargo bench --locked -p dsview-store -- ingest
+
+  supply-chain:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: cargo-deny (licenses, advisories, sources)
+        run: |
+          rustup show
+          cargo install --locked cargo-deny
+          cargo deny check
+
+  portability:
+    # Every crate builds on Linux and macOS (Windows is a later port: PLAN,
+    # follow-on).
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y $RUST_DEPS
+      - name: cargo check
+        run: |
+          rustup show
+          cargo check --locked --workspace --all-targets
+
+  windows-check:
+    # The workspace type-checks for Windows (cross, no Python needed): the
+    # groundwork of the port (PLAN, follow-on). The control socket and
+    # dsview-mcp are Unix-only there until a Windows transport is chosen.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: cargo check for x86_64-pc-windows-gnu
+        env:
+          PYO3_CROSS_PYTHON_VERSION: "3.12"
+          PYO3_NO_PYTHON: "1"
+          RUSTFLAGS: -D warnings
+        run: |
+          rustup target add x86_64-pc-windows-gnu
+          cargo check --locked --workspace --all-targets --target x86_64-pc-windows-gnu

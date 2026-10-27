@@ -1,0 +1,10 @@
+[package]
+name = "dsview-core"
+version.workspace = true
+description = "Types shared by the DSView drivers, session and C ABI: config keys and values, channels, datafeed packets"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]

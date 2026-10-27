@@ -1,0 +1,2988 @@
+[
+  {
+    "method": "version",
+    "params": {},
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "api": 1,
+        "application": "DSView"
+      }
+    }
+  },
+  {
+    "method": "select_device",
+    "params": {
+      "index": 1
+    },
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "available_modes": [
+          "logic",
+          "analog",
+          "dso"
+        ],
+        "available_samplerates": [
+          25000000
+        ],
+        "channels": [
+          {
+            "enabled": true,
+            "index": 0,
+            "name": "SDA",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 1,
+            "name": "SCL",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 2,
+            "name": "2",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 3,
+            "name": "3",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 4,
+            "name": "4",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 5,
+            "name": "UART",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 6,
+            "name": "6",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 7,
+            "name": "7",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 8,
+            "name": "8",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 9,
+            "name": "CAN-FD",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 10,
+            "name": "10",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 11,
+            "name": "11",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 12,
+            "name": "CLK",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 13,
+            "name": "CS#",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 14,
+            "name": "MOSI",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 15,
+            "name": "MISO",
+            "type": "logic"
+          }
+        ],
+        "device": {
+          "driver": "virtual-demo",
+          "kind": "demo",
+          "name": "Demo Logic"
+        },
+        "hardware_depth": 131072,
+        "mode": "logic",
+        "samplerate": 25000000,
+        "samples": 131072,
+        "trigger_position_percent": 1,
+        "triggers": []
+      }
+    }
+  },
+  {
+    "method": "list_devices",
+    "params": {},
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "devices": [
+          {
+            "active": false,
+            "index": 0,
+            "name": "Demo Oscilloscope"
+          },
+          {
+            "active": true,
+            "index": 1,
+            "name": "Demo Logic"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "method": "set_mode",
+    "params": {
+      "mode": "logic"
+    },
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "available_modes": [
+          "logic",
+          "analog",
+          "dso"
+        ],
+        "available_samplerates": [
+          25000000
+        ],
+        "channels": [
+          {
+            "enabled": true,
+            "index": 0,
+            "name": "SDA",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 1,
+            "name": "SCL",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 2,
+            "name": "2",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 3,
+            "name": "3",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 4,
+            "name": "4",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 5,
+            "name": "UART",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 6,
+            "name": "6",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 7,
+            "name": "7",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 8,
+            "name": "8",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 9,
+            "name": "CAN-FD",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 10,
+            "name": "10",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 11,
+            "name": "11",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 12,
+            "name": "CLK",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 13,
+            "name": "CS#",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 14,
+            "name": "MOSI",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 15,
+            "name": "MISO",
+            "type": "logic"
+          }
+        ],
+        "device": {
+          "driver": "virtual-demo",
+          "kind": "demo",
+          "name": "Demo Logic"
+        },
+        "hardware_depth": 131072,
+        "mode": "logic",
+        "samplerate": 25000000,
+        "samples": 131072,
+        "trigger_position_percent": 1,
+        "triggers": []
+      }
+    }
+  },
+  {
+    "method": "set_trigger",
+    "params": {
+      "type": "none"
+    },
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "available_modes": [
+          "logic",
+          "analog",
+          "dso"
+        ],
+        "available_samplerates": [
+          25000000
+        ],
+        "channels": [
+          {
+            "enabled": true,
+            "index": 0,
+            "name": "SDA",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 1,
+            "name": "SCL",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 2,
+            "name": "2",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 3,
+            "name": "3",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 4,
+            "name": "4",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 5,
+            "name": "UART",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 6,
+            "name": "6",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 7,
+            "name": "7",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 8,
+            "name": "8",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 9,
+            "name": "CAN-FD",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 10,
+            "name": "10",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 11,
+            "name": "11",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 12,
+            "name": "CLK",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 13,
+            "name": "CS#",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 14,
+            "name": "MOSI",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 15,
+            "name": "MISO",
+            "type": "logic"
+          }
+        ],
+        "device": {
+          "driver": "virtual-demo",
+          "kind": "demo",
+          "name": "Demo Logic"
+        },
+        "hardware_depth": 131072,
+        "mode": "logic",
+        "samplerate": 25000000,
+        "samples": 131072,
+        "trigger_position_percent": 1,
+        "triggers": []
+      }
+    }
+  },
+  {
+    "method": "set_sampling",
+    "params": {
+      "samples": 1000000
+    },
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "note": "sample counts snap to the depth steps DSView offers",
+        "samplerate": 25000000,
+        "samples": 1000448
+      }
+    }
+  },
+  {
+    "method": "set_channels",
+    "params": {
+      "channels": [
+        {
+          "enabled": false,
+          "index": 2
+        }
+      ]
+    },
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "available_modes": [
+          "logic",
+          "analog",
+          "dso"
+        ],
+        "available_samplerates": [
+          25000000
+        ],
+        "channels": [
+          {
+            "enabled": true,
+            "index": 0,
+            "name": "SDA",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 1,
+            "name": "SCL",
+            "type": "logic"
+          },
+          {
+            "enabled": false,
+            "index": 2,
+            "name": "2",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 3,
+            "name": "3",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 4,
+            "name": "4",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 5,
+            "name": "UART",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 6,
+            "name": "6",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 7,
+            "name": "7",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 8,
+            "name": "8",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 9,
+            "name": "CAN-FD",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 10,
+            "name": "10",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 11,
+            "name": "11",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 12,
+            "name": "CLK",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 13,
+            "name": "CS#",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 14,
+            "name": "MOSI",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 15,
+            "name": "MISO",
+            "type": "logic"
+          }
+        ],
+        "device": {
+          "driver": "virtual-demo",
+          "kind": "demo",
+          "name": "Demo Logic"
+        },
+        "hardware_depth": 1000448,
+        "mode": "logic",
+        "samplerate": 25000000,
+        "samples": 1000448,
+        "trigger_position_percent": 1,
+        "triggers": []
+      }
+    }
+  },
+  {
+    "method": "set_channels",
+    "params": {
+      "channels": [
+        {
+          "enabled": true,
+          "index": 2
+        }
+      ]
+    },
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "available_modes": [
+          "logic",
+          "analog",
+          "dso"
+        ],
+        "available_samplerates": [
+          25000000
+        ],
+        "channels": [
+          {
+            "enabled": true,
+            "index": 0,
+            "name": "SDA",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 1,
+            "name": "SCL",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 2,
+            "name": "2",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 3,
+            "name": "3",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 4,
+            "name": "4",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 5,
+            "name": "UART",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 6,
+            "name": "6",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 7,
+            "name": "7",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 8,
+            "name": "8",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 9,
+            "name": "CAN-FD",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 10,
+            "name": "10",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 11,
+            "name": "11",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 12,
+            "name": "CLK",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 13,
+            "name": "CS#",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 14,
+            "name": "MOSI",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 15,
+            "name": "MISO",
+            "type": "logic"
+          }
+        ],
+        "device": {
+          "driver": "virtual-demo",
+          "kind": "demo",
+          "name": "Demo Logic"
+        },
+        "hardware_depth": 1000448,
+        "mode": "logic",
+        "samplerate": 25000000,
+        "samples": 1000448,
+        "trigger_position_percent": 1,
+        "triggers": []
+      }
+    }
+  },
+  {
+    "method": "set_threshold",
+    "params": {
+      "volts": 1.5
+    },
+    "compare": "exact",
+    "response": {
+      "err": "this device has no adjustable threshold voltage"
+    }
+  },
+  {
+    "method": "get_config",
+    "params": {},
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "available_modes": [
+          "logic",
+          "analog",
+          "dso"
+        ],
+        "available_samplerates": [
+          25000000
+        ],
+        "channels": [
+          {
+            "enabled": true,
+            "index": 0,
+            "name": "SDA",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 1,
+            "name": "SCL",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 2,
+            "name": "2",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 3,
+            "name": "3",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 4,
+            "name": "4",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 5,
+            "name": "UART",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 6,
+            "name": "6",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 7,
+            "name": "7",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 8,
+            "name": "8",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 9,
+            "name": "CAN-FD",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 10,
+            "name": "10",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 11,
+            "name": "11",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 12,
+            "name": "CLK",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 13,
+            "name": "CS#",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 14,
+            "name": "MOSI",
+            "type": "logic"
+          },
+          {
+            "enabled": true,
+            "index": 15,
+            "name": "MISO",
+            "type": "logic"
+          }
+        ],
+        "device": {
+          "driver": "virtual-demo",
+          "kind": "demo",
+          "name": "Demo Logic"
+        },
+        "hardware_depth": 1000448,
+        "mode": "logic",
+        "samplerate": 25000000,
+        "samples": 1000448,
+        "trigger_position_percent": 1,
+        "triggers": []
+      }
+    }
+  },
+  {
+    "method": "start_capture",
+    "params": {
+      "timeout_s": 60
+    },
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "channels": [
+          {
+            "index": 0,
+            "name": "SDA"
+          },
+          {
+            "index": 1,
+            "name": "SCL"
+          },
+          {
+            "index": 2,
+            "name": "2"
+          },
+          {
+            "index": 3,
+            "name": "3"
+          },
+          {
+            "index": 4,
+            "name": "4"
+          },
+          {
+            "index": 5,
+            "name": "UART"
+          },
+          {
+            "index": 6,
+            "name": "6"
+          },
+          {
+            "index": 7,
+            "name": "7"
+          },
+          {
+            "index": 8,
+            "name": "8"
+          },
+          {
+            "index": 9,
+            "name": "CAN-FD"
+          },
+          {
+            "index": 10,
+            "name": "10"
+          },
+          {
+            "index": 11,
+            "name": "11"
+          },
+          {
+            "index": 12,
+            "name": "CLK"
+          },
+          {
+            "index": 13,
+            "name": "CS#"
+          },
+          {
+            "index": 14,
+            "name": "MOSI"
+          },
+          {
+            "index": 15,
+            "name": "MISO"
+          }
+        ],
+        "decoders": [
+          {
+            "annotations": 405,
+            "index": 0,
+            "name": "1:I²C",
+            "progress": 100,
+            "rows": [
+              {
+                "id": "bits",
+                "title": "1:I²C: Bits"
+              },
+              {
+                "id": "addr-data",
+                "title": "1:I²C: Address/Data"
+              },
+              {
+                "id": "warnings",
+                "title": "1:I²C: Warnings"
+              },
+              {
+                "id": "bits-bytes",
+                "title": "24xx EEPROM: Bits/bytes"
+              },
+              {
+                "id": "fields",
+                "title": "24xx EEPROM: Fields"
+              },
+              {
+                "id": "ops",
+                "title": "24xx EEPROM: Operations"
+              },
+              {
+                "id": "warnings",
+                "title": "24xx EEPROM: Warnings"
+              }
+            ],
+            "stack": [
+              "1:i2c",
+              "eeprom24xx"
+            ]
+          },
+          {
+            "annotations": 517,
+            "index": 1,
+            "name": "1:UART",
+            "progress": 100,
+            "rows": [
+              {
+                "id": "data",
+                "title": "1:UART: RX/TX"
+              },
+              {
+                "id": "data-bits",
+                "title": "1:UART: Bits"
+              },
+              {
+                "id": "warnings",
+                "title": "1:UART: Warnings"
+              },
+              {
+                "id": "break",
+                "title": "1:UART: break"
+              }
+            ],
+            "stack": [
+              "1:uart"
+            ]
+          },
+          {
+            "annotations": 5192,
+            "index": 2,
+            "name": "1:SPI",
+            "progress": 100,
+            "rows": [
+              {
+                "id": "miso-bits",
+                "title": "1:SPI: MISO bits"
+              },
+              {
+                "id": "miso-data",
+                "title": "1:SPI: MISO data"
+              },
+              {
+                "id": "miso-transfer",
+                "title": "1:SPI: MISO transfer"
+              },
+              {
+                "id": "mosi-bits",
+                "title": "1:SPI: MOSI bits"
+              },
+              {
+                "id": "mosi-data",
+                "title": "1:SPI: MOSI data"
+              },
+              {
+                "id": "mosi-transfer",
+                "title": "1:SPI: MOSI transfer"
+              },
+              {
+                "id": "other",
+                "title": "1:SPI: Other"
+              }
+            ],
+            "stack": [
+              "1:spi"
+            ]
+          },
+          {
+            "annotations": 2265,
+            "index": 3,
+            "name": "CAN-FD",
+            "progress": 100,
+            "rows": [
+              {
+                "id": "bits",
+                "title": "CAN-FD: Bits"
+              },
+              {
+                "id": "fields",
+                "title": "CAN-FD: Fields"
+              },
+              {
+                "id": "warnings",
+                "title": "CAN-FD: Warnings"
+              }
+            ],
+            "stack": [
+              "can-fd"
+            ]
+          }
+        ],
+        "decoding": false,
+        "duration_s": 0.00524288,
+        "have_data": true,
+        "mode": "logic",
+        "samplerate": 25000000,
+        "samples": 131072,
+        "trigger_sample": 0,
+        "triggered": true
+      }
+    }
+  },
+  {
+    "method": "capture_status",
+    "params": {},
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "capture": {
+          "channels": [
+            {
+              "index": 0,
+              "name": "SDA"
+            },
+            {
+              "index": 1,
+              "name": "SCL"
+            },
+            {
+              "index": 2,
+              "name": "2"
+            },
+            {
+              "index": 3,
+              "name": "3"
+            },
+            {
+              "index": 4,
+              "name": "4"
+            },
+            {
+              "index": 5,
+              "name": "UART"
+            },
+            {
+              "index": 6,
+              "name": "6"
+            },
+            {
+              "index": 7,
+              "name": "7"
+            },
+            {
+              "index": 8,
+              "name": "8"
+            },
+            {
+              "index": 9,
+              "name": "CAN-FD"
+            },
+            {
+              "index": 10,
+              "name": "10"
+            },
+            {
+              "index": 11,
+              "name": "11"
+            },
+            {
+              "index": 12,
+              "name": "CLK"
+            },
+            {
+              "index": 13,
+              "name": "CS#"
+            },
+            {
+              "index": 14,
+              "name": "MOSI"
+            },
+            {
+              "index": 15,
+              "name": "MISO"
+            }
+          ],
+          "decoding": false,
+          "duration_s": 0.00524288,
+          "have_data": true,
+          "mode": "logic",
+          "samplerate": 25000000,
+          "samples": 131072,
+          "trigger_sample": 0,
+          "triggered": true
+        },
+        "decoding": false,
+        "saving": false,
+        "working": false
+      }
+    }
+  },
+  {
+    "method": "capture_info",
+    "params": {},
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "channels": [
+          {
+            "index": 0,
+            "name": "SDA"
+          },
+          {
+            "index": 1,
+            "name": "SCL"
+          },
+          {
+            "index": 2,
+            "name": "2"
+          },
+          {
+            "index": 3,
+            "name": "3"
+          },
+          {
+            "index": 4,
+            "name": "4"
+          },
+          {
+            "index": 5,
+            "name": "UART"
+          },
+          {
+            "index": 6,
+            "name": "6"
+          },
+          {
+            "index": 7,
+            "name": "7"
+          },
+          {
+            "index": 8,
+            "name": "8"
+          },
+          {
+            "index": 9,
+            "name": "CAN-FD"
+          },
+          {
+            "index": 10,
+            "name": "10"
+          },
+          {
+            "index": 11,
+            "name": "11"
+          },
+          {
+            "index": 12,
+            "name": "CLK"
+          },
+          {
+            "index": 13,
+            "name": "CS#"
+          },
+          {
+            "index": 14,
+            "name": "MOSI"
+          },
+          {
+            "index": 15,
+            "name": "MISO"
+          }
+        ],
+        "decoding": false,
+        "duration_s": 0.00524288,
+        "have_data": true,
+        "mode": "logic",
+        "samplerate": 25000000,
+        "samples": 131072,
+        "trigger_sample": 0,
+        "triggered": true
+      }
+    }
+  },
+  {
+    "method": "get_edges",
+    "params": {
+      "channel": 1,
+      "limit": 20
+    },
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "channel": 1,
+        "edges": [
+          {
+            "edge": "falling",
+            "sample": 45479,
+            "time_ns": 1819160
+          },
+          {
+            "edge": "rising",
+            "sample": 45605,
+            "time_ns": 1824200
+          },
+          {
+            "edge": "falling",
+            "sample": 45729,
+            "time_ns": 1829160
+          },
+          {
+            "edge": "rising",
+            "sample": 45856,
+            "time_ns": 1834240
+          },
+          {
+            "edge": "falling",
+            "sample": 45980,
+            "time_ns": 1839200
+          },
+          {
+            "edge": "rising",
+            "sample": 46107,
+            "time_ns": 1844280
+          },
+          {
+            "edge": "falling",
+            "sample": 46230,
+            "time_ns": 1849200
+          },
+          {
+            "edge": "rising",
+            "sample": 46357,
+            "time_ns": 1854280
+          },
+          {
+            "edge": "falling",
+            "sample": 46481,
+            "time_ns": 1859240
+          },
+          {
+            "edge": "rising",
+            "sample": 46607,
+            "time_ns": 1864280
+          },
+          {
+            "edge": "falling",
+            "sample": 46731,
+            "time_ns": 1869240
+          },
+          {
+            "edge": "rising",
+            "sample": 46858,
+            "time_ns": 1874320
+          },
+          {
+            "edge": "falling",
+            "sample": 46982,
+            "time_ns": 1879280
+          },
+          {
+            "edge": "rising",
+            "sample": 47109,
+            "time_ns": 1884360
+          },
+          {
+            "edge": "falling",
+            "sample": 47232,
+            "time_ns": 1889280
+          },
+          {
+            "edge": "rising",
+            "sample": 47359,
+            "time_ns": 1894360
+          },
+          {
+            "edge": "falling",
+            "sample": 47483,
+            "time_ns": 1899320
+          },
+          {
+            "edge": "rising",
+            "sample": 47610,
+            "time_ns": 1904400
+          },
+          {
+            "edge": "falling",
+            "sample": 47733,
+            "time_ns": 1909320
+          },
+          {
+            "edge": "rising",
+            "sample": 47860,
+            "time_ns": 1914400
+          }
+        ],
+        "end": 131071,
+        "initial_level": 1,
+        "next_start": 47861,
+        "samplerate": 25000000,
+        "start": 0,
+        "truncated": true
+      }
+    }
+  },
+  {
+    "method": "read_logic",
+    "params": {
+      "channels": [
+        0,
+        1
+      ],
+      "max_transitions": 50
+    },
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "channels": {
+          "0": {
+            "initial_level": 1,
+            "transitions": [
+              45147,
+              45544,
+              46042,
+              46796,
+              47044,
+              47741,
+              47796,
+              49051,
+              49299,
+              49996,
+              50223,
+              50430,
+              50928,
+              51682,
+              51930,
+              52183,
+              52374,
+              52878,
+              53126,
+              53629,
+              55043,
+              55205,
+              57219,
+              57489,
+              57987,
+              58741,
+              58989,
+              59686,
+              59741,
+              61246,
+              61494,
+              61941,
+              62168,
+              62375,
+              62873,
+              63627,
+              63875,
+              64128,
+              64319,
+              65073,
+              65572,
+              66075,
+              66323,
+              66576,
+              66631,
+              66884,
+              67075,
+              67328,
+              68077,
+              68330
+            ],
+            "truncated": true
+          },
+          "1": {
+            "initial_level": 1,
+            "transitions": [
+              45479,
+              45605,
+              45729,
+              45856,
+              45980,
+              46107,
+              46230,
+              46357,
+              46481,
+              46607,
+              46731,
+              46858,
+              46982,
+              47109,
+              47232,
+              47359,
+              47483,
+              47610,
+              47733,
+              47860,
+              47984,
+              48110,
+              48234,
+              48361,
+              48485,
+              48612,
+              48735,
+              48862,
+              48986,
+              49112,
+              49236,
+              49363,
+              49487,
+              49614,
+              49737,
+              49864,
+              49988,
+              50114,
+              50365,
+              50491,
+              50615,
+              50742,
+              50866,
+              50993,
+              51116,
+              51243,
+              51367,
+              51494,
+              51617,
+              51744
+            ],
+            "truncated": true
+          }
+        },
+        "end": 131071,
+        "format": "each channel starts at initial_level at 'start' and toggles at every sample in transitions",
+        "samplerate": 25000000,
+        "start": 0
+      }
+    }
+  },
+  {
+    "method": "measure_logic",
+    "params": {
+      "channel": 1
+    },
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "channel": 1,
+        "duty_percent": 56.00699818316399,
+        "end": 131071,
+        "falling_edges": 255,
+        "frequency_hz": 85458.5828679093,
+        "initial_level": 1,
+        "max_high_ns": 93240,
+        "max_low_ns": 8800,
+        "min_high_ns": 4920,
+        "min_low_ns": 5040,
+        "period_ns": 11701.574803149606,
+        "rising_edges": 255,
+        "start": 0
+      }
+    }
+  },
+  {
+    "method": "list_decoders",
+    "params": {
+      "filter": "i2c"
+    },
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "decoders": [
+          {
+            "id": "0:i2c",
+            "inputs": [
+              "logic"
+            ],
+            "longname": "Inter-Integrated Circuit",
+            "name": "0:I²C",
+            "outputs": [
+              "i2c"
+            ],
+            "tags": [
+              "Embedded/industrial"
+            ]
+          },
+          {
+            "id": "1:i2c",
+            "inputs": [
+              "logic"
+            ],
+            "longname": "Inter-Integrated Circuit",
+            "name": "1:I²C",
+            "outputs": [
+              "i2c"
+            ],
+            "tags": [
+              "Embedded/industrial"
+            ]
+          },
+          {
+            "id": "i2cdemux",
+            "inputs": [
+              "i2c"
+            ],
+            "longname": "I²C demultiplexer",
+            "name": "I²C demux",
+            "outputs": [],
+            "tags": [
+              "Util"
+            ]
+          },
+          {
+            "id": "i2cfilter",
+            "inputs": [
+              "i2c"
+            ],
+            "longname": "I²C filter",
+            "name": "I²C filter",
+            "outputs": [
+              "i2c"
+            ],
+            "tags": [
+              "Util"
+            ]
+          }
+        ],
+        "note": "decoders with input 'logic' attach to channels; others stack on a decoder whose outputs match their inputs"
+      }
+    }
+  },
+  {
+    "method": "describe_decoder",
+    "params": {
+      "id": "1:i2c"
+    },
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "annotation_rows": [
+          {
+            "desc": "Bits",
+            "id": "bits"
+          },
+          {
+            "desc": "Address/Data",
+            "id": "addr-data"
+          },
+          {
+            "desc": "Warnings",
+            "id": "warnings"
+          }
+        ],
+        "channels": [
+          {
+            "desc": "Serial clock line",
+            "id": "scl",
+            "name": "SCL"
+          },
+          {
+            "desc": "Serial data line",
+            "id": "sda",
+            "name": "SDA"
+          }
+        ],
+        "desc": "Two-wire, multi-master, serial bus.",
+        "id": "1:i2c",
+        "inputs": [
+          "logic"
+        ],
+        "longname": "Inter-Integrated Circuit",
+        "name": "1:I²C",
+        "optional_channels": [],
+        "options": [
+          {
+            "default": "unshifted",
+            "desc": "Displayed slave address format",
+            "id": "address_format",
+            "values": [
+              "shifted",
+              "unshifted"
+            ]
+          },
+          {
+            "default": 0,
+            "desc": "Glitch filter (ns)",
+            "id": "glitch_filter"
+          }
+        ],
+        "outputs": [
+          "i2c"
+        ]
+      }
+    }
+  },
+  {
+    "method": "list_active_decoders",
+    "params": {},
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "decoders": [
+          {
+            "annotations": 405,
+            "index": 0,
+            "name": "1:I²C",
+            "progress": 100,
+            "rows": [
+              {
+                "id": "bits",
+                "title": "1:I²C: Bits"
+              },
+              {
+                "id": "addr-data",
+                "title": "1:I²C: Address/Data"
+              },
+              {
+                "id": "warnings",
+                "title": "1:I²C: Warnings"
+              },
+              {
+                "id": "bits-bytes",
+                "title": "24xx EEPROM: Bits/bytes"
+              },
+              {
+                "id": "fields",
+                "title": "24xx EEPROM: Fields"
+              },
+              {
+                "id": "ops",
+                "title": "24xx EEPROM: Operations"
+              },
+              {
+                "id": "warnings",
+                "title": "24xx EEPROM: Warnings"
+              }
+            ],
+            "stack": [
+              "1:i2c",
+              "eeprom24xx"
+            ]
+          },
+          {
+            "annotations": 517,
+            "index": 1,
+            "name": "1:UART",
+            "progress": 100,
+            "rows": [
+              {
+                "id": "data",
+                "title": "1:UART: RX/TX"
+              },
+              {
+                "id": "data-bits",
+                "title": "1:UART: Bits"
+              },
+              {
+                "id": "warnings",
+                "title": "1:UART: Warnings"
+              },
+              {
+                "id": "break",
+                "title": "1:UART: break"
+              }
+            ],
+            "stack": [
+              "1:uart"
+            ]
+          },
+          {
+            "annotations": 5192,
+            "index": 2,
+            "name": "1:SPI",
+            "progress": 100,
+            "rows": [
+              {
+                "id": "miso-bits",
+                "title": "1:SPI: MISO bits"
+              },
+              {
+                "id": "miso-data",
+                "title": "1:SPI: MISO data"
+              },
+              {
+                "id": "miso-transfer",
+                "title": "1:SPI: MISO transfer"
+              },
+              {
+                "id": "mosi-bits",
+                "title": "1:SPI: MOSI bits"
+              },
+              {
+                "id": "mosi-data",
+                "title": "1:SPI: MOSI data"
+              },
+              {
+                "id": "mosi-transfer",
+                "title": "1:SPI: MOSI transfer"
+              },
+              {
+                "id": "other",
+                "title": "1:SPI: Other"
+              }
+            ],
+            "stack": [
+              "1:spi"
+            ]
+          },
+          {
+            "annotations": 2265,
+            "index": 3,
+            "name": "CAN-FD",
+            "progress": 100,
+            "rows": [
+              {
+                "id": "bits",
+                "title": "CAN-FD: Bits"
+              },
+              {
+                "id": "fields",
+                "title": "CAN-FD: Fields"
+              },
+              {
+                "id": "warnings",
+                "title": "CAN-FD: Warnings"
+              }
+            ],
+            "stack": [
+              "can-fd"
+            ]
+          }
+        ],
+        "decoding": false
+      }
+    }
+  },
+  {
+    "method": "add_decoder",
+    "params": {
+      "channels": {
+        "scl": 1,
+        "sda": 0
+      },
+      "id": "1:i2c",
+      "options": {
+        "address_format": "shifted"
+      }
+    },
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "decoders": [
+          {
+            "annotations": 300,
+            "index": 4,
+            "name": "1:I²C",
+            "progress": 100,
+            "rows": [
+              {
+                "id": "bits",
+                "title": "1:I²C: Bits"
+              },
+              {
+                "id": "addr-data",
+                "title": "1:I²C: Address/Data"
+              },
+              {
+                "id": "warnings",
+                "title": "1:I²C: Warnings"
+              }
+            ],
+            "stack": [
+              "1:i2c"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "method": "get_annotations",
+    "params": {
+      "decoder": 4,
+      "limit": 50,
+      "row": "addr-data"
+    },
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "annotations": [
+          {
+            "end_sample": 45147,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 1805880,
+            "start_sample": 45147,
+            "text": "Start"
+          },
+          {
+            "end_sample": 47359,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 1824200,
+            "start_sample": 45605,
+            "text": "Address write: 62"
+          },
+          {
+            "end_sample": 47609,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 1894360,
+            "start_sample": 47359,
+            "text": "Write"
+          },
+          {
+            "end_sample": 47860,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 1904400,
+            "start_sample": 47610,
+            "text": "ACK"
+          },
+          {
+            "end_sample": 49865,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 1914400,
+            "start_sample": 47860,
+            "text": "Data write: 04"
+          },
+          {
+            "end_sample": 50115,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 1994560,
+            "start_sample": 49864,
+            "text": "ACK"
+          },
+          {
+            "end_sample": 50223,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 2008920,
+            "start_sample": 50223,
+            "text": "Start repeat"
+          },
+          {
+            "end_sample": 52245,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 2019640,
+            "start_sample": 50491,
+            "text": "Address read: 62"
+          },
+          {
+            "end_sample": 52495,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 2089800,
+            "start_sample": 52245,
+            "text": "Read"
+          },
+          {
+            "end_sample": 52746,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 2099840,
+            "start_sample": 52496,
+            "text": "ACK"
+          },
+          {
+            "end_sample": 54751,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 2109840,
+            "start_sample": 52746,
+            "text": "Data read: 4F"
+          },
+          {
+            "end_sample": 55001,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 2190000,
+            "start_sample": 54750,
+            "text": "NACK"
+          },
+          {
+            "end_sample": 55205,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 2208200,
+            "start_sample": 55205,
+            "text": "Stop"
+          },
+          {
+            "end_sample": 57219,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 2288760,
+            "start_sample": 57219,
+            "text": "Start"
+          },
+          {
+            "end_sample": 59304,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 2302000,
+            "start_sample": 57550,
+            "text": "Address write: 62"
+          },
+          {
+            "end_sample": 59554,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 2372160,
+            "start_sample": 59304,
+            "text": "Write"
+          },
+          {
+            "end_sample": 59804,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 2382160,
+            "start_sample": 59554,
+            "text": "ACK"
+          },
+          {
+            "end_sample": 61808,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 2392200,
+            "start_sample": 59805,
+            "text": "Data write: 02"
+          },
+          {
+            "end_sample": 62059,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 2472360,
+            "start_sample": 61809,
+            "text": "ACK"
+          },
+          {
+            "end_sample": 62168,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 2486720,
+            "start_sample": 62168,
+            "text": "Start repeat"
+          },
+          {
+            "end_sample": 64190,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 2497440,
+            "start_sample": 62436,
+            "text": "Address read: 62"
+          },
+          {
+            "end_sample": 64440,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 2567600,
+            "start_sample": 64190,
+            "text": "Read"
+          },
+          {
+            "end_sample": 64691,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 2577640,
+            "start_sample": 64441,
+            "text": "ACK"
+          },
+          {
+            "end_sample": 66696,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 2587640,
+            "start_sample": 64691,
+            "text": "Data read: 32"
+          },
+          {
+            "end_sample": 66946,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 2667800,
+            "start_sample": 66695,
+            "text": "ACK"
+          },
+          {
+            "end_sample": 68949,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 2677800,
+            "start_sample": 66945,
+            "text": "Data read: BB"
+          },
+          {
+            "end_sample": 69200,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 2758000,
+            "start_sample": 68950,
+            "text": "NACK"
+          },
+          {
+            "end_sample": 69389,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 2775560,
+            "start_sample": 69389,
+            "text": "Stop"
+          },
+          {
+            "end_sample": 70708,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 2828320,
+            "start_sample": 70708,
+            "text": "Start"
+          },
+          {
+            "end_sample": 72777,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 2840960,
+            "start_sample": 71024,
+            "text": "Address write: 62"
+          },
+          {
+            "end_sample": 73027,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 2911080,
+            "start_sample": 72777,
+            "text": "Write"
+          },
+          {
+            "end_sample": 73278,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 2921120,
+            "start_sample": 73028,
+            "text": "ACK"
+          },
+          {
+            "end_sample": 75283,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 2931160,
+            "start_sample": 73279,
+            "text": "Data write: 02"
+          },
+          {
+            "end_sample": 75533,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 3011280,
+            "start_sample": 75282,
+            "text": "ACK"
+          },
+          {
+            "end_sample": 75642,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 3025680,
+            "start_sample": 75642,
+            "text": "Start repeat"
+          },
+          {
+            "end_sample": 77663,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 3036400,
+            "start_sample": 75910,
+            "text": "Address read: 62"
+          },
+          {
+            "end_sample": 77913,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 3106520,
+            "start_sample": 77663,
+            "text": "Read"
+          },
+          {
+            "end_sample": 78164,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 3116560,
+            "start_sample": 77914,
+            "text": "ACK"
+          },
+          {
+            "end_sample": 80168,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 3126600,
+            "start_sample": 78165,
+            "text": "Data read: 32"
+          },
+          {
+            "end_sample": 80419,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 3206760,
+            "start_sample": 80169,
+            "text": "ACK"
+          },
+          {
+            "end_sample": 82424,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 3216760,
+            "start_sample": 80419,
+            "text": "Data read: BB"
+          },
+          {
+            "end_sample": 82674,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 3296920,
+            "start_sample": 82423,
+            "text": "NACK"
+          },
+          {
+            "end_sample": 82847,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 3313880,
+            "start_sample": 82847,
+            "text": "Stop"
+          },
+          {
+            "end_sample": 84684,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 3387360,
+            "start_sample": 84684,
+            "text": "Start"
+          },
+          {
+            "end_sample": 86770,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 3400640,
+            "start_sample": 85016,
+            "text": "Address write: 62"
+          },
+          {
+            "end_sample": 87021,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 3470800,
+            "start_sample": 86770,
+            "text": "Write"
+          },
+          {
+            "end_sample": 87271,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 3480800,
+            "start_sample": 87020,
+            "text": "ACK"
+          },
+          {
+            "end_sample": 89275,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 3490840,
+            "start_sample": 87271,
+            "text": "Data write: 02"
+          },
+          {
+            "end_sample": 89526,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 3571000,
+            "start_sample": 89275,
+            "text": "ACK"
+          },
+          {
+            "end_sample": 89634,
+            "row": "1:I²C: Address/Data",
+            "start_ns": 3585360,
+            "start_sample": 89634,
+            "text": "Start repeat"
+          }
+        ],
+        "decoder": 4,
+        "next_offset": 50,
+        "offset": 0,
+        "total": 84
+      }
+    }
+  },
+  {
+    "method": "run_decoders",
+    "params": {},
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "decoders": [
+          {
+            "annotations": 405,
+            "index": 0,
+            "name": "1:I²C",
+            "progress": 100,
+            "rows": [
+              {
+                "id": "bits",
+                "title": "1:I²C: Bits"
+              },
+              {
+                "id": "addr-data",
+                "title": "1:I²C: Address/Data"
+              },
+              {
+                "id": "warnings",
+                "title": "1:I²C: Warnings"
+              },
+              {
+                "id": "bits-bytes",
+                "title": "24xx EEPROM: Bits/bytes"
+              },
+              {
+                "id": "fields",
+                "title": "24xx EEPROM: Fields"
+              },
+              {
+                "id": "ops",
+                "title": "24xx EEPROM: Operations"
+              },
+              {
+                "id": "warnings",
+                "title": "24xx EEPROM: Warnings"
+              }
+            ],
+            "stack": [
+              "1:i2c",
+              "eeprom24xx"
+            ]
+          },
+          {
+            "annotations": 517,
+            "index": 1,
+            "name": "1:UART",
+            "progress": 100,
+            "rows": [
+              {
+                "id": "data",
+                "title": "1:UART: RX/TX"
+              },
+              {
+                "id": "data-bits",
+                "title": "1:UART: Bits"
+              },
+              {
+                "id": "warnings",
+                "title": "1:UART: Warnings"
+              },
+              {
+                "id": "break",
+                "title": "1:UART: break"
+              }
+            ],
+            "stack": [
+              "1:uart"
+            ]
+          },
+          {
+            "annotations": 5192,
+            "index": 2,
+            "name": "1:SPI",
+            "progress": 100,
+            "rows": [
+              {
+                "id": "miso-bits",
+                "title": "1:SPI: MISO bits"
+              },
+              {
+                "id": "miso-data",
+                "title": "1:SPI: MISO data"
+              },
+              {
+                "id": "miso-transfer",
+                "title": "1:SPI: MISO transfer"
+              },
+              {
+                "id": "mosi-bits",
+                "title": "1:SPI: MOSI bits"
+              },
+              {
+                "id": "mosi-data",
+                "title": "1:SPI: MOSI data"
+              },
+              {
+                "id": "mosi-transfer",
+                "title": "1:SPI: MOSI transfer"
+              },
+              {
+                "id": "other",
+                "title": "1:SPI: Other"
+              }
+            ],
+            "stack": [
+              "1:spi"
+            ]
+          },
+          {
+            "annotations": 2265,
+            "index": 3,
+            "name": "CAN-FD",
+            "progress": 100,
+            "rows": [
+              {
+                "id": "bits",
+                "title": "CAN-FD: Bits"
+              },
+              {
+                "id": "fields",
+                "title": "CAN-FD: Fields"
+              },
+              {
+                "id": "warnings",
+                "title": "CAN-FD: Warnings"
+              }
+            ],
+            "stack": [
+              "can-fd"
+            ]
+          },
+          {
+            "annotations": 300,
+            "index": 4,
+            "name": "1:I²C",
+            "progress": 100,
+            "rows": [
+              {
+                "id": "bits",
+                "title": "1:I²C: Bits"
+              },
+              {
+                "id": "addr-data",
+                "title": "1:I²C: Address/Data"
+              },
+              {
+                "id": "warnings",
+                "title": "1:I²C: Warnings"
+              }
+            ],
+            "stack": [
+              "1:i2c"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "method": "remove_decoder",
+    "params": {
+      "index": 4
+    },
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "removed": 4
+      }
+    }
+  },
+  {
+    "method": "save_session",
+    "params": {
+      "path": "$OUT/transcript.dsl"
+    },
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "path": "$OUT/transcript.dsl"
+      }
+    }
+  },
+  {
+    "method": "export_data",
+    "params": {
+      "path": "$OUT/transcript.csv"
+    },
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "path": "$OUT/transcript.csv"
+      }
+    }
+  },
+  {
+    "method": "open_file",
+    "params": {
+      "path": "$OUT/transcript.dsl"
+    },
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "channels": [
+          {
+            "index": 0,
+            "name": "SDA"
+          },
+          {
+            "index": 1,
+            "name": "SCL"
+          },
+          {
+            "index": 2,
+            "name": "2"
+          },
+          {
+            "index": 3,
+            "name": "3"
+          },
+          {
+            "index": 4,
+            "name": "4"
+          },
+          {
+            "index": 5,
+            "name": "UART"
+          },
+          {
+            "index": 6,
+            "name": "6"
+          },
+          {
+            "index": 7,
+            "name": "7"
+          },
+          {
+            "index": 8,
+            "name": "8"
+          },
+          {
+            "index": 9,
+            "name": "CAN-FD"
+          },
+          {
+            "index": 10,
+            "name": "10"
+          },
+          {
+            "index": 11,
+            "name": "11"
+          },
+          {
+            "index": 12,
+            "name": "CLK"
+          },
+          {
+            "index": 13,
+            "name": "CS#"
+          },
+          {
+            "index": 14,
+            "name": "MOSI"
+          },
+          {
+            "index": 15,
+            "name": "MISO"
+          }
+        ],
+        "decoders": [
+          {
+            "annotations": 405,
+            "index": 0,
+            "name": "1:I²C",
+            "progress": 100,
+            "rows": [
+              {
+                "id": "bits",
+                "title": "1:I²C: Bits"
+              },
+              {
+                "id": "addr-data",
+                "title": "1:I²C: Address/Data"
+              },
+              {
+                "id": "warnings",
+                "title": "1:I²C: Warnings"
+              },
+              {
+                "id": "bits-bytes",
+                "title": "24xx EEPROM: Bits/bytes"
+              },
+              {
+                "id": "fields",
+                "title": "24xx EEPROM: Fields"
+              },
+              {
+                "id": "ops",
+                "title": "24xx EEPROM: Operations"
+              },
+              {
+                "id": "warnings",
+                "title": "24xx EEPROM: Warnings"
+              }
+            ],
+            "stack": [
+              "1:i2c",
+              "eeprom24xx"
+            ]
+          },
+          {
+            "annotations": 517,
+            "index": 1,
+            "name": "1:UART",
+            "progress": 100,
+            "rows": [
+              {
+                "id": "data",
+                "title": "1:UART: RX/TX"
+              },
+              {
+                "id": "data-bits",
+                "title": "1:UART: Bits"
+              },
+              {
+                "id": "warnings",
+                "title": "1:UART: Warnings"
+              },
+              {
+                "id": "break",
+                "title": "1:UART: break"
+              }
+            ],
+            "stack": [
+              "1:uart"
+            ]
+          },
+          {
+            "annotations": 5192,
+            "index": 2,
+            "name": "1:SPI",
+            "progress": 100,
+            "rows": [
+              {
+                "id": "miso-bits",
+                "title": "1:SPI: MISO bits"
+              },
+              {
+                "id": "miso-data",
+                "title": "1:SPI: MISO data"
+              },
+              {
+                "id": "miso-transfer",
+                "title": "1:SPI: MISO transfer"
+              },
+              {
+                "id": "mosi-bits",
+                "title": "1:SPI: MOSI bits"
+              },
+              {
+                "id": "mosi-data",
+                "title": "1:SPI: MOSI data"
+              },
+              {
+                "id": "mosi-transfer",
+                "title": "1:SPI: MOSI transfer"
+              },
+              {
+                "id": "other",
+                "title": "1:SPI: Other"
+              }
+            ],
+            "stack": [
+              "1:spi"
+            ]
+          },
+          {
+            "annotations": 2265,
+            "index": 3,
+            "name": "CAN-FD",
+            "progress": 100,
+            "rows": [
+              {
+                "id": "bits",
+                "title": "CAN-FD: Bits"
+              },
+              {
+                "id": "fields",
+                "title": "CAN-FD: Fields"
+              },
+              {
+                "id": "warnings",
+                "title": "CAN-FD: Warnings"
+              }
+            ],
+            "stack": [
+              "can-fd"
+            ]
+          }
+        ],
+        "decoding": false,
+        "duration_s": 0.00524288,
+        "have_data": true,
+        "mode": "logic",
+        "samplerate": 25000000,
+        "samples": 131072,
+        "trigger_sample": 0,
+        "triggered": true
+      }
+    }
+  },
+  {
+    "method": "show_region",
+    "params": {
+      "end": 60000,
+      "start": 40000
+    },
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "shown": true
+      }
+    }
+  },
+  {
+    "method": "set_cursors",
+    "params": {
+      "samples": [
+        45147,
+        50223
+      ]
+    },
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "cursors": 2
+      }
+    }
+  },
+  {
+    "method": "set_cursors",
+    "params": {
+      "samples": []
+    },
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "cursors": 0
+      }
+    }
+  },
+  {
+    "method": "select_device",
+    "params": {
+      "index": 0
+    },
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "available_modes": [
+          "dso"
+        ],
+        "available_samplerates": [
+          100,
+          200,
+          500,
+          1000,
+          2000,
+          5000,
+          10000,
+          20000,
+          40000,
+          50000,
+          100000,
+          200000,
+          400000,
+          500000,
+          1000000,
+          2000000,
+          4000000,
+          5000000,
+          10000000,
+          20000000,
+          25000000,
+          40000000,
+          50000000,
+          100000000,
+          125000000
+        ],
+        "channels": [
+          {
+            "coupling": "ac",
+            "enabled": true,
+            "index": 0,
+            "name": "0",
+            "type": "dso",
+            "vdiv_mv": 1000
+          },
+          {
+            "coupling": "ac",
+            "enabled": true,
+            "index": 1,
+            "name": "1",
+            "type": "dso",
+            "vdiv_mv": 1000
+          }
+        ],
+        "device": {
+          "driver": "virtual-demo",
+          "kind": "demo",
+          "name": "Demo Oscilloscope"
+        },
+        "hardware_depth": 10000,
+        "mode": "dso",
+        "samplerate": 100000000,
+        "timebase_ns_per_div": 500
+      }
+    }
+  },
+  {
+    "method": "set_mode",
+    "params": {
+      "mode": "dso"
+    },
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "available_modes": [
+          "dso"
+        ],
+        "available_samplerates": [
+          100,
+          200,
+          500,
+          1000,
+          2000,
+          5000,
+          10000,
+          20000,
+          40000,
+          50000,
+          100000,
+          200000,
+          400000,
+          500000,
+          1000000,
+          2000000,
+          4000000,
+          5000000,
+          10000000,
+          20000000,
+          25000000,
+          40000000,
+          50000000,
+          100000000,
+          125000000
+        ],
+        "channels": [
+          {
+            "coupling": "ac",
+            "enabled": true,
+            "index": 0,
+            "name": "0",
+            "type": "dso",
+            "vdiv_mv": 1000
+          },
+          {
+            "coupling": "ac",
+            "enabled": true,
+            "index": 1,
+            "name": "1",
+            "type": "dso",
+            "vdiv_mv": 1000
+          }
+        ],
+        "device": {
+          "driver": "virtual-demo",
+          "kind": "demo",
+          "name": "Demo Oscilloscope"
+        },
+        "hardware_depth": 10000,
+        "mode": "dso",
+        "samplerate": 100000000,
+        "timebase_ns_per_div": 500
+      }
+    }
+  },
+  {
+    "method": "set_dso",
+    "params": {
+      "timebase_ns": 1000
+    },
+    "compare": "shape",
+    "response": {
+      "ok": {
+        "available_modes": [
+          "dso"
+        ],
+        "available_samplerates": [
+          100,
+          200,
+          500,
+          1000,
+          2000,
+          5000,
+          10000,
+          20000,
+          40000,
+          50000,
+          100000,
+          200000,
+          400000,
+          500000,
+          1000000,
+          2000000,
+          4000000,
+          5000000,
+          10000000,
+          20000000,
+          25000000,
+          40000000,
+          50000000,
+          100000000,
+          125000000
+        ],
+        "channels": [
+          {
+            "coupling": "ac",
+            "enabled": true,
+            "index": 0,
+            "name": "0",
+            "type": "dso",
+            "vdiv_mv": 1000
+          },
+          {
+            "coupling": "ac",
+            "enabled": true,
+            "index": 1,
+            "name": "1",
+            "type": "dso",
+            "vdiv_mv": 1000
+          }
+        ],
+        "device": {
+          "driver": "virtual-demo",
+          "kind": "demo",
+          "name": "Demo Oscilloscope"
+        },
+        "hardware_depth": 10000,
+        "mode": "dso",
+        "samplerate": 100000000,
+        "timebase_ns_per_div": 1000
+      }
+    }
+  },
+  {
+    "method": "start_capture",
+    "params": {
+      "timeout_s": 30
+    },
+    "compare": "shape",
+    "response": {
+      "ok": {
+        "channels": [
+          {
+            "index": 0,
+            "name": "0"
+          },
+          {
+            "index": 1,
+            "name": "1"
+          }
+        ],
+        "decoding": false,
+        "duration_s": 0.0001,
+        "have_data": true,
+        "mode": "dso",
+        "samplerate": 100000000,
+        "samples": 10000,
+        "trigger_sample": 0,
+        "triggered": true
+      }
+    }
+  },
+  {
+    "method": "read_waveform",
+    "params": {
+      "channel": 0,
+      "max_points": 16
+    },
+    "compare": "shape",
+    "response": {
+      "ok": {
+        "channel": 0,
+        "end": 9999,
+        "max_mv": [
+          1968.504,
+          1968.504,
+          1968.504,
+          1968.504,
+          1968.504,
+          1968.504,
+          1968.504,
+          1968.504,
+          1968.504,
+          1968.504,
+          1968.504,
+          1968.504,
+          1968.504,
+          1968.504,
+          1968.504,
+          5039.37
+        ],
+        "min_mv": [
+          -1968.504,
+          -1968.504,
+          -1968.504,
+          -1968.504,
+          -1968.504,
+          -1968.504,
+          -1968.504,
+          -1968.504,
+          -1968.504,
+          -1968.504,
+          -1968.504,
+          -1968.504,
+          -1968.504,
+          -1968.504,
+          -1968.504,
+          -1968.504
+        ],
+        "samplerate": 100000000,
+        "samples_per_point": 625,
+        "start": 0
+      }
+    }
+  },
+  {
+    "method": "measure_dso",
+    "params": {
+      "channel": 0
+    },
+    "compare": "shape",
+    "response": {
+      "ok": {
+        "channel": 0,
+        "measurements": {
+          "amplitude": "3.94V",
+          "burst_width": "99.50uS",
+          "fall_time": "250.00nS",
+          "frequency": "1.00MHz",
+          "high": "1.97V",
+          "low": "-1.97V",
+          "max": "1.97V",
+          "mean": "5.04V",
+          "min": "-1.97V",
+          "negative_duty": "49.00%",
+          "negative_overshoot": "0.00%",
+          "negative_width": "490.00nS",
+          "peak_to_peak": "3.94V",
+          "period": "1000.00nS",
+          "positive_duty": "51.00%",
+          "positive_overshoot": "0.00%",
+          "positive_width": "510.00nS",
+          "pulse_count": "100",
+          "rise_time": "249.90nS",
+          "rms": "13.90mV"
+        },
+        "note": "values are formatted as shown in DSView; '--' means not available"
+      }
+    }
+  },
+  {
+    "method": "stop_capture",
+    "params": {},
+    "compare": "exact",
+    "response": {
+      "ok": {
+        "working": false
+      }
+    }
+  },
+  {
+    "method": "no_such_method",
+    "params": {},
+    "compare": "exact",
+    "response": {
+      "err": "unknown method: no_such_method"
+    }
+  },
+  {
+    "method": "get_edges",
+    "params": {
+      "channel": "x"
+    },
+    "compare": "exact",
+    "response": {
+      "err": "this needs logic analyzer mode (set_mode logic)"
+    }
+  }
+]

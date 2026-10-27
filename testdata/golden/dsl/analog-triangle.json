@@ -1,0 +1,27 @@
+{
+  "channels": [
+    {
+      "enabled": true,
+      "index": 0,
+      "name": "0",
+      "type": "analog"
+    },
+    {
+      "enabled": true,
+      "index": 1,
+      "name": "1",
+      "type": "analog"
+    }
+  ],
+  "limit_samples": 133,
+  "mode": "analog",
+  "packets": {
+    "analog": 1,
+    "dso": 0,
+    "end": 1,
+    "logic": 0
+  },
+  "raw_samples": 133,
+  "raw_sha256": "a36bbc06568db7b99a238cf047537c3c10cd063734397adc3a1972a325dbea72",
+  "samplerate": 10
+}

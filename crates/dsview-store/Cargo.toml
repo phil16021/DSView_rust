@@ -1,0 +1,19 @@
+[package]
+name = "dsview-store"
+version.workspace = true
+description = "DSView sample stores: bit-packed logic captures with mip-maps, DSO and analog envelopes"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+proptest = "1"
+
+# `cargo bench -p dsview-store`: ingest and display timings (std timing, no
+# harness; the C++ comparison lived in dev/dsview-oracle up to tag c-final)
+[[bench]]
+name = "store"
+harness = false
