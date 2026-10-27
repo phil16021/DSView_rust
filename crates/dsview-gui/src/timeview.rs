@@ -1568,10 +1568,12 @@ impl TimeView {
                 egui::Sense::click_and_drag(),
             );
             // `mousePressEvent` on the label: select it and drag it, with
-            // Ctrl also the traces selected before
+            // Ctrl also the traces selected before. Inside the label itself:
+            // egui's hover margin would reach the trigger squares beside it
             if pressed
                 && resp.hovered()
                 && let Some(p) = pointer
+                && name.contains(p)
             {
                 let mut starts: Vec<(TraceRef, f64)> = Vec::new();
                 if ctrl {
@@ -1625,8 +1627,12 @@ impl TimeView {
         // unselects all
         if let Some(d) = &mut self.header_drag {
             let released = ui.input(|i| i.pointer.any_released());
+            // `mouseMoveEvent` only fires once the pointer moved: a click
+            // (also Ctrl+click to select) must not snap the traces to the
+            // grid, renumber them and clear the selection
             if let Some(p) = pointer
-                && let Some(m) = vlayout::header_drag(&d.starts, (p.y - d.down_y) as f64, ctrl)
+                && p.y != d.down_y
+                && let Some(m) = vlayout::header_drag(&d.starts, (p.y - d.down_y) as f64)
             {
                 d.moved = Some(m);
                 changed = true;

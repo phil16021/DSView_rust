@@ -884,10 +884,11 @@ impl App {
         egui::Panel::top("sampling").show(ui, |ui| {
             self.bar.show(ui, &self.session);
         });
-        // `SamplingBar::on_device_selected`: stop, offer to save, switch
+        // `SamplingBar::on_device_selected`: stop, offer to save (not with
+        // "don't ask to save", which Qt ignored here, F29), switch
         if let Some(h) = self.bar.switch_to.take() {
             self.session.stop_capture();
-            if !self.confirm_store(AfterSave::Device(h), false) {
+            if !self.confirm_store(AfterSave::Device(h), true) {
                 self.session.set_device(h);
             }
         }

@@ -1003,7 +1003,8 @@ fn header_drag_and_multi_select() {
     assert_eq!(second[2], first[0], "{second:?}");
     assert_eq!(second[0], first[1]);
     // Ctrl+click the (new) first trace, then press the second with Ctrl
-    // and drag it without: both go to the end
+    // and drag it with Ctrl still held: both go to the end (F29: Qt moved
+    // nothing while Ctrl was held)
     let rows = view.lock().unwrap().shown_rows().to_vec();
     let ctrl = egui::Modifiers {
         ctrl: true,
@@ -1027,10 +1028,6 @@ fn header_drag_and_multi_select() {
             harness.run();
         }
     }
-    ev(
-        &mut harness,
-        egui::Event::ModifiersChanged(egui::Modifiers::NONE),
-    );
     // the pair keeps its spacing: far enough for the upper one to pass the
     // last trace too
     let last = rows.last().unwrap().1 + (rows[1].1 - rows[0].1);
@@ -1039,11 +1036,12 @@ fn header_drag_and_multi_select() {
         ev(&mut harness, egui::Event::PointerMoved(egui::pos2(x, y)));
         harness.run();
     }
+    ev(&mut harness, button(last + 30.0, false, ctrl));
+    harness.run();
     ev(
         &mut harness,
-        button(last + 30.0, false, egui::Modifiers::NONE),
+        egui::Event::ModifiersChanged(egui::Modifiers::NONE),
     );
-    harness.run();
     harness.run();
     let third = order(&view.lock().unwrap());
     let n = third.len();

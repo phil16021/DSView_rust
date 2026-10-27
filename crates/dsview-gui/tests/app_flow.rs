@@ -102,6 +102,33 @@ fn device_switch_offers_to_save() {
     s.exit();
 }
 
+/// With "don't ask to save" set, choosing another device switches without
+/// the question, as closing and a detach do (F29: Qt asked here anyway).
+#[test]
+fn device_switch_respects_dont_ask() {
+    let s = dslogic_session();
+    capture(&s);
+    let (mut h, app) = harness(&s);
+    h.run();
+    let demo = s
+        .devices()
+        .0
+        .iter()
+        .find(|e| e.name == "Demo Logic")
+        .unwrap()
+        .handle;
+    {
+        let mut a = app.lock().unwrap();
+        let a = a.as_mut().unwrap();
+        a.options.dont_ask_save_on_exit = true;
+        a.bar.switch_to = Some(demo);
+    }
+    h.run();
+    assert!(h.query_by_label("Save captured data?").is_none());
+    assert_eq!(s.state().device.as_ref().unwrap().handle, demo);
+    s.exit();
+}
+
 /// Closing the window with unsaved hardware data asks first (and keeps
 /// the window); a second close of the same capture does not ask again.
 #[test]

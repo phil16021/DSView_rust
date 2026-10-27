@@ -259,20 +259,25 @@ impl LogOptions {
             && (self.save, self.level, self.append)
                 != (o.able_save_log, o.log_level, o.append_log_mode)
         {
-            o.able_save_log = self.save;
-            o.log_level = self.level;
-            o.append_log_mode = self.append;
+            apply_options(o, self.save, self.level, self.append);
             o.save();
-            set_level(self.level);
-            // Qt opens a newly enabled file in overwrite mode here,
-            // whatever "Append mode" says (F30)
-            if self.save {
-                enable_file(false);
-            }
-            set_file_enabled(self.save);
         }
         done
     }
+}
+
+/// The Log Options dialog's OK: the options, the level, and the file opened
+/// in the chosen mode. Qt opened a newly enabled file in overwrite mode
+/// whatever "Append mode" said (F30).
+pub fn apply_options(o: &mut crate::options::AppOptions, save: bool, level: i32, append: bool) {
+    o.able_save_log = save;
+    o.log_level = level;
+    o.append_log_mode = append;
+    set_level(level);
+    if save {
+        enable_file(append);
+    }
+    set_file_enabled(save);
 }
 
 #[cfg(test)]
@@ -329,6 +334,18 @@ mod tests {
         set_path(p.clone());
         clear();
         assert!(!p.exists());
+        // F30: Log Options with "Append mode" keeps the file's lines
+        std::fs::write(&p, "kept\n").unwrap();
+        set_path(p.clone());
+        apply_options(&mut o, true, 3, true);
+        dsview_drivers::sys::log(1, "appended");
+        let t = read();
+        assert!(t.starts_with("kept\n"), "{t}");
+        assert!(t.contains("DSViewR: appended"), "{t}");
+        // and without it starts the file over
+        set_path(p.clone());
+        apply_options(&mut o, true, 3, false);
+        assert!(!read().contains("kept"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

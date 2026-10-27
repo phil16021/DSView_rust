@@ -1611,3 +1611,14 @@ Other decoders that raise on unusual data are recorded as DEVIATIONS F35, a foll
     `protocol_list_options`, `decoder_show_buttons`.
 - **A flaky test fixed:** `decoder_show_buttons` assumed the decoder stack is rebuilt within one
   frame after OK; it now waits up to 10 s. It had failed under load twice in this session.
+
+## M7b: Qt quirks retired, part 4: F29/F30 GUI items (2026-10-27)
+
+| Item | Change | Test |
+|---|---|---|
+| Ctrl header drag (F29) | The selection drags with Ctrl held. Also fixed: a plain click on a header label no longer snaps the traces to the grid, renumbers them and clears the selection. A press selects only inside the label: egui's hover margin let a click on the left edge of the first trigger square select the trace too | `header_drag_and_multi_select`, snapshot `logic_trigger_squares` |
+| "Don't ask to save" (F29) | Choosing a device honours it | `app_flow::device_switch_respects_dont_ask` |
+| Log Options (F30) | The log file opens in the chosen append or overwrite mode | `log::tests::file_levels_and_clear` |
+| Window position (F30) | **Open:** with several monitors the existing check lacks the monitor positions (not available from egui). Follow-up task | — |
+
+**M7b B3 is done** except that multi-monitor item.

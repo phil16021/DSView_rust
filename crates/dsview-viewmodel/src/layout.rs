@@ -71,12 +71,10 @@ pub struct LayoutParams {
 pub const SIGNAL_SNAP_GRID: i64 = 10;
 
 /// `Header::mouseMoveEvent`: the traces dragged from offsets `starts` by
-/// `delta` pixels land on the grid; with Ctrl held they stay (Qt moves
-/// logic traces only without it). None when nothing moves.
-pub fn header_drag<T: Copy>(starts: &[(T, f64)], delta: f64, ctrl: bool) -> Option<Vec<(T, f64)>> {
-    if ctrl {
-        return None;
-    }
+/// `delta` pixels land on the grid. None when nothing moves. Ctrl makes no
+/// difference: it adds a trace to the selection at the press, and the
+/// selection then drags together (Qt moved nothing while Ctrl was held, F29).
+pub fn header_drag<T: Copy>(starts: &[(T, f64)], delta: f64) -> Option<Vec<(T, f64)>> {
     let snap = |y: f64| {
         let y = y as i64;
         // C integer division
@@ -257,14 +255,15 @@ mod tests {
     fn header_drag_snaps() {
         let starts = [(1, 33.0), (2, 70.0)];
         assert_eq!(
-            header_drag(&starts, 0.0, false).unwrap(),
+            header_drag(&starts, 0.0).unwrap(),
             vec![(1, 30.0), (2, 70.0)]
         );
         assert_eq!(
-            header_drag(&starts, 14.0, false).unwrap(),
+            header_drag(&starts, 14.0).unwrap(),
             vec![(1, 50.0), (2, 80.0)]
         );
-        assert!(header_drag(&[(1, 30.0)], 2.0, false).is_none());
-        assert!(header_drag(&starts, 40.0, true).is_none());
+        assert!(header_drag(&[(1, 30.0)], 2.0).is_none());
+        // F29: there is no Ctrl case any more; Qt moved nothing while Ctrl
+        // was held (the GUI test drags with Ctrl held)
     }
 }

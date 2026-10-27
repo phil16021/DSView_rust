@@ -552,10 +552,15 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
   range into whole blocks, writes the range's length and moves the trigger position by the
   range's start.
 - **Ctrl while dragging header labels.** `Header::mouseMoveEvent` moves logic traces only while
-  Ctrl is *not* held; Ctrl at the press only adds the trace to the selection. Ported as it is.
+  Ctrl is *not* held; Ctrl at the press only adds the trace to the selection.
+  - **Fixed 2026-10-27 (M7b):** the selection drags with Ctrl held too.
+  - Found on the way: a plain click, with no movement, snapped the traces to the 10 px grid,
+    renumbered them and cleared the selection. A move now starts only once the pointer moves.
+  - Test: `snapshot::header_drag_and_multi_select`, which drags with Ctrl held.
 - **"Don't ask to save" is not asked everywhere.** `SamplingBar::on_device_selected` offers to
   save without looking at `dontAskSaveOnExit`; a detach, a new device and closing the window do.
-  Ported as it is.
+  - **Fixed 2026-10-27:** choosing a device honours it too.
+  - Test: `app_flow::device_switch_respects_dont_ask`.
 - **Hover snapping ignores the trigger.** `View::eventFilter` snaps the hover point to multiples
   of the smallest ruler period counted from sample 0, while the ruler counts from the trigger.
   - **Fixed 2026-10-27:** the hover point snaps to the ruler's minor ticks, counted from the
@@ -571,13 +576,19 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
   Rust keeps a map without a cap, which is the same in effect.
 - **Log Options opens a new log file in overwrite mode.** On OK, `on_action_setting_log` calls
   `dsv_log_enalbe_logfile(false)` whatever "Append mode" says. The setting only takes effect at
-  the next start. Ported as is.
+  the next start.
+  - **Fixed 2026-10-27:** the file opens in the chosen mode (`log::apply_options`).
+  - Test: `log::tests::file_levels_and_clear`.
 - **The manual for German does not exist.** `MainWindow::openDoc` opens `ug<language>.pdf`, but
   only `ug25.pdf` and `ug31.pdf` ship, so German opens nothing. Rust falls back to the English
   guide.
 - **The window position can be off every screen.** The saved `x`/`left` comes from whichever
   monitor the window was last on; `ReadSettings` moves it back when it shows less than 70 × 70 px
   of the screen. Ported.
+  - **Open (2026-10-27):** with several monitors the check can misfire. egui reports only the
+    current monitor's size, not its position, so a window correctly on a second monitor is judged
+    as if that monitor started at (0, 0), and may be moved to the first.
+  - The fix needs the monitor layout from winit; tracked as a follow-up.
 
 ### F31. Runtime findings (M6g)
 - **A missing FPGA bitstream shows as a USB error.** `dsl_fpga_config` sets
