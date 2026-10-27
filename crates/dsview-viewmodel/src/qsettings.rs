@@ -198,19 +198,32 @@ pub fn window_rect(
     (w >= 300 && h >= 70).then_some((x, y.max(0), w, h))
 }
 
-/// `ReadSettings`' screen check: a window (x, y, w, h) showing less than
-/// 70 × 70 px of a `screen_w` × `screen_h` screen is moved to the screen's
-/// middle (its size kept, at most the screen's). None when it is fine.
-pub fn onto_screen(win: (f32, f32, f32, f32), screen_w: f32, screen_h: f32) -> Option<(f32, f32)> {
+/// A monitor: x, y, width, height on the virtual desktop, in the window's
+/// units.
+pub type Screen = (f32, f32, f32, f32);
+
+/// `ReadSettings`' screen check over every monitor: a window (x, y, w, h)
+/// that shows less than 70 × 70 px on each of `screens` is moved to the
+/// middle of `primary` (its size kept, at most the screen's). None when it
+/// is fine, or when there is no layout to judge by.
+pub fn onto_screen(
+    win: (f32, f32, f32, f32),
+    screens: &[Screen],
+    primary: Screen,
+) -> Option<(f32, f32)> {
     let (x, y, w, h) = win;
-    let iw = (x + w).min(screen_w) - x.max(0.0);
-    let ih = (y + h).min(screen_h) - y.max(0.0);
-    if iw >= 70.0 && ih >= 70.0 {
+    let shows = |&(sx, sy, sw, sh): &Screen| {
+        let iw = (x + w).min(sx + sw) - x.max(sx);
+        let ih = (y + h).min(sy + sh) - y.max(sy);
+        iw >= 70.0 && ih >= 70.0
+    };
+    if screens.is_empty() || screens.iter().any(shows) {
         return None;
     }
+    let (px, py, pw, ph) = primary;
     Some((
-        ((screen_w - w.min(screen_w)) / 2.0).max(0.0),
-        ((screen_h - h.min(screen_h)) / 2.0).max(0.0),
+        px + ((pw - w.min(pw)) / 2.0).max(0.0),
+        py + ((ph - h.min(ph)) / 2.0).max(0.0),
     ))
 }
 
@@ -304,16 +317,48 @@ openDir=/home/user/caf\x00e9
 
     #[test]
     fn window_back_onto_the_screen() {
+        const PRIMARY: Screen = (0.0, 0.0, 1920.0, 1080.0);
+        const RIGHT: Screen = (1920.0, 0.0, 2560.0, 1440.0);
+        const LEFT: Screen = (-1920.0, 0.0, 1920.0, 1080.0);
+        let all = [PRIMARY, RIGHT, LEFT];
+        let only = [PRIMARY];
         assert_eq!(
-            onto_screen((100.0, 50.0, 1200.0, 800.0), 1920.0, 1080.0),
+            onto_screen((100.0, 50.0, 1200.0, 800.0), &all, PRIMARY),
             None
         );
-        // a monitor that is gone (left of this one)
+        // on a secondary monitor right or left of the primary: stays
         assert_eq!(
-            onto_screen((-1701.0, 0.0, 1035.0, 525.0), 1920.0, 1080.0),
+            onto_screen((2000.0, 100.0, 1200.0, 800.0), &all, PRIMARY),
+            None
+        );
+        assert_eq!(
+            onto_screen((-1701.0, 0.0, 1035.0, 525.0), &all, PRIMARY),
+            None
+        );
+        // the same windows once their monitor is gone
+        assert_eq!(
+            onto_screen((-1701.0, 0.0, 1035.0, 525.0), &only, PRIMARY),
             Some((442.5, 277.5))
         );
-        // 60 px visible at the right edge
-        assert!(onto_screen((1860.0, 0.0, 800.0, 600.0), 1920.0, 1080.0).is_some());
+        assert_eq!(
+            onto_screen((2500.0, 100.0, 1200.0, 800.0), &only, PRIMARY),
+            Some((360.0, 140.0))
+        );
+        // 60 px visible at the right edge, no monitor beyond
+        assert!(onto_screen((1860.0, 0.0, 800.0, 600.0), &only, PRIMARY).is_some());
+        // 60 px on each of two monitors is 70 px on neither
+        assert!(onto_screen((1860.0, 0.0, 120.0, 600.0), &all, PRIMARY).is_some());
+        // a primary that is not at the origin
+        assert_eq!(
+            onto_screen((-5000.0, 0.0, 1200.0, 800.0), &all, RIGHT),
+            Some((2600.0, 320.0))
+        );
+        // a window larger than the primary goes to its corner
+        assert_eq!(
+            onto_screen((9000.0, 0.0, 3000.0, 2000.0), &only, PRIMARY),
+            Some((0.0, 0.0))
+        );
+        // no layout: nothing to judge by
+        assert_eq!(onto_screen((9000.0, 0.0, 800.0, 600.0), &[], PRIMARY), None);
     }
 }

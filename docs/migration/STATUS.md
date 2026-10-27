@@ -940,7 +940,8 @@ the demo transcript is unchanged.
   - The language comes from the locale when none is stored.
   - Checked on the real `DSView.conf` of this machine, in a copy.
 - **Window:** the last normal rectangle and the maximised state are restored. A window that shows
-  less than 70 × 70 px of the screen moves to its middle (Qt's check). The rectangle is saved when
+  less than 70 × 70 px on every monitor moves to the primary's middle (Qt's check; see M7b
+  below). The rectangle is saved when
   the window closes.
 - **Persisted view state:** trace height factor and DSO split.
 - **File dialogs:** each starts in the directory its kind used last: open, save, export, sessions,
@@ -1611,3 +1612,19 @@ Other decoders that raise on unusual data are recorded as DEVIATIONS F35, a foll
     `protocol_list_options`, `decoder_show_buttons`.
 - **A flaky test fixed:** `decoder_show_buttons` assumed the decoder stack is rebuilt within one
   frame after OK; it now waits up to 10 s. It had failed under load twice in this session.
+
+## M7b: the off-screen window check uses every monitor (2026-10-27)
+
+- **The bug:** the start-up check (DEVIATIONS F30) only knew the current monitor's size, and treated
+  it as if it started at (0, 0). So a window on a second monitor, right or left of the primary, was
+  moved to the primary on every start.
+- **The fix:** `main` runs eframe's winit event loop itself (`eframe::create_native`) and reads
+  every monitor and the primary before the window opens. `qsettings::onto_screen` keeps a window
+  that shows 70 × 70 px on any monitor, and moves any other to the primary's middle. Wayland gives
+  no layout, so there the check is skipped.
+- **Tests:**
+  - `qsettings::tests::window_back_onto_the_screen`: right and left secondary monitors, a removed
+    monitor, a window split over two monitors, a primary away from the origin, no layout;
+  - by hand under Xvfb: a window saved at x=2500 on a 1920 px screen moves to (360, 140); one at
+    x=2000 on a 3840 px screen stays;
+  - `--bench` exits cleanly through the new event loop.

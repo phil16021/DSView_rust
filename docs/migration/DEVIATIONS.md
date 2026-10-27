@@ -577,7 +577,11 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
   guide.
 - **The window position can be off every screen.** The saved `x`/`left` comes from whichever
   monitor the window was last on; `ReadSettings` moves it back when it shows less than 70 × 70 px
-  of the screen. Ported.
+  of the screen. Ported, against every monitor winit reports at start: a window that shows
+  70 × 70 px on one of them stays, so one on a secondary monitor (right or left of the primary)
+  keeps its place, and any other moves to the middle of the primary. egui only gives the current
+  monitor's size, not its position, so `main` runs eframe's event loop itself to read the layout.
+  Without a layout (Wayland, where clients cannot place their windows) the check is skipped.
 
 ### F31. Runtime findings (M6g)
 - **A missing FPGA bitstream shows as a USB error.** `dsl_fpga_config` sets
