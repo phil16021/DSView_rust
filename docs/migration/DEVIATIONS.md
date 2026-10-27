@@ -427,7 +427,9 @@ running the C driver against the simulated device.
   - `dso_tune()`: nothing sets `devc->tune`.
   - The DSO and DAQ branches of `dslogic.c`: no DSLogic profile offers those modes.
 - **Re-opening an open device** claims the interface again and repeats the FPGA and security checks.
-  Ported as is.
+  The Rust driver uses the open handle (no second claim) and repeats the checks.
+  - **Kept (M7b review, 2026-10-27):** the repeated checks only read the device's state, and the
+    DSCope/MSO-E8 open path cannot be tested on hardware here, so it stays as it is.
 
 ### F25. GUI session and decoder-stack defects (Phase 4b)
 Found while porting `SigSession`, `DecoderStack`, `SamplingBar` and `DsoSignal` for
@@ -484,14 +486,23 @@ Found while porting `SigSession`, `DecoderStack`, `SamplingBar` and `DsoSignal` 
 - **Stale entries after a shorter frame.** `append_payload_to_envelope_levels` computes only from
   the previous length onwards.
   - When a non-instant frame is shorter than the one before (and `samplerate_tog` is not set),
-    nothing is recomputed, and the shorter frame shows the previous frame's envelope.
-  - Ported as is.
+    nothing is recomputed, and the shorter frame shows the previous frame's envelope. A longer
+    frame keeps the old envelope up to the previous length.
+  - **Fixed 2026-10-27 (M7b):** a frame that replaces the previous one gets its envelope computed
+    whole; only instant captures, which append, extend it.
+  - Test: `dso::tests::envelope_follows_each_frame` (fails before the fix: the shorter frame showed
+    the previous frame's values).
 - **One short channel ends the update for all.** If a channel has fewer than 256 samples, the
-  function returns before the other channels and before marking the envelope as built. Ported as
-  is.
+  function returns before the other channels and before marking the envelope as built.
+  - **Fixed 2026-10-27:** all channels have the frame's length, so this means a frame shorter than
+    one entry. Every level is now emptied, so no level keeps an older frame's length; the same for
+    the levels above the last one a frame fills.
 - **The section index is a storage position.** `get_envelope_section(probe_index)` indexes
   channels by storage position. `DsoSignal` passes `index % enabled channels`, which matches only
   while the enabled channels are numbered from 0.
+  - **Fixed 2026-10-27:** the DSO view looks the position up (`DsoStore::channel_order`). With
+    channels 1 and 3 of four enabled, both used to draw channel 3's envelope.
+  - Test: `dso::tests::envelope_by_storage_position`.
 
 ### F27. Quirks of the Qt time view (ported as they are)
 The Rust GUI's viewmodel reproduces these for parity; they are candidates for fixing after M6e.

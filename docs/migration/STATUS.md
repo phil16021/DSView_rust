@@ -1691,3 +1691,24 @@ over the strided copy (the copy is bound by memory bandwidth once page faults ar
 
 **Not verified here:** a DSLogic stream at its highest rate (the `ingest_waits` counter and
 `hwmatrix` need the hardware).
+
+## M7b: F24/F26 review (2026-10-27)
+
+**F26 (the DSO envelope), fixed** (`crates/dsview-store/src/dso.rs`, `crates/dsview-gui/src/dsoview.rs`):
+- a frame that replaces the previous one gets its whole envelope computed; DSView computed only
+  past the previous frame's length, so a frame of the same or a shorter length was drawn, zoomed
+  out, with the previous frame's envelope;
+- a frame shorter than one envelope entry, and the levels above the last one a frame fills, no
+  longer keep an older frame's lengths;
+- the DSO view finds a channel's envelope by its storage position instead of
+  `index % enabled channels` (with channels 1 and 3 enabled both drew channel 3).
+
+Tests: `dso::tests::envelope_follows_each_frame` (fails without the fix),
+`dso::tests::envelope_by_storage_position`.
+
+**F24 (DSCope driver):** every item but one was fixed in the Phase 3e port. Re-opening an open
+device repeats the FPGA and security checks (without the second interface claim). Kept: the checks
+only read state, and the path cannot be tested on DSCope hardware here.
+
+**B4 checks after the ingest redesign:** `xtask golden check` ok; `xtask control check` 38 steps
+against `dsview-cli serve --mcp`; `xtask mcp suite` 30 tools, 37 steps (headless `dsview-cli`).

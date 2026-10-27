@@ -166,6 +166,12 @@ impl DsoStore {
         self.last_ended = true;
     }
 
+    /// Channel `sig_index`'s storage position (the `probe_index` of
+    /// [`get_envelope_section`](Self::get_envelope_section)).
+    pub fn channel_order(&self, sig_index: i32) -> Option<usize> {
+        self.get_ch_order(sig_index)
+    }
+
     fn get_ch_order(&self, sig_index: i32) -> Option<usize> {
         self.ch_index.iter().position(|&i| i as i32 == sig_index)
     }
@@ -309,13 +315,17 @@ impl DsoStore {
     }
 
     /// `append_payload_to_envelope_levels`: the first level from the
-    /// samples, every further level from the one below. Only what was added
-    /// since the last call is computed, unless `header` or a length that did
-    /// not change asks for all of it. A channel whose frame is shorter than
-    /// one entry ends the whole update (and leaves the envelope not done),
-    /// as in C.
+    /// samples, every further level from the one below. Only what an instant
+    /// capture appended since the last call is computed, unless `header` or
+    /// a length that did not change asks for all of it; a frame that replaced
+    /// the previous one is computed whole (C computed only past the previous
+    /// frame's length, so a frame of the same or a shorter length kept the
+    /// old frame's envelope, F26). A frame shorter than one entry leaves the
+    /// envelope empty and not done; levels above the last one built are
+    /// emptied (C kept their old lengths).
     fn append_payload_to_envelope_levels(&mut self, header: bool) {
         let factor = ENVELOPE_SCALE_FACTOR as usize;
+        let header = header || !self.instant;
         for i in 0..self.channel_num as usize {
             let Some(levels) = self.envelope_levels.get_mut(i) else {
                 return;
@@ -324,6 +334,11 @@ impl DsoStore {
             let mut prev_length = if header { 0 } else { e0.length };
             e0.length = self.sample_count / ENVELOPE_SCALE_FACTOR;
             if e0.length == 0 {
+                // every channel has the frame's length
+                for e in levels.iter_mut() {
+                    e.length = 0;
+                }
+                self.envelope_done = false;
                 return;
             }
             if e0.length == prev_length {
@@ -350,6 +365,9 @@ impl DsoStore {
                 let mut prev_length = if header { 0 } else { e.length };
                 e.length = el.length / ENVELOPE_SCALE_FACTOR;
                 if e.length == 0 {
+                    for e in &mut upper[1..] {
+                        e.length = 0;
+                    }
                     break;
                 }
                 if e.length == prev_length {
@@ -467,5 +485,75 @@ mod tests {
         assert!(s.data_out_off_range());
         assert_eq!(s.get_max_min_value(1), Some((102, 100)));
         assert_eq!((s.get_block_num(), s.get_block_size(0)), (1, 6));
+    }
+
+    fn two_of_four() -> [DsoChannel; 4] {
+        [0, 1, 2, 3].map(|index| DsoChannel {
+            index,
+            enabled: index == 1 || index == 3,
+        })
+    }
+
+    /// Two channels' frame of `n` samples: channel 1 at `a`, channel 3 at `b`.
+    fn frame(n: usize, a: u8, b: u8) -> Vec<u8> {
+        (0..n).flat_map(|_| [a, b]).collect()
+    }
+
+    fn level0(s: &DsoStore, order: usize) -> (u64, EnvelopeSample) {
+        let e = s.get_envelope_section(0, s.sample_count(), 256.0, order);
+        (e.length, e.samples[0])
+    }
+
+    /// F26: each new (non-instant) frame gets its own envelope, whether it
+    /// is longer, as long or shorter than the one before.
+    #[test]
+    fn envelope_follows_each_frame() {
+        let mut s = DsoStore::new();
+        let chans = two_of_four();
+        s.first_payload(
+            &frame(4096, 10, 20),
+            4096,
+            4096,
+            &chans,
+            false,
+            false,
+            false,
+        );
+        s.enable_envelope(true);
+        assert_eq!(level0(&s, 0), (16, EnvelopeSample { min: 10, max: 10 }));
+        // same length
+        s.append_payload(&frame(4096, 30, 40), 4096, false);
+        assert_eq!(level0(&s, 0).1, EnvelopeSample { min: 30, max: 30 });
+        assert_eq!(level0(&s, 1).1, EnvelopeSample { min: 40, max: 40 });
+        // shorter
+        s.append_payload(&frame(2048, 50, 60), 2048, false);
+        assert_eq!(level0(&s, 0), (8, EnvelopeSample { min: 50, max: 50 }));
+        // shorter than one entry: no envelope, no stale one
+        s.append_payload(&frame(100, 70, 80), 100, false);
+        assert_eq!(s.get_envelope_section(0, 100, 256.0, 0).length, 0);
+        s.append_payload(&frame(4096, 1, 2), 4096, false);
+        assert_eq!(level0(&s, 1), (16, EnvelopeSample { min: 2, max: 2 }));
+    }
+
+    /// The envelope of an enabled channel is found by its storage position,
+    /// which `index % enabled channels` is not (channels 1 and 3 enabled:
+    /// both gave 1).
+    #[test]
+    fn envelope_by_storage_position() {
+        let mut s = DsoStore::new();
+        s.first_payload(
+            &frame(4096, 10, 20),
+            4096,
+            4096,
+            &two_of_four(),
+            false,
+            false,
+            false,
+        );
+        s.enable_envelope(true);
+        assert_eq!((s.channel_order(1), s.channel_order(3)), (Some(0), Some(1)));
+        assert_eq!(s.channel_order(2), None);
+        assert_eq!(level0(&s, s.channel_order(1).unwrap()).1.max, 10);
+        assert_eq!(level0(&s, s.channel_order(3).unwrap()).1.max, 20);
     }
 }

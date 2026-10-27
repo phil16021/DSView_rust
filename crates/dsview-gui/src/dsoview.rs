@@ -769,7 +769,6 @@ impl TimeView {
         );
         let envelope = sp.samples_per_pixel >= dso::ENVELOPE_THRESHOLD;
         store.enable_envelope(envelope);
-        let num_channels = store.channel_num().max(1) as usize;
         let o = |x: f32, y: f32| pos2(area.left() + x, area.top() + y);
         let mut frame: Vec<egui::Shape> = Vec::new();
         for c in chans.iter().filter(|c| c.enabled) {
@@ -778,11 +777,13 @@ impl TimeView {
             }
             let zero_y = c.zero_y();
             let shape = if envelope {
+                // by storage position (DSView passed `index % enabled`, F26)
+                let order = store.channel_order(c.sig.index as i32).unwrap_or(0);
                 let e = store.get_envelope_section(
                     sp.start as u64,
                     sp.end as u64,
                     sp.samples_per_pixel as f32,
-                    c.sig.index as usize % num_channels,
+                    order,
                 );
                 dso::envelope_shape(&c.geom, &e, &sp, zero_y, c.hw_offset, 0)
             } else {

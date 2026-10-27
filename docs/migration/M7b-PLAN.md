@@ -54,7 +54,7 @@ F-numbers refer to DEVIATIONS.md; PLAN.md's M7b section stays the summary and li
 ### B3. Qt-parity quirks to retire (F27/F29/F30)
 
 ✔ Done 2026-10-27, except the multi-monitor window position (F30, follow-up): see STATUS "Qt quirks
-retired", parts 1–4. F24/F26 (item 6) are not reviewed yet.
+retired", parts 1–4. F24/F26 (item 6) reviewed 2026-10-27: F26's three envelope defects fixed, F24's re-open kept.
 
 1. **Ruler and viewport:**
    - 1-2-5 ruler steps;
@@ -75,7 +75,7 @@ retired", parts 1–4. F24/F26 (item 6) are not reviewed yet.
 5. **Log and window (F30):**
    - Log Options appends instead of truncating;
    - clamp the window position to a visible screen.
-6. **F24/F26:** decide fix or keep for DSCope re-open and the DSO envelope quirks. Each decision is
+6. ✔ **F24/F26:** decide fix or keep for DSCope re-open and the DSO envelope quirks. Each decision is
    recorded in DEVIATIONS.
 
 ### B4. Performance decisions (M7b)
