@@ -1491,7 +1491,8 @@ stays a manual hardware step.
   - the GUI snapshots are unchanged.
 - **Seen in passing:** `hotplug::detach_during_capture` failed 2 times in 46 runs with this change
   and 0 in 21 without. Its 3 s waits are timing-sensitive and it does not use `Session`, so this
-  looks like an existing flake; to be watched.
+  looks like an existing flake; to be watched. Since then: it was a race in the library, fixed
+  (see "M7b: detach during a capture" below).
 
 ## M7b: F8, F19, F21, F25, F28 fixed (2026-10-27)
 
@@ -1868,3 +1869,41 @@ graycode's `ChannelMapError`, `rgb_led_ws281x` color-order options, and `ir_irmp
   - by hand under Xvfb: a window saved at x=2500 on a 1920 px screen moves to (360, 140); one at
     x=2000 on a 3840 px screen stays;
   - `--bench` exits cleanly through the new event loop.
+
+## M7b: detach during a capture, a race in the library (2026-10-27)
+
+- **Symptom:** `hotplug::detach_during_capture` failed 2 times in 46 runs (`wait_for` panic). Under
+  load (16 loops in parallel) it failed 1 time in 400, always as `timed out: ended by detach`. The
+  host had received `COLLECT_TASK_END` (102) instead of `COLLECT_TASK_END_BY_DETACHED` (105).
+- **Cause:** a real race, not a slow test. After an unplug, two threads act on the same capture:
+  - the hotplug thread handles the departure. If the capture is still running, it sets
+    `stop_by_detached` and stops it;
+  - the collect thread sees its transfers fail (`Disconnected`), so the DSLogic driver ends the
+    capture on its own. The thread then clears `collecting` and reads `stop_by_detached`.
+
+  The detach was lost in two ways:
+  - when the collect thread finished first, the flag was never set;
+  - when it finished between the hotplug thread's `is_collecting()` check and setting the flag,
+    the flag was set too late. It then stayed set and would have labelled the next capture's end
+    as a detach.
+
+  C (`lib_main.c`) has the same code and the same race. A 300 ms delay in the hotplug thread made
+  the test fail on every run.
+- **Fix** (`dsview-session` `library.rs`):
+  - the hotplug thread checks `is_collecting()` and sets the flag under the state lock. The collect
+    thread clears `collecting` and takes the flag under the same lock, so the flag cannot be lost
+    or left over;
+  - a capture that ended on its own counts as ended by detach when its USB device is no longer in
+    the USB list (`usb_gone`).
+
+  The test's timeouts are unchanged. DEVIATIONS.md has a row for this.
+- **Checked:**
+  - with the 300 ms delay the test now passes;
+  - 800 of 800 runs passed under the same parallel load, and 200 consecutive runs of
+    `cargo test -p dsview-session --test hotplug` passed;
+  - workspace tests pass, and clippy `-D warnings` is clean;
+  - the GUI snapshot tests need a Vulkan adapter (lavapipe here).
+- **Merged with the same-day fix from `edf5f5da`** (section "M7b B7: CI hardening, and two flaky
+  tests fixed"). The combined code: the flag is set and taken under one lock (this section); the
+  bus check applies only when no stop was asked, so a user's stop is not relabelled as a detach;
+  and `start_collect` also clears the flag.

@@ -609,9 +609,16 @@ impl Library {
                 let active_here = self.active().is_some_and(|a| {
                     matches!(a.kind, Kind::Usb { bus: b, address: ad, .. } if b == bus && ad == address)
                 });
-                if active_here && self.is_collecting() {
+                // checked and flagged under the state lock: collect_run()
+                // decides how the capture ended under it too, so the flag is
+                // neither lost nor left over for the next capture
+                let stop = active_here && {
+                    let mut st = self.state();
+                    st.stop_by_detached = self.is_collecting();
+                    st.stop_by_detached
+                };
+                if stop {
                     sr_info!("The collecting device is detached, will stop the collect thread.");
-                    self.state().stop_by_detached = true;
                     let _ = self.release_actived_device();
                 }
                 let mut st = self.state();
@@ -888,26 +895,16 @@ impl Library {
             }
         }
         sr_info!("Collect thread end.");
-        self.inner.collecting.store(false, Ordering::Release);
-        let mut detached = std::mem::take(&mut self.state().stop_by_detached);
-        // the transfers can fail and end the capture before the hotplug
-        // thread hears of the unplug (C has the same race): a capture that
-        // ended on its own while its device is off the bus ended by detach
-        if !detached
-            && !error
-            && !stop.load(Ordering::Acquire)
-            && let Kind::Usb { bus, address, .. } = e.kind
-        {
-            let present = self
-                .inner
-                .usb
-                .list()
-                .map(|l| l.iter().any(|i| i.bus == bus && i.address == address));
-            if present == Ok(false) {
-                sr_info!("The collecting device is gone: the capture ended by detach.");
-                detached = true;
-            }
-        }
+        let flagged = {
+            let mut st = self.state();
+            self.inner.collecting.store(false, Ordering::Release);
+            std::mem::take(&mut st.stop_by_detached)
+        };
+        // The driver can see its transfers fail before the hotplug thread
+        // handles the departure (C has the same race): a capture that ended
+        // on its own (no stop asked) while its USB device is no longer listed
+        // has been detached as well.
+        let detached = flagged || (!error && !stop.load(Ordering::Acquire) && self.usb_gone(&e));
         if error {
             host.event(event::COLLECT_TASK_END_BY_ERROR);
         } else if detached {
@@ -915,6 +912,17 @@ impl Library {
         } else {
             host.event(event::COLLECT_TASK_END);
         }
+    }
+
+    /// A USB device that is no longer at its location in the USB list.
+    fn usb_gone(&self, e: &Entry) -> bool {
+        let Kind::Usb { bus, address, .. } = e.kind else {
+            return false;
+        };
+        self.inner
+            .usb
+            .list()
+            .is_ok_and(|l| !l.iter().any(|i| (i.bus, i.address) == (bus, address)))
     }
 
     /// `sr_session_stop()`: asks the capture to stop, without waiting (also
