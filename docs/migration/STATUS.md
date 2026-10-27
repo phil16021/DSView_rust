@@ -1537,3 +1537,36 @@ the stored golden.
 
 **Not covered:** no PJDL, GPIB, FlexRay or PCA9571/TCA6408A capture is in the tree, so those
 decoders are covered by the engine tests only.
+
+## M7b: F16 decoder fixes and the decoder soak (2026-10-27)
+
+**Fixes** (each with a test in `dsview-decode/tests/decoder_hangs.rs` that failed before it):
+
+| Decoder | Failure | Fix |
+|---|---|---|
+| `gpib` | Looped forever with `sample_total` | The skip condition is dropped once the sample is reached |
+| `ltc26x7` | Looped forever with a growing list on a low I²C address | Such addresses are annotated as unknown |
+| `lfast` | NameError on its second edge (also hid `sipi`) | The timeout check tests the right bit |
+| `ir_irmp` | Unclear failure; `__del__` raised AttributeError | Clear "IRMP library not installed; needs libirmp.so" error, quiet `__del__`. No C library bundled, the user's decision |
+
+**Not reproduced:** `onewire_link` and `midi`.
+
+**Decoder soak:**
+- What it does: every decoder on random captures with random options and chunk sizes, each stack
+  limited to 10 s and each process to 2 GB; it reports hangs, deaths and Python errors with what
+  replays them.
+- Where: `cargo xtask decoders soak` (`dev/dsview-testkit/src/bin/decoder-soak.rs`). It is the
+  former `decode-diff` generator without the C side.
+- Runs nightly: 100 runs with a moving seed, in `fuzz-nightly.yml`.
+- `DSVIEW_DECODER_DIR` points the testkit at another decoder directory.
+
+**Soak results**, 200 runs from seed 100000 (30 600 stacks):
+
+| | Hangs | Python errors |
+|---|---|---|
+| Before | 34 (`gpib` 18, `ltc26x7` 16) | `lfast` failed in 199 runs, `sipi` in 200 |
+| After | 0 | `lfast` 0, `sipi` 0 |
+
+Other decoders that raise on unusual data are recorded as DEVIATIONS F35, a follow-up.
+
+**Checked:** workspace tests (249) and clippy `-D warnings`, golden check unchanged.

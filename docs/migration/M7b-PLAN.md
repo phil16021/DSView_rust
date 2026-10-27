@@ -40,7 +40,8 @@ F-numbers refer to DEVIATIONS.md; PLAN.md's M7b section stays the summary and li
    - Implement it.
    - List every annotation that changes under DEVIATIONS "Planned deviations".
    - Re-bless `testdata/golden/decode` deliberately, with `xtask golden bless` and a reviewed diff.
-6. **F16 Python decoder bugs:**
+6. ✔ (done 2026-10-27; `onewire_link` and `midi` not reproduced, see DEVIATIONS F16; new
+   findings in F35) **F16 Python decoder bugs:**
    - infinite loops in `gpib`, `onewire_link` and `ltc26x7`, plus unbounded memory in
      `onewire_link`;
    - a `midi` hang;

@@ -224,9 +224,41 @@ be negative.
 In DSView the decode never finishes, and in the case of `onewire_link` memory grows until the process
 is killed (seen at about 4 GB). These are bugs in the Python decoders, not in either engine.
 
+**Fixed 2026-10-27 (M7b)** in the shipped decoders; each change is marked `DSViewR F16` and is to be
+sent upstream.
+
+| Decoder | Cause | Fix |
+|---|---|---|
+| `gpib` | With `sample_total` set, the skip count reaches 0 at that sample, and `skip: 0` returns the same sample again, forever | Drop the skip condition once the sample is reached |
+| `ltc26x7` | An I²C address below the chip's range gives a negative `addr`. `convert_ternary_str`'s `divmod(n, 3)` stays at -1, so it loops while its list grows | Addresses outside 0..26 are annotated "Unknown address"; the conversion guards n ≤ 0 |
+| `onewire_link` | Not reproduced | — |
+| `midi` | Not reproduced | — |
+
+- **Tests:** `dsview-decode/tests/decoder_hangs.rs`, one minimal input per decoder. Each hung before
+  the fix; a watchdog aborts the test after 20 s.
+- **`onewire_link` and `midi`:** not reproduced:
+  - the decoder soak hung on neither in 200 runs (30 600 stacks);
+  - `onewire_link` also ran on the demo's signals with the option at 2, 0.5, 0 and -1 µs;
+  - the Phase 2 `onewire_link` case predates the engine fixes;
+  - the nightly soak keeps watching both.
+- **Decoder soak** (`cargo xtask decoders soak`, `dev/dsview-testkit/src/bin/decoder-soak.rs`, the
+  former `decode-diff` generator without the C side), 200 runs from seed 100000:
+
+  | | Hangs | Notes |
+  |---|---|---|
+  | Before the fixes | 34 of 30 600 stacks (`gpib` 18, `ltc26x7` 16) | `lfast` failed in 199 runs and `sipi`, stacked on it, in 200 |
+  | After | 0 | |
+
 Other decoder failures seen identically in both engines:
 - `lfast`: NameError, `bMoreMatch` is not defined.
+  - **Fixed 2026-10-27:** the timeout check is `self.matched & 0b10`. The old text,
+    `& 0b10 == 0b10`, also tested bit 0 by precedence.
+  - Test: `decoder_hangs::lfast_runs_past_its_first_edges`.
 - `ir_irmp`: needs `libirmp.so`, which is not built.
+  - **Decision 2026-10-27 (user):** DSViewR ships no C, so the library is not bundled.
+  - The decoder now fails with "IRMP library not installed; ir_irmp needs libirmp.so (…)".
+  - It works for anyone who installs libirmp.
+  - Test: `decoder_hangs::ir_irmp_without_its_library_says_so`.
 - `pca9571` and `tca6408a`: need `OUTPUT_LOGIC`, which DSView's engine does not have.
   - **Added 2026-10-27 (M7b):** `srd.OUTPUT_LOGIC` (4, as libsigrokdecode). Puts are checked
     (`[channel, bytes]`, the channel one of `logic_output_channels`) and go to an `OUTPUT_LOGIC`
@@ -235,6 +267,9 @@ Other decoder failures seen identically in both engines:
   - Tests: `tests/logic_output.rs`. Without the constant, `pca9571` failed in `start()` with the
     AttributeError.
 - `ir_irmp`'s `__del__` raises AttributeError at exit.
+  - **Fixed 2026-10-27:** `getattr(self, '_inst', None)`; after a failed `LoadLibrary()` the
+    attribute does not exist.
+  - Test: `decoder_hangs::irmp_library_del_after_failed_load_is_quiet`.
 
 ### F17. Whether a pending wait() error survives depends on CPython's type cache
 **Moot since 2026-10-27:** the F14 fix leaves no error pending.
@@ -598,6 +633,24 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
 - **Rust:** `dsview_session::Library` owns its devices, so there is nothing to dangle.
 - The oracle now starts the library once per process and opens the next file as DSView does
   (`csrc/oracle_dsl.c`). The goldens are unchanged.
+
+### F35. Decoders that raise on unusual data (decoder soak, 2026-10-27)
+The first decoder soak (200 runs from seed 100000) found decoders that stop with a Python exception
+on data or options they did not expect. Each stops only its own stack. Not fixed yet; tracked as a
+follow-up.
+
+| Decoder | Runs | Exception |
+|---|---|---|
+| `st7735` | 61 | `KeyError` for an unknown command byte (`META[cmd]`) |
+| `spdif` | 77 | `ValueError` from `int(bits, 2)` on a bit string with digits other than 0/1 |
+| `fsi` | 18 | `AttributeError`: `direction` read before it is set |
+| `i2s` | 7 | `struct.error`: a sample outside `'<I'` |
+| `seven_segment` | 31 | `IndexError` |
+| `smart_qspi` | 4 | `IndexError` |
+
+Expected configuration errors from random channel maps and options are not listed: SPI without
+MISO or MOSI, `ac97`, `ieee488`, `graycode`'s contiguous channels, and `rgb_led_ws281x`'s colour
+orders.
 
 ## Planned behaviour deviations (Rust intentionally differs)
 
