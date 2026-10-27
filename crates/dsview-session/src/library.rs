@@ -609,9 +609,16 @@ impl Library {
                 let active_here = self.active().is_some_and(|a| {
                     matches!(a.kind, Kind::Usb { bus: b, address: ad, .. } if b == bus && ad == address)
                 });
-                if active_here && self.is_collecting() {
+                // checked and flagged under the state lock: collect_run()
+                // decides how the capture ended under it too, so the flag is
+                // neither lost nor left over for the next capture
+                let stop = active_here && {
+                    let mut st = self.state();
+                    st.stop_by_detached = self.is_collecting();
+                    st.stop_by_detached
+                };
+                if stop {
                     sr_info!("The collecting device is detached, will stop the collect thread.");
-                    self.state().stop_by_detached = true;
                     let _ = self.release_actived_device();
                 }
                 let mut st = self.state();
@@ -888,8 +895,15 @@ impl Library {
             }
         }
         sr_info!("Collect thread end.");
-        self.inner.collecting.store(false, Ordering::Release);
-        let detached = std::mem::take(&mut self.state().stop_by_detached);
+        let flagged = {
+            let mut st = self.state();
+            self.inner.collecting.store(false, Ordering::Release);
+            std::mem::take(&mut st.stop_by_detached)
+        };
+        // The driver can see its transfers fail before the hotplug thread
+        // handles the departure (C has the same race): a USB device no
+        // longer listed has been detached as well.
+        let detached = flagged || (!error && self.usb_gone(&e));
         if error {
             host.event(event::COLLECT_TASK_END_BY_ERROR);
         } else if detached {
@@ -897,6 +911,17 @@ impl Library {
         } else {
             host.event(event::COLLECT_TASK_END);
         }
+    }
+
+    /// A USB device that is no longer at its location in the USB list.
+    fn usb_gone(&self, e: &Entry) -> bool {
+        let Kind::Usb { bus, address, .. } = e.kind else {
+            return false;
+        };
+        self.inner
+            .usb
+            .list()
+            .is_ok_and(|l| !l.iter().any(|i| (i.bus, i.address) == (bus, address)))
     }
 
     /// `sr_session_stop()`: asks the capture to stop, without waiting (also

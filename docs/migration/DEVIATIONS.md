@@ -623,6 +623,7 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
 | DSLogic profile check | Reads manufacturer/product over USB (GET_DESCRIPTOR) | Takes them from the OS device list (sysfs on Linux), so no USB traffic while scanning | 3d ✔ |
 | Library: a device that reconnects within 500 ms | Gets a new `ds_device_handle` (its new `libusb_device`) | Keeps its handle; only its bus address changes | 4a ✔ |
 | Library: USB events | libusb hotplug callbacks; the hotplug thread also pumps libusb events, so it can complete the drivers' transfers alongside the collect thread | nusb's hotplug stream on a thread of its own; transfers are completed only by their driver | 4a ✔ |
+| Library: a capture that ends because its device was unplugged | `DS_EV_COLLECT_TASK_END_BY_DETACHED` only if the hotplug callback runs before the collect thread ends; otherwise `COLLECT_TASK_END`, and the late flag can mark the next capture's end as a detach | Also when the device is gone from the USB list at the capture's end; the flag is set and read under one lock | M7b ✔ |
 | Library with `DSVIEW_IMPL_ACQ=rust` | — | Every device runs on its Rust driver (`DSVIEW_IMPL_DRV_*` apply to the C library only) | 4a ✔ |
 | DSLogic DSO and DAQ modes | Code in `dslogic.c`, unreachable: no DSLogic profile offers them (F24) | Not ported; setting such a mode fails | 3e ✔ |
 | DSLogic/DSCope common key without its channel (`PROBE_VDIV` etc. with `ch` NULL) | SR_ERR_NA (the driver's own switch is tried after `dsl_config_get()` fails) | Same (3d answered SR_ERR) | 3e ✔ |
