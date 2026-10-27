@@ -22,7 +22,29 @@ use dsview_viewmodel::viewport::{Timebase, Viewport};
 use eframe::egui::{self, Color32, Pos2, Rect, Stroke, Ui, pos2, vec2};
 
 pub const HEADER_WIDTH: f32 = 150.0;
+/// The logic view's header: wider than the others for the trigger squares.
+pub const LOGIC_HEADER_WIDTH: f32 = 190.0;
 pub const RULER_HEIGHT: f32 = 46.0;
+/// The logic header's trigger squares: side and centre-to-centre pitch.
+const TRIG_SIZE: f32 = 16.0;
+const TRIG_PITCH: f32 = 19.0;
+/// The trigger squares in header order: rising, high, falling, low, edge.
+pub const TRIG_TYPES: [i32; 5] = [
+    trig::RISING,
+    trig::HIGH,
+    trig::FALLING,
+    trig::LOW,
+    trig::EDGE,
+];
+
+/// Trigger square `k` of the header row centred at `cy`.
+pub fn trig_rect(header: Rect, cy: f32, k: usize) -> Rect {
+    let first = header.right() - 12.0 - 4.0 * TRIG_PITCH;
+    Rect::from_center_size(
+        pos2(first + k as f32 * TRIG_PITCH, cy),
+        vec2(TRIG_SIZE, TRIG_SIZE),
+    )
+}
 /// Pixel distance within which a click counts as "on the edge".
 const EDGE_RADIUS: f64 = 10.0;
 
@@ -431,7 +453,10 @@ impl TimeView {
         let tb = timebase(s);
         self.last_sample = tb.sample_limit.saturating_sub(1);
         let full = ui.max_rect();
-        let header = Rect::from_min_max(full.min, pos2(full.left() + HEADER_WIDTH, full.bottom()));
+        let header = Rect::from_min_max(
+            full.min,
+            pos2(full.left() + LOGIC_HEADER_WIDTH, full.bottom()),
+        );
         let ruler_rect = Rect::from_min_max(
             pos2(header.right(), full.top()),
             pos2(full.right(), full.top() + RULER_HEIGHT),
@@ -1509,7 +1534,7 @@ impl TimeView {
     }
 
     /// The header: name (double-click renames), colour swatch (click picks),
-    /// the five trigger squares of a logic trace, drag to reorder.
+    /// the five trigger squares (`TRIG_TYPES`) of a logic trace, drag to reorder.
     fn header(&mut self, ui: &mut Ui, s: &Session, header: Rect, area: Rect, rows: &[Row]) -> bool {
         let mut changed = false;
         let (pressed, ctrl, pointer) = ui.input(|i| {
@@ -1528,7 +1553,10 @@ impl TimeView {
             }
             let name = Rect::from_min_max(
                 pos2(header.left() + 22.0, cy - 9.0),
-                pos2(header.right() - 64.0, cy + 9.0),
+                pos2(
+                    header.right() - 16.0 - 4.0 * TRIG_PITCH - TRIG_SIZE / 2.0,
+                    cy + 9.0,
+                ),
             );
             let resp = ui.interact(
                 name,
@@ -1575,20 +1603,8 @@ impl TimeView {
                 self.colour_edit = Some((sig.index, sig.ty));
             }
             // trigger squares: rising, high, falling, low, edge
-            for (k, t) in [
-                trig::RISING,
-                trig::HIGH,
-                trig::FALLING,
-                trig::LOW,
-                trig::EDGE,
-            ]
-            .into_iter()
-            .enumerate()
-            {
-                let r = Rect::from_center_size(
-                    pos2(header.right() - 56.0 + k as f32 * 11.0, cy),
-                    vec2(10.0, 10.0),
-                );
+            for (k, t) in TRIG_TYPES.into_iter().enumerate() {
+                let r = trig_rect(header, cy, k);
                 let tr = ui.interact(
                     r,
                     ui.make_persistent_id(("trig", sig.index, k)),
@@ -1734,39 +1750,27 @@ impl TimeView {
                 font.clone(),
                 self.palette.text,
             );
-            for (k, t) in [
-                trig::RISING,
-                trig::HIGH,
-                trig::FALLING,
-                trig::LOW,
-                trig::EDGE,
-            ]
-            .into_iter()
-            .enumerate()
-            {
-                let r = Rect::from_center_size(
-                    pos2(header.right() - 56.0 + k as f32 * 11.0, cy),
-                    vec2(10.0, 10.0),
-                );
+            for (k, t) in TRIG_TYPES.into_iter().enumerate() {
+                let r = trig_rect(header, cy, k);
                 let on = sig.trig == t;
                 painter.rect_stroke(
                     r,
-                    1.0,
+                    2.0,
                     Stroke::new(1.0, Color32::from_gray(if on { 230 } else { 90 })),
                     egui::StrokeKind::Inside,
                 );
                 if on {
-                    painter.rect_filled(r.shrink(2.0), 0.0, Color32::from_rgb(0x11, 0x85, 0xd1));
+                    painter.rect_filled(r.shrink(2.0), 1.0, Color32::from_rgb(0x11, 0x85, 0xd1));
                 }
                 // a glyph per trigger type
                 let (l, rr, top, bot) = (
-                    r.left() + 2.0,
-                    r.right() - 2.0,
-                    r.top() + 2.0,
-                    r.bottom() - 2.0,
+                    r.left() + 3.0,
+                    r.right() - 3.0,
+                    r.top() + 3.0,
+                    r.bottom() - 3.0,
                 );
                 let m = r.center().x;
-                let st = Stroke::new(1.0, self.palette.text2);
+                let st = Stroke::new(1.5, self.palette.text2);
                 let pts: Vec<Pos2> = match t {
                     trig::RISING => vec![pos2(l, bot), pos2(m, bot), pos2(m, top), pos2(rr, top)],
                     trig::FALLING => vec![pos2(l, top), pos2(m, top), pos2(m, bot), pos2(rr, bot)],
@@ -1774,10 +1778,10 @@ impl TimeView {
                     trig::LOW => vec![pos2(l, bot), pos2(rr, bot)],
                     _ => vec![
                         pos2(l, bot),
-                        pos2(m - 1.0, bot),
-                        pos2(m - 1.0, top),
-                        pos2(m + 1.0, top),
-                        pos2(m + 1.0, bot),
+                        pos2(m - 1.5, bot),
+                        pos2(m - 1.5, top),
+                        pos2(m + 1.5, top),
+                        pos2(m + 1.5, bot),
                         pos2(rr, bot),
                     ],
                 };

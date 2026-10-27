@@ -705,6 +705,8 @@ subsystem at once.*
    - the DSLogic matrix green.
 
 #### M7b post-parity fixes (2-4 pw; can start right after R1)
+Detailed plan, with order, tests and debugging approach: [M7b-PLAN.md](M7b-PLAN.md).
+
 - **Fixes that waited for Rust to be the default:**
   - a fresh pin tuple per `wait()` (F13);
   - the skip-count check (F14);

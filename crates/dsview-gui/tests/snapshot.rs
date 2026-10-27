@@ -762,6 +762,62 @@ fn click_with(h: &mut Harness<'_>, x: f32, y: f32, button: egui::PointerButton) 
     }
 }
 
+/// The logic header's trigger squares: a click sets that trigger, a second
+/// click clears it, another square replaces it.
+#[test]
+fn logic_trigger_squares() {
+    use dsview_gui::timeview::{LOGIC_HEADER_WIDTH, RULER_HEIGHT, TRIG_TYPES, trig_rect};
+    use dsview_session::session::trig;
+    let s = demo_session();
+    let mut view = TimeView::default();
+    let s2 = s.clone();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 640.0))
+        .wgpu()
+        .build_ui(move |ui| {
+            view.show(ui, &s2);
+        });
+    h.run();
+    let header =
+        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(LOGIC_HEADER_WIDTH, 640.0));
+    let set = |s: &Session| -> Vec<(u16, i32)> {
+        s.state()
+            .signals
+            .iter()
+            .filter(|x| x.trig != trig::NONE)
+            .map(|x| (x.index, x.trig))
+            .collect()
+    };
+    let square = |y: f32, k: usize| trig_rect(header, y, k).center();
+    // find the first row: walk down the rising column until a click lands
+    let mut row = None;
+    let mut y = RULER_HEIGHT + 2.0;
+    while y < 640.0 {
+        let p = square(y, 0);
+        click(&mut h, p.x, p.y);
+        h.run();
+        if let Some(&(index, t)) = set(&s).first() {
+            row = Some((y, index));
+            assert_eq!(t, trig::RISING);
+            break;
+        }
+        y += 2.0;
+    }
+    let (y, index) = row.expect("no trigger square hit");
+    assert_eq!(set(&s), vec![(index, trig::RISING)]);
+    // the whole 16 px square is clickable: near its corner too
+    let p = square(y, 0);
+    click(&mut h, p.x, p.y);
+    h.run();
+    assert!(set(&s).is_empty(), "second click clears");
+    let r = trig_rect(header, y, 4);
+    click(&mut h, r.right() - 2.0, r.bottom() - 2.0);
+    h.run();
+    assert_eq!(set(&s), vec![(index, TRIG_TYPES[4])]);
+    h.snapshot("logic_trigger_squares");
+    s.exit();
+}
+
 /// The ruler's strips: a left click opens the selector, its first box adds
 /// a cursor there; a right click opens the go-to strip, whose boxes centre
 /// a cursor; in the selector a right click deletes one.
@@ -783,7 +839,7 @@ fn ruler_cursor_strips() {
             }
         });
     harness.run();
-    let header = dsview_gui::timeview::HEADER_WIDTH;
+    let header = dsview_gui::timeview::LOGIC_HEADER_WIDTH;
     let h = dsview_gui::timeview::RULER_HEIGHT;
     let box_y = h - 1.3 * 20.0 + 10.0;
     // add at local x 450
@@ -1121,7 +1177,7 @@ fn search_cursor_drag() {
     let tb = dsview_gui::timeview::timebase(&s);
     let x0 = {
         let v = view.lock().unwrap();
-        dsview_gui::timeview::HEADER_WIDTH + v.vp.index_to_pixel(50_000, false, &tb) as f32
+        dsview_gui::timeview::LOGIC_HEADER_WIDTH + v.vp.index_to_pixel(50_000, false, &tb) as f32
     };
     let y = 600.0;
     let ev = |h: &mut Harness<'_>, e: egui::Event| h.input_mut().events.push(e);

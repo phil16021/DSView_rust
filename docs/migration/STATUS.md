@@ -1421,3 +1421,21 @@ stays a manual hardware step.
   `RELEASE-R1.md`);
 - M7b, the post-parity fixes;
 - the wgpu default renderer (PLAN, follow-on TODO).
+
+## Post-1.0: bigger trigger squares in the logic header (2026-10-27)
+
+- **Change** (`crates/dsview-gui/src/timeview.rs`):
+  - the five trigger squares (rising, high, falling, low, edge) are 16 px at a 19 px pitch (were
+    10 px at 11 px);
+  - glyphs have a 3 px inset and a 1.5 px stroke;
+  - geometry comes from one `trig_rect`, shared by hit-testing and painting.
+- **Header width:** the logic header is 190 px (`LOGIC_HEADER_WIDTH`) so channel names keep their
+  room. The DSO, analog, FFT and math headers stay at `HEADER_WIDTH` (150 px).
+- **Tests:**
+  - the new `snapshot::logic_trigger_squares` clicks a square (set), again (clear), and the corner
+    of the edge square (replace);
+  - the logic-view snapshots were updated after review: `protocol_demo_view`,
+    `ruler_cursor_strips`, `mouse_measure_popup`, `yscale_badge`, `theme_latte`;
+  - `cargo test -p dsview-gui` passes, and `cargo clippy -p dsview-gui --all-targets -D warnings`
+    is clean.
+- **Plan:** the open points are gathered in [M7b-PLAN.md](M7b-PLAN.md).
