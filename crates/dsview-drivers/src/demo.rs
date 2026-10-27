@@ -974,10 +974,17 @@ impl Demo {
         let Some(reader) = self.archive.as_mut() else {
             return self.error_end(out);
         };
+        // each enabled channel plays its own `L-<index>`; C read L-0 ..
+        // L-<enabled-1>, shifting the channels after a disabled one (F21)
+        let dirs: Vec<u32> = self
+            .channels
+            .iter()
+            .filter(|c| c.enabled && c.ty == dsview_core::channel_type::LOGIC)
+            .map(|c| u32::from(c.index))
+            .collect();
         let stream = self.logic_stream.get_or_insert_with(|| {
-            // C reads L-0 .. L-<enabled-1>, whichever channels are enabled
             reader.logic_stream(
-                (0..chan_num as u32).collect(),
+                dirs,
                 self.num_blocks.max(0) as u64,
                 (self.packet_len / 8) as usize,
             )
@@ -1506,13 +1513,10 @@ impl Demo {
                 if total % ANALOG_DATA_LEN_PER_CYCLE != 0 {
                     total = total / ANALOG_DATA_LEN_PER_CYCLE * ANALOG_DATA_LEN_PER_CYCLE;
                 }
-                if total == 0 {
-                    // Under 2048 samples: g_try_malloc0(0) is NULL in C, the
-                    // callback fails, and every later one again (F19).
-                    sr_err!("receive_data_analog: vdev->data_buf malloc failed");
-                    self.data_buf = Vec::new();
-                    return Step::Continue;
-                }
+                // under 2048 samples this is none: C's g_try_malloc0(0) is
+                // NULL, every callback fails and the session spins with no
+                // data (F19). One whole cycle is the least
+                let total = total.max(ANALOG_DATA_LEN_PER_CYCLE);
                 self.data_buf = vec![0; total as usize];
                 let per_block = total / ANALOG_DATA_LEN_PER_CYCLE;
                 let p0_vdiv = self.channels.first().map_or(0, |c| c.vdiv);

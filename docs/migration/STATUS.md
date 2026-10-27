@@ -1488,3 +1488,21 @@ stays a manual hardware step.
 - **Seen in passing:** `hotplug::detach_during_capture` failed 2 times in 46 runs with this change
   and 0 in 21 without. Its 3 s waits are timing-sensitive and it does not use `Session`, so this
   looks like an existing flake; to be watched.
+
+## M7b: F8, F19, F21, F25, F28 fixed (2026-10-27)
+
+Each fix has a test that failed before it.
+
+| ID | Fix | Test |
+|---|---|---|
+| F21 | The demo's protocol playback reads each enabled channel's own `L-<index>`. With channel 3 disabled, channel 4 showed channel 3's data | `demo::protocol_playback_skips_disabled_channels` |
+| F19 | The analog demo's pattern buffer is at least one 206-byte cycle. A capture under 2048 samples sent only END, where C spun at 100 % CPU | `demo::short_analog_capture_delivers_data` |
+| F8 | `si_string_u64` pads the remainder: "131.072 k Samples", "1.05 MHz" (was "131.72 k", "1.50000 MHz"). Affects the CSV header, the srzip metadata and the GUI rate labels; `.dsl` is unchanged | `cfmt::tests::si_strings` |
+| F25 | DSO channel 1's hardware burst width uses its cycle time, not its fall time | `measure::tests::hardware_burst_width_is_the_same_for_both_channels` |
+| F28 | Auto-set no longer sets the trigger level twice in the pass that ends auto-V | `autoset::tests::steps_until_it_fits` |
+
+**Checked:**
+- workspace: 240 tests pass, and clippy `-D warnings` is clean;
+- golden check ok;
+- control transcript: 38 steps;
+- MCP suite: 30 tools, 37 steps.

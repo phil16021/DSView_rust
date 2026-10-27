@@ -195,11 +195,12 @@ fn hardware(m: &mut M, hw: &HwStatus, samples: u64, hw_offset: f64, rate: f64) -
             .wrapping_add(s.ch1_cyc_llen)
     };
     m.high_time = per(f64::from(high), count) * tfactor;
-    // C sums ch0's tlen for channel 0 but ch1's flen for channel 1
+    // the cycle time plus the tail; C summed channel 1's fall time instead
+    // of its cycle time, a copy-paste slip (F25)
     let burst = if c0 {
         s.ch0_cyc_tlen.wrapping_add(s.ch0_cyc_llen)
     } else {
-        s.ch1_cyc_flen.wrapping_add(s.ch1_cyc_llen)
+        s.ch1_cyc_tlen.wrapping_add(s.ch1_cyc_llen)
     };
     m.burst_time = f64::from(burst) * tfactor;
     m.pcount = count as u64 + u64::from(plevel && !start_xor_end);
@@ -345,5 +346,35 @@ mod tests {
         assert_eq!(m["positive_duty"], "51.00%");
         assert_eq!(m["max"], "1.97V");
         assert_eq!(measure(None, 128.0, 1.0, 1.0, None)["max"], "--");
+    }
+
+    /// F25: channel 1's hardware burst width is its cycle time plus its
+    /// tail, as channel 0's (C summed channel 1's fall time instead).
+    #[test]
+    fn hardware_burst_width_is_the_same_for_both_channels() {
+        let mut st = Status {
+            measure_valid: 1,
+            ..Status::default()
+        };
+        (st.ch0_level_valid, st.ch1_level_valid) = (1, 1);
+        (st.ch0_cyc_cnt, st.ch1_cyc_cnt) = (10, 10);
+        (st.ch0_cyc_tlen, st.ch1_cyc_tlen) = (1000, 1000);
+        (st.ch0_cyc_flen, st.ch1_cyc_flen) = (50, 50);
+        (st.ch0_cyc_llen, st.ch1_cyc_llen) = (5, 5);
+        (st.ch0_cyc_plen, st.ch1_cyc_plen) = (500, 500);
+        let burst = |index| {
+            let hw = HwStatus {
+                status: st,
+                index,
+                total_channels: 2,
+                enabled_channels: 2,
+                is_file: false,
+            };
+            let mut m = M::default();
+            assert!(hardware(&mut m, &hw, 1000, 128.0, 1e9));
+            m.burst_time
+        };
+        assert_eq!(burst(0), 1005.0);
+        assert_eq!(burst(1), burst(0));
     }
 }

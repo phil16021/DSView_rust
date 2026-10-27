@@ -80,7 +80,12 @@ writes.
 ### F8. Sample counts are printed with an unpadded remainder
 - `sr_si_string_u64` prints 131072 samples as "131.72 k Samples" in CSV headers.
 - **Kept byte for byte**: it is cosmetic, and changing it would break the export diff.
-- To be fixed after the Rust export becomes the default.
+- **Fixed 2026-10-27 (M7b).** `cfmt::si_string_u64` pads the remainder as a decimal fraction and
+  drops trailing zeros:
+  - 131072 Samples is "131.072 k Samples";
+  - 1.05 MHz is "1.05 MHz", where C wrote "1.50000 MHz".
+  - This covers the CSV header, the srzip metadata (read by sigrok-cli and PulseView) and the GUI's
+    rate labels. `.dsl` headers have their own writer, which never writes a fraction.
 
 ### F9. Logic packets that are not whole 64-sample groups corrupt the capture
 **Observed (Phase 1b, `store_diff.rs`, ASan):** `LogicSnapshot::append_cross_payload` assumes every
@@ -264,8 +269,10 @@ the same way on every later callback, so the session loop spins at 100% CPU with
 user stops it. The GUI can choose such a limit: at 10 Hz its list includes 200 s, which is 2000
 samples.
 
-**Rust behaviour:** the same (no data, an error in the log, spinning until stopped), so the capture
-looks the same. To be fixed after the default flip.
+**Rust behaviour:** fixed 2026-10-27 (M7b).
+- The buffer is at least one whole cycle (206 bytes), so a short analog capture delivers its
+  samples and ends.
+- Test: `demo::short_analog_capture_delivers_data`; before the fix the capture produced only END.
 
 ### F20. Driver packets carry uninitialised fields
 **Observed (Phase 3, `drv-diff`):** the demo driver and the session (file) driver fill the
@@ -286,7 +293,9 @@ looks the same. To be fixed after the default flip.
 Found while porting, identical in Rust unless noted:
 - **Demo logic playback ignores which channels are disabled.** `protocol.demo` is read from `L-0` …
   `L-<n-1>` for the n *enabled* channels. With channel 3 disabled, channels 4–15 show the data of
-  channels 3–14, and channel 15's data is lost. Same in Rust, until the flip.
+  channels 3–14, and channel 15's data is lost.
+  - **Fixed in Rust 2026-10-27 (M7b):** each enabled channel plays its own `L-<index>`.
+  - Test: `demo::protocol_playback_skips_disabled_channels`.
 - **Dangling `map_unit`.** `config_set(SR_CONF_PROBE_MAP_UNIT)` keeps the pointer into the GVariant,
   which `sr_config_set` frees right after. Rust copies the string; the shim hands out an interned
   copy.
@@ -389,8 +398,11 @@ Found while porting `SigSession`, `DecoderStack`, `SamplingBar` and `DsoSignal` 
   - When there is no data, it stays at 0 with `_is_decoding` set.
 - **Burst width of DSO channel 1** (`DsoSignal::paint_mid`). It is computed from
   `ch1_cyc_flen + ch1_cyc_llen`; channel 0 uses `ch0_cyc_tlen + ch0_cyc_llen`. A copy-paste
-  slip: channel 1's burst width is a fall time plus a tail. Ported as is, marked in
-  `dsview-control/src/measure.rs`.
+  slip: channel 1's burst width is a fall time plus a tail.
+  - **Fixed 2026-10-27 (M7b):** both channels use the cycle time plus the tail
+    (`dsview-dsp/src/measure.rs`).
+  - Test: `measure::tests::hardware_burst_width_is_the_same_for_both_channels`; before the fix
+    channel 1 gave 55 against channel 0's 1005.
 - **View indexes past the end.** `load_channel_view_indexs` assigns the saved positions to the
   signals by position. When the file lists fewer channels than there are signals, it reads past
   the vector.
@@ -444,7 +456,10 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
   a frame's length changes, the upper levels keep entries of the previous frame. Rust rebuilds
   every level per frame (identical when the length is unchanged, the normal case).
 - **Auto-set writes the trigger level twice.** When auto-V ends inside `auto_set`, `autoV_end`
-  sets the level and the same pass sets it again from the same values. Ported (harmless).
+  sets the level and the same pass sets it again from the same values.
+  - **Fixed 2026-10-27 (M7b):** the second write is skipped once auto-V has ended. The value was
+    the same, so nothing visible changes.
+  - Test: `autoset::tests::steps_until_it_fits`.
 - **The demo's last DSO sample.** In instant mode the C demo's last packet reads past its buffer
   (F18); the Rust demo pads with zeros. The histogram and the Lissajous figure show that sample
   (code 0, +5 V on the demo's range) as an outlier.

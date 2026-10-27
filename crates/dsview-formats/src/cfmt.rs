@@ -59,15 +59,21 @@ pub fn fmt_f(v: f64, prec: usize) -> String {
     format!("{v:.prec$}")
 }
 
-/// libsigrok4DSL `sr_si_string_u64`, including its unpadded remainder
-/// (131072 Samples -> "131.72 k Samples").
+/// libsigrok4DSL `sr_si_string_u64`, with the remainder as a decimal
+/// fraction: 131072 Samples is "131.072 k Samples". C printed the remainder
+/// unpadded ("131.72 k Samples", 1.05 MHz as "1.50000 MHz", F8).
 pub fn si_string_u64(x: u64, unit: &str) -> String {
-    for (div, prefix) in [(1_000_000_000u64, "G"), (1_000_000, "M"), (1_000, "k")] {
+    for (div, digits, prefix) in [
+        (1_000_000_000u64, 9, "G"),
+        (1_000_000, 6, "M"),
+        (1_000, 3, "k"),
+    ] {
         if x >= div {
             return if x.is_multiple_of(div) {
                 format!("{} {prefix}{unit}", x / div)
             } else {
-                format!("{}.{} {prefix}{unit}", x / div, x % div)
+                let frac = format!("{:0digits$}", x % div);
+                format!("{}.{} {prefix}{unit}", x / div, frac.trim_end_matches('0'))
             };
         }
     }
@@ -142,7 +148,15 @@ mod tests {
 
     #[test]
     fn si_strings() {
-        assert_eq!(samplecount_string(131072), "131.72 k Samples");
+        // F8: the remainder is a padded decimal fraction, trailing zeros
+        // dropped (C printed "131.72 k Samples" and "1.50000 MHz")
+        assert_eq!(samplecount_string(131072), "131.072 k Samples");
+        assert_eq!(samplecount_string(1_000_448), "1.000448 M Samples");
+        assert_eq!(samplecount_string(2_000_000), "2 M Samples");
+        assert_eq!(samplerate_string(1_050_000), "1.05 MHz");
+        assert_eq!(samplerate_string(1_500_000), "1.5 MHz");
+        assert_eq!(samplerate_string(2_500), "2.5 kHz");
+        assert_eq!(samplerate_string(1_000_000_001), "1.000000001 GHz");
         assert_eq!(samplerate_string(25_000_000), "25 MHz");
         assert_eq!(samplerate_string(100), "100 Hz");
         assert_eq!(period_string(1_000_000_000), "1 ns");

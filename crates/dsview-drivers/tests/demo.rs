@@ -115,6 +115,42 @@ fn protocol_pattern_plays_back_completely() {
     assert_eq!(packets.iter().filter(|p| p.body == Body::End).count(), 1);
 }
 
+/// The LA_CROSS words of each of `n` channels, from a capture's packets.
+fn channels_of(packets: &[Packet], n: usize) -> Vec<Vec<u64>> {
+    let data: Vec<u8> = packets
+        .iter()
+        .flat_map(|p| match &p.body {
+            Body::Logic { data, .. } => data.clone(),
+            _ => Vec::new(),
+        })
+        .collect();
+    let mut out = vec![Vec::new(); n];
+    let (words, _) = data.as_chunks::<8>();
+    for (k, w) in words.iter().enumerate() {
+        out[k % n].push(u64::from_le_bytes(*w));
+    }
+    out
+}
+
+/// F21: a disabled channel takes its own data out of the playback; the
+/// others keep theirs (C read `L-0` .. `L-<n-1>` for the n enabled ones,
+/// so channel 4 showed channel 3's data).
+#[test]
+fn protocol_playback_skips_disabled_channels() {
+    let _g = setup();
+    let mut d = logic_device();
+    d.open().unwrap();
+    let all = channels_of(&capture(&mut d, 1_000_000), 16);
+    assert!(all[3] != all[4], "channels 3 and 4 differ in protocol.demo");
+    d.config_set(key::PROBE_EN, &ConfValue::Bool(false), Some(3))
+        .unwrap();
+    let some = channels_of(&capture(&mut d, 1_000_000), 15);
+    let enabled: Vec<usize> = (0..16).filter(|&i| i != 3).collect();
+    for (k, &ch) in enabled.iter().enumerate() {
+        assert!(some[k] == all[ch], "channel {ch} plays its own data");
+    }
+}
+
 #[test]
 fn channel_keys_without_a_channel_are_rejected() {
     let _g = setup();
@@ -151,6 +187,33 @@ fn analog_packets_longer_than_the_pattern_are_zero_padded() {
         .collect();
     assert_eq!(data, [20_000_000; 6]);
     assert_eq!(packets.last().unwrap().body, Body::End);
+}
+
+/// F19: an analog capture under 2048 samples delivers data. C's buffer is
+/// 103/2048 of the samples in whole 206-byte cycles, which is none there:
+/// every callback failed and the session spun at 100% CPU with no data.
+#[test]
+fn short_analog_capture_delivers_data() {
+    let _g = setup();
+    let mut d = logic_device();
+    d.open().unwrap();
+    d.config_set(key::DEVICE_MODE, &ConfValue::I16(Mode::Analog as i16), None)
+        .unwrap();
+    d.config_set(key::LIMIT_SAMPLES, &ConfValue::U64(1000), None)
+        .unwrap();
+    let packets = capture(&mut d, 20);
+    let bytes: usize = packets
+        .iter()
+        .map(|p| match &p.body {
+            Body::Analog { data, .. } => data.len(),
+            _ => 0,
+        })
+        .sum();
+    assert!(
+        bytes > 0,
+        "no analog data: {:?}",
+        packets.iter().map(|p| &p.body).collect::<Vec<_>>()
+    );
 }
 
 #[test]

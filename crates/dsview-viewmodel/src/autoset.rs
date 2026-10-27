@@ -204,8 +204,9 @@ impl AutoSet {
             } else {
                 self.cnt = 0;
             }
-            // C sets it even when auto-V just ended (twice then)
-            if i.level_valid {
+            // when auto-V just ended, `v_end` has set it already; C set it
+            // a second time from the same values (F28)
+            if self.v && i.level_valid {
                 out.push(Action::TrigValue(((i.min as u16 + i.max as u16) / 2) as u8));
             }
         }
@@ -280,6 +281,12 @@ mod tests {
         i.max = 0xc0;
         let acts = a.step(&i, 4);
         assert!(acts.contains(&Action::AutoTrig), "{acts:?}");
+        // the level once (F28: C set it a second time in the same pass)
+        let levels = acts
+            .iter()
+            .filter(|x| matches!(x, Action::TrigValue(_)))
+            .count();
+        assert_eq!(levels, 1, "{acts:?}");
         assert!(!a.active());
     }
 
