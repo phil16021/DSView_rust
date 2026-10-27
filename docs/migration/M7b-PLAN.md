@@ -17,7 +17,7 @@ F-numbers refer to DEVIATIONS.md; PLAN.md's M7b section stays the summary and li
 
 | ID | Problem | Fix | Test |
 |---|---|---|---|
-| F11 | Logic captures whose length is not a multiple of 64 display shifted and lose samples on save | Keep the overrun out of `loop_offset` in single mode; trim in `capture_ended` (`dsview-store/src/logic.rs`, `dsview-session/src/session.rs`) | Proptest over capture lengths 1..10⁵: store → save `.dsl` → reload, byte-identical; snapshot of a 100-sample capture |
+| F11 ✔ (done 2026-10-27) | Logic captures whose length is not a multiple of 64 display shifted and lose samples on save | Keep the overrun out of `loop_offset` in single mode; trim in `capture_ended` (`dsview-store/src/logic.rs`, `dsview-session/src/session.rs`) | Proptest over capture lengths 1..10⁵: store → save `.dsl` → reload, byte-identical; snapshot of a 100-sample capture |
 | F31 | `update_dso_data_scale` is never called, so a V/div change after a capture stretches the trace (GUI and control API) | Call it on a PROBE_VDIV change when a capture is held (`dsview-viewmodel/src/dso.rs`, `dsview-gui/src/dsoview.rs`, `dsview-control/src/api.rs`) | Kittest: capture the demo DSO, change V/div, check the pixel height of a known amplitude; a control transcript step |
 | F8 | Unpadded sample counts in the CSV header | Pad as documented (`dsview-formats` CSV export) | Golden update + unit test |
 | F21 | Demo logic playback ignores disabled channels | `dsview-drivers/src/demo.rs` | Session test: disable channel 3 and check that its data is absent or zero |

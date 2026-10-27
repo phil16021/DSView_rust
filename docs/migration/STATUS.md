@@ -1439,3 +1439,26 @@ stays a manual hardware step.
   - `cargo test -p dsview-gui` passes, and `cargo clippy -p dsview-gui --all-targets -D warnings`
     is clean.
 - **Plan:** the open points are gathered in [M7b-PLAN.md](M7b-PLAN.md).
+
+## M7b: F11 fixed, captures of any length (2026-10-27)
+
+- **Problem** (DEVIATIONS F11): a logic capture whose length is not a multiple of 64 was shown
+  shifted by the last group's overrun and saved cut. File sessions also had their length rounded up
+  to 1024, which showed padding past the data.
+- **Fix:**
+  - `dsview-store`: single mode keeps `loop_offset` at 0, `capture_ended` trims and pads the last
+    word with the last sample and rebuilds that leaf's mip-map, and the last block is whole 64-sample
+    words;
+  - `dsview-session`: `commit_settings` leaves a file device's rate and length alone, and the
+    ranged `.dsl` save rounds to whole words.
+- **Tests** (both failed before the fix):
+  - three store tests, one of them a proptest: any length 1..5000, 1/2/3/16 channels, packets of
+    1..20 groups, every sample and every edge;
+  - `session::unaligned_dsl_round_trip`;
+  - the `measure.rs` test now uses 1000 samples.
+- **Checked:**
+  - workspace: 235 tests pass, and clippy `-D warnings` is clean;
+  - `xtask golden check` ok;
+  - `xtask control check` 38 steps;
+  - `xtask mcp suite` 30 tools, 37 steps.
+- **Not run here:** the cargo-fuzz smoke (no cargo-fuzz or nightly toolchain); CI runs it.

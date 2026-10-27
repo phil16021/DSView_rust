@@ -125,9 +125,22 @@ DSView does.
 files from other tools or edited headers, demo/file sessions with such limits, and possibly some
 hardware limits (the DSLogic rounds its limits to whole groups).
 
-**Rust behaviour:** identical for now; the A/B and the differential tests depend on it.
-**Fix after the Rust store becomes the default:** keep the overrun out of `loop_offset` in single
-mode, and have `capture_ended` trim to `total_sample_count`.
+**Rust behaviour: fixed 2026-10-27 (M7b).**
+- **Store** (`dsview-store/src/logic.rs`):
+  - single mode keeps the overrun out of `loop_offset`;
+  - `capture_ended` trims to `total_sample_count`: the overrun bits of the last 64-sample group
+    repeat the last sample, so there is no phantom edge, the rest of the leaf is zeroed, and the
+    leaf's mip-map is rebuilt;
+  - loop mode is unchanged.
+- **Saved files:** the last `.dsl` block is cut at whole 64-sample words (the format's unit), and
+  the header carries the exact length.
+- **File sessions:** `commit_settings` no longer rounds a file's length up to 1024. C never runs it
+  for a file, whose rate and count selectors are disabled.
+- **Tests:**
+  - `logic::tests::{unaligned_capture_is_not_shifted, any_length_reads_back}` (a proptest over
+    lengths, channel counts and packet sizes);
+  - `session::unaligned_dsl_round_trip` (open, save, ranged save, reopen a 1001-sample `.dsl`).
+- **Departure from DSView:** DSView still shows such captures shifted and saves them cut.
 
 ### F12. The analog envelope reads one entry past its ring
 **Observed (Phase 1b, `store_ad_diff.rs`):** `AnalogSnapshot::append_payload_to_envelope_levels` builds

@@ -832,7 +832,8 @@ fn save_dsl_inner(
                 }
                 let take = (size - off).min(end - cursor);
                 let (buf, level) = store.get_block_buf(b, c.index as i32);
-                let (from, to) = ((off / 8) as usize, ((off + take) / 8) as usize);
+                // whole 64-sample words: the capture's end may cut one (F11)
+                let (from, to) = ((off / 8) as usize, ((off + take).div_ceil(64) * 8) as usize);
                 prog.add((to - from) as u64);
                 if buf.is_null() {
                     pending.extend(std::iter::repeat_n(if level { 0xff } else { 0 }, to - from));

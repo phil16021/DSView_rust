@@ -1391,6 +1391,17 @@ impl Session {
         if self.active().is_none() {
             return;
         }
+        // a file's rate and length are the file's: C disables both
+        // selectors and loads it through `start_capture` alone. Rounding
+        // the length up to 1024 here showed padding past the data (F11)
+        if self
+            .state()
+            .device
+            .as_ref()
+            .is_some_and(DeviceDesc::is_file)
+        {
+            return;
+        }
         if rate != self.sample_rate() {
             self.set_config(key::SAMPLERATE, ConfValue::U64(rate), None);
         }

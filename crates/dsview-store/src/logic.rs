@@ -668,7 +668,14 @@ impl LogicStore {
         self.ring_sample_count = align_sample_count.wrapping_sub(self.loop_offset);
 
         if align_sample_count > self.total_sample_count {
-            self.loop_offset = align_sample_count - self.total_sample_count;
+            // the last packet's whole groups overrun the limit. In loop
+            // mode the overrun is the window's stale head; in single mode
+            // C++ also kept it as `_loop_offset`, shifting every read and
+            // cutting the saved data (DEVIATIONS.md F11): there it is
+            // dropped by `capture_ended`
+            if self.is_loop {
+                self.loop_offset = align_sample_count - self.total_sample_count;
+            }
             self.ring_sample_count = self.total_sample_count;
         }
 
@@ -701,6 +708,10 @@ impl LogicStore {
     pub fn capture_ended(&mut self) {
         self.last_ended = true;
         self.sample_count = self.ring_sample_count;
+        if !self.is_loop {
+            self.trim_single_capture();
+            return;
+        }
         let ring = self.ring_sample_count.wrapping_add(self.loop_offset);
         let index0 = ring / LEAF_BLOCK_SAMPLES / ROOT_SCALE;
         let index1 = (ring / LEAF_BLOCK_SAMPLES) % ROOT_SCALE;
@@ -723,6 +734,49 @@ impl LogicStore {
                 }
                 self.calc_mipmap(chan, index0, index1, offset as u64 * 8, true);
             }
+        }
+    }
+
+    /// [`capture_ended`](Self::capture_ended) of a single capture (F11): the
+    /// samples past the limit (the rest of the last 64-sample group, which
+    /// the device fills with whatever it sampled) repeat the last sample,
+    /// the rest of the leaf is zeroed, and the leaf's mip-map is rebuilt, as
+    /// it may have been finished over the overrun.
+    fn trim_single_capture(&mut self) {
+        let end = self.ring_sample_count;
+        let bit = end % LEAF_BLOCK_SAMPLES;
+        if bit == 0 {
+            // the limit ends on a leaf: nothing past it was stored
+            return;
+        }
+        let index0 = end / LEAF_BLOCK_SAMPLES / ROOT_SCALE;
+        let index1 = (end / LEAF_BLOCK_SAMPLES) % ROOT_SCALE;
+        let word = (bit / SCALE) as usize;
+        let rem = bit % SCALE;
+        let data_words = LEVEL_OFFSET[1];
+        for chan in 0..self.channel_num as usize {
+            let Some(leaf) = self.leaf_mut(chan, index0 as usize, index1 as usize) else {
+                // freed: constant, overrun included
+                continue;
+            };
+            let mut from = word;
+            if rem > 0 {
+                let w = leaf.get(word);
+                let keep = (1u64 << rem) - 1;
+                let fill = if w >> (rem - 1) & 1 != 0 { !keep } else { 0 };
+                leaf.words_mut(word, 1)[0] = (w & keep) | fill;
+                from += 1;
+            }
+            leaf.words_mut(from, data_words - from).fill(0);
+            let (_, mip) = leaf.split();
+            mip.fill(0);
+            let rn = &mut self.ch_data[chan][index0 as usize];
+            let mask = !(1u64 << index1);
+            rn.first &= mask;
+            rn.last &= mask;
+            rn.tog &= mask;
+            self.last_calc_count[chan] = 0;
+            self.calc_mipmap(chan, index0, index1, bit.div_ceil(SCALE) * SCALE, true);
         }
     }
 
@@ -1630,7 +1684,9 @@ impl LogicStore {
         {
             LEAF_BLOCK_SAMPLES / 8
         } else {
-            (align_sample_count % LEAF_BLOCK_SAMPLES) / 8
+            // whole 64-sample words: a .dsl block is a sequence of them,
+            // and the header's length cuts the last one (F11)
+            (align_sample_count % LEAF_BLOCK_SAMPLES).div_ceil(SCALE) * 8
         }
     }
 
@@ -2010,5 +2066,130 @@ mod tests {
         let mut idx = 150;
         assert!(s.get_pre_edge(&mut idx, true, 1.0, 0));
         assert_eq!(idx, 100);
+    }
+
+    /// Bits (one `Vec` per channel, LSB first) as LA_CROSS packets of whole
+    /// 64-sample groups, the tail of the last group past the data set to
+    /// `pad`, as a device's last packet carries it.
+    fn cross_channels(chans: &[Vec<bool>], pad: bool) -> Vec<u8> {
+        let n = chans[0].len();
+        let mut out = Vec::new();
+        for g in 0..n.div_ceil(64) {
+            for ch in chans {
+                let mut w = 0u64;
+                for b in 0..64 {
+                    if ch.get(g * 64 + b).copied().unwrap_or(pad) {
+                        w |= 1 << b;
+                    }
+                }
+                out.extend_from_slice(&w.to_le_bytes());
+            }
+        }
+        out
+    }
+
+    /// F11: a length that is not a multiple of 64 is neither shifted nor cut.
+    #[test]
+    fn unaligned_capture_is_not_shifted() {
+        // DEVIATIONS.md F11: 1000 samples, rising edge at 500
+        let bits: Vec<bool> = (0..1000).map(|i| i >= 500).collect();
+        let mut s = LogicStore::new();
+        s.first_payload(&cross_channels(&[bits], true), 1000, &[0], true);
+        s.capture_ended();
+        assert_eq!(s.sample_count(), 1000);
+        assert_eq!(s.ring_sample_count(), 1000);
+        assert_eq!(s.loop_offset(), 0);
+        assert!(!s.get_sample(499, 0));
+        assert!(s.get_sample(500, 0));
+        assert!(s.get_sample(999, 0));
+        let mut idx = 0;
+        assert!(s.get_nxt_edge(&mut idx, false, 999, 1.0, 0));
+        assert_eq!(idx, 500);
+        // no phantom falling edge in the data
+        let mut idx = 501;
+        assert!(!s.get_nxt_edge(&mut idx, true, 999, 1.0, 0));
+        // one block of 16 whole 64-sample words
+        assert_eq!(s.get_block_num(), 1);
+        assert_eq!(s.get_block_size(0), 128);
+    }
+
+    /// The last block holds the partial word of a length that is not a
+    /// multiple of 64.
+    #[test]
+    fn unaligned_block_size_rounds_up() {
+        let bits: Vec<bool> = (0..1025).map(|i| i == 1000).collect();
+        let mut s = LogicStore::new();
+        s.first_payload(&cross_channels(&[bits], false), 1025, &[0], true);
+        s.capture_ended();
+        assert_eq!(s.get_block_size(0), 136);
+        assert!(s.get_sample(1000, 0));
+        assert!(!s.get_sample(999, 0));
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(64))]
+        /// Every sample reads back at its index, whatever the length, the
+        /// channel count and the packet size.
+        #[test]
+        fn any_length_reads_back(
+            len in 1usize..5000,
+            nch in proptest::sample::select(vec![1usize, 2, 3, 16]),
+            seed in proptest::prelude::any::<u64>(),
+            pad in proptest::prelude::any::<bool>(),
+            packet_groups in 1usize..20,
+        ) {
+            let mut x = seed | 1;
+            let mut next = || {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                x
+            };
+            // runs of random length so the edges are sparse and dense
+            let chans: Vec<Vec<bool>> = (0..nch)
+                .map(|_| {
+                    let mut v = Vec::with_capacity(len);
+                    let mut level = next() & 1 == 1;
+                    while v.len() < len {
+                        let run = (next() % 70 + 1) as usize;
+                        v.extend(std::iter::repeat_n(level, run.min(len - v.len())));
+                        level = !level;
+                    }
+                    v
+                })
+                .collect();
+            let data = cross_channels(&chans, pad);
+            let idx: Vec<u16> = (0..nch as u16).collect();
+            let mut s = LogicStore::new();
+            let step = packet_groups * 8 * nch;
+            let mut parts = data.chunks(step);
+            s.first_payload(parts.next().unwrap(), len as u64, &idx, true);
+            for p in parts {
+                s.append_payload(p);
+            }
+            s.capture_ended();
+            proptest::prop_assert_eq!(s.sample_count(), len as u64);
+            proptest::prop_assert_eq!(s.loop_offset(), 0);
+            for (c, bits) in chans.iter().enumerate() {
+                for (i, &b) in bits.iter().enumerate() {
+                    proptest::prop_assert_eq!(s.get_sample(i as u64, c as i32), b, "ch {} sample {}", c, i);
+                }
+                // the edges found are the data's edges
+                let mut want = Vec::new();
+                for i in 1..len {
+                    if bits[i] != bits[i - 1] {
+                        want.push(i as u64);
+                    }
+                }
+                let mut got = Vec::new();
+                let mut i = 0u64;
+                let mut level = bits[0];
+                while s.get_nxt_edge(&mut i, level, len as u64 - 1, 1.0, c as i32) {
+                    got.push(i);
+                    level = !level;
+                }
+                proptest::prop_assert_eq!(got, want, "ch {}", c);
+            }
+        }
     }
 }

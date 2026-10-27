@@ -249,6 +249,119 @@ fn ranges_for_export_and_save() {
     s.exit();
 }
 
+/// F11: a .dsl whose length is not a multiple of 64 opens unshifted and
+/// saves back whole: every sample at its index, before and after the round
+/// trip, and the saved header keeps the length.
+#[test]
+fn unaligned_dsl_round_trip() {
+    use dsview_formats::dsl::{DslReader, LogicWriter, WriteChannel};
+    use dsview_session::store;
+    let (_g, s) = session("Demo Logic");
+    let dir = std::env::temp_dir().join(format!("dsv-f11-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    // 1001 samples, so the last byte is partial too; channel 0 rises at
+    // 500, channel 1 toggles every 7 samples and is high at the end
+    let n: u64 = 1001;
+    let level = |ch: usize, i: u64| {
+        if ch == 0 {
+            i >= 500
+        } else {
+            (i / 7).is_multiple_of(2)
+        }
+    };
+    let bits: Vec<Vec<u8>> = (0..2)
+        .map(|ch| {
+            // the writer takes whole 64-sample words
+            let mut v = vec![0u8; (n.div_ceil(64) * 8) as usize];
+            for i in 0..n {
+                if level(ch, i) {
+                    v[(i / 8) as usize] |= 1 << (i % 8);
+                }
+            }
+            v
+        })
+        .collect();
+    let src = dir.join("src.dsl");
+    LogicWriter {
+        driver: "virtual-session".into(),
+        samplerate: 1_000_000,
+        total_samples: n,
+        trigger_time_ms: 0,
+        trigger_pos: 0,
+        channels: (0..2)
+            .map(|i| WriteChannel {
+                index: i,
+                name: i.to_string(),
+            })
+            .collect(),
+        decoders_json: "[]".into(),
+        session_json: "{}".into(),
+    }
+    .write(
+        std::fs::File::create(&src).unwrap(),
+        &[&bits[0][..], &bits[1][..]],
+    )
+    .unwrap();
+    let check = |s: &Session, what: &str| {
+        let st = s.data().logic.lock().unwrap();
+        assert_eq!(st.sample_count(), n, "{what}: length");
+        for ch in 0..2 {
+            for i in 0..n {
+                assert_eq!(
+                    st.get_sample(i, ch as i32),
+                    level(ch, i),
+                    "{what}: ch {ch} sample {i}"
+                );
+            }
+        }
+    };
+    s.set_file(src.to_str().unwrap()).unwrap();
+    wait(&s, "load", |st| st.ended_seq > 0 && !st.working);
+    check(&s, "opened");
+
+    let out = dir.join("out.dsl");
+    store::save_dsl(&s, &out, "test").unwrap();
+    let mut r = DslReader::open(&out).unwrap();
+    assert_eq!(r.header().total_samples, n);
+    for (pos, want) in bits.iter().enumerate() {
+        let got = r.logic_channel(pos).unwrap();
+        let bytes = n.div_ceil(8) as usize;
+        assert!(
+            got.len() >= bytes,
+            "saved channel {pos}: {} bytes",
+            got.len()
+        );
+        // the bits past the data in the last byte are padding
+        let valid = |v: &[u8]| {
+            let mut v = v[..bytes].to_vec();
+            v[bytes - 1] &= ((1u16 << (n - (bytes as u64 - 1) * 8)) - 1) as u8;
+            v
+        };
+        assert_eq!(valid(&got), valid(want), "saved channel {pos}");
+    }
+    // a range up to the end: whole words, cut by the header's length
+    let part = dir.join("part.dsl");
+    store::save_dsl_range(&s, &part, "test", Some((64, n))).unwrap();
+    let mut r = DslReader::open(&part).unwrap();
+    assert_eq!(r.header().total_samples, n - 64);
+    let got = r.logic_channel(1).unwrap();
+    assert_eq!(got.len() % 8, 0);
+    for i in 0..n - 64 {
+        assert_eq!(
+            got[(i / 8) as usize] >> (i % 8) & 1 == 1,
+            level(1, i + 64),
+            "range sample {i}"
+        );
+    }
+
+    let seq = s.state().ended_seq;
+    s.set_file(out.to_str().unwrap()).unwrap();
+    wait(&s, "reload", |st| st.ended_seq > seq && !st.working);
+    check(&s, "reopened");
+    let _ = std::fs::remove_dir_all(&dir);
+    s.exit();
+}
+
 /// File > Store then Load: the profile brings the settings back; Default
 /// loads the shipped one.
 #[test]

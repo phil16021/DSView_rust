@@ -220,10 +220,10 @@ mod tests {
         s
     }
 
-    // whole 64-sample groups: other lengths are shifted (F11)
+    // 1000 samples: not whole 64-sample groups (F11)
     fn square() -> Vec<bool> {
         // low for 70 samples, high for 30
-        (0..1024).map(|i| i % 100 >= 70).collect()
+        (0..1000).map(|i| i % 100 >= 70).collect()
     }
 
     #[test]
@@ -241,9 +241,9 @@ mod tests {
     #[test]
     fn counting_and_snapping() {
         let s = store(&square());
-        // rising at 70, 170, .. 970, falling at 100, 200, .. 1000
-        assert_eq!(edge_counts(&s, 0, 0, 1023), Some((10, 10)));
-        assert_eq!(edge_counts(&s, 0, 1023, 0), Some((10, 10)));
+        // rising at 70, 170, .. 970, falling at 100, 200, .. 900
+        assert_eq!(edge_counts(&s, 0, 0, 999), Some((10, 9)));
+        assert_eq!(edge_counts(&s, 0, 999, 0), Some((10, 9)));
         assert_eq!(edge_counts(&s, 0, 0, 150), Some((1, 1)));
         assert_eq!(edge_near(&s, 0, 1.0, 0, 265.0, 10.0), Some(270));
         assert_eq!(edge_near(&s, 0, 1.0, 0, 250.0, 10.0), None);
