@@ -1,8 +1,8 @@
 # GUI parity checklist (frozen 2026-10-17)
 
-The Rust GUI (Phase 5) becomes the default at milestone M6e. Qt is removed once every item below is
-checked. The list was taken from the Qt GUI as it is today (`DSView/pv`, about 65k lines). New features
-are not added until M7.
+The Rust GUI (Phase 5) became the default at milestone M6e. Every item below is checked (52 of 52), and
+M7a removed Qt on 2026-10-19. The list was taken from the Qt GUI as it was then (`DSView/pv`, about 65k
+lines); changes after parity are M7b's (DEVIATIONS, M7b-PLAN.md).
 
 Milestones: **a** viewer, **b** logic capture, **c** decoders, **d** DSO/analog, **e** docks and dialogs,
 **f** polish.

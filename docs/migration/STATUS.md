@@ -3,12 +3,12 @@
 | Phase | State | Notes |
 |---|---|---|
 | 0 Infrastructure, oracle, baselines | **done, one item partly deferred** | Performance baselines: `display_edges` and the aggregate decode rate were measured in 1b/2; per-decoder throughput and 1G samples are follow-on (PLAN §2). USB traces recorded 2026-10-17 |
-| 1 Formats + store | **done**: 1a formats behind `DSVIEW_IMPL_FORMATS`, 1b sample stores behind `DSVIEW_IMPL_STORE`; Rust becomes the default after one release of A/B | See "Phase 1a" and "Phase 1b" below |
-| 2 Decoder engine | **done**: Rust/PyO3 engine behind `DSVIEW_IMPL_DECODE`; Rust becomes the default after one release of A/B | See "Phase 2" below |
+| 1 Formats + store | **done**: 1a formats behind `DSVIEW_IMPL_FORMATS`, 1b sample stores; the only implementation since M7a removed the C code (the `DSVIEW_IMPL_*` switches went with it) | See "Phase 1a" and "Phase 1b" below |
+| 2 Decoder engine | **done**: Rust/PyO3 engine; the only implementation since M7a | See "Phase 2" below |
 | 3 Drivers | **done except hardware steps**: 3a demo, 3b file, 3c USB layer, 3d DSLogic (replug tests passed 2026-10-18), 3e DSCope/MSO-E8 (`DSVIEW_IMPL_DRV_DEMO` / `_FILE` / `_DSLOGIC` / `_DSCOPE`). Open: a firmware upload from the host, the nightly runs, one DSCope/E8 hardware confirmation | See "Phase 3" below |
 | 4 Session + control API | **done**: 4a acquisition library in Rust behind `DSVIEW_IMPL_ACQ`; 4b capture session, control server, `dsview-cli serve --mcp` (transcript identical to the Qt GUI, 1 h soaks passed) | See "Phase 4" below |
 | 5 Rust GUI | **done**: M6.0-M6g; release R1 merged with M7a as DSViewR 1.0.0 (2026-10-19) | PARITY.md 52 of 52; AccessKit live over AT-SPI |
-| 6 Removal + packaging | **M7a done 2026-10-19**: the Qt GUI and all C/C++ code removed (tag `c-final` keeps them), cargo-deb and AppImage packages of DSViewR 1.0.0 checked on Ubuntu 22.04/24.04/26.04 and Fedora 44. Open: M7b post-parity fixes; merge, tag and release (user) | See "M7a" below |
+| 6 Removal + packaging | **M7a done 2026-10-19**: the Qt GUI and all C/C++ code removed (tag `c-final` keeps them), cargo-deb and AppImage packages of DSViewR 1.0.0 checked on Ubuntu 22.04/24.04/26.04 and Fedora 44. M7b post-parity fixes in progress (sections "M7b" below). Open: hardware items (M7b-PLAN B6), merge, tag and release (user) | See "M7a" below |
 
 ## Phase 0 deliverables
 
@@ -108,7 +108,7 @@ sources:
 **Left for later (see DEVIATIONS.md, "Departures"):**
 - `.dsc` profiles (Phase 4/5).
 - srzip export.
-- Making Rust the default after one release of A/B.
+- Making Rust the default after one release of A/B. *Moot: M7a removed the C code (2026-10-19).*
 
 ## Phase 1b (sample stores): status
 
@@ -171,9 +171,9 @@ sources:
 - **F12:** the analog envelope reads one entry past its ring.
 
 **Left for later:**
-- Making Rust the default (after one release of A/B).
-- Fixing F11 in Rust once Rust is the default.
-- Lock-free readers (`loom`) and the mmap spill, with the Rust capture path in Phase 4.
+- Making Rust the default (after one release of A/B). *Moot: M7a removed the C code.*
+- Fixing F11 in Rust once Rust is the default. *Done in M7b (2026-10-27).*
+- Lock-free readers (`loom`) and the mmap spill, with the Rust capture path in Phase 4. *M7b B4: an ingest queue and a memory guard instead; see "M7b B4".*
 - The annotation store, with the decoder engine in Phase 2.
 
 ## Phase 2 (decoder engine): status
@@ -249,8 +249,8 @@ C.
   (no `OUTPUT_LOGIC`).
 
 **Left for later:**
-- Making Rust the default (after one release of A/B), then deleting `libsigrokdecode4DSL/*.c`.
-- After the flip: fresh pin tuples (F13), the skip check (F14), `OUTPUT_LOGIC`.
+- Making Rust the default (after one release of A/B), then deleting `libsigrokdecode4DSL/*.c`. *Moot: M7a.*
+- After the flip: fresh pin tuples (F13), the skip check (F14), `OUTPUT_LOGIC`. *Done in M7b.*
 - Resetting path/exec decoder options from saved files: GUI work (Phase 4/5).
 - The annotation store: annotations are still kept by the C++ `pv::data::decode` classes. It moves to
   Rust with the GUI data model.
@@ -439,7 +439,7 @@ protocol.demo playback, channel keys without a channel, analog overruns and DSO 
 
 **Left for later in Phase 3:**
 - Making the demo/file drivers the default (after one release of A/B, with Phase 1/2), then
-  deleting `hardware/demo` and `session_driver.c`.
+  deleting `hardware/demo` and `session_driver.c`. *Moot: M7a removed the C code.*
 
 ### 3e DSCope and MSO-E8: done (default stays C until a hardware confirmation)
 
@@ -964,7 +964,7 @@ the demo transcript is unchanged.
 
 **Step 2, log (done 2026-10-18):**
 - **`crates/dsview-gui/src/log.rs`** ports `pv/log.cpp` over xlog:
-  - messages up to the level (0-5) go to stderr and, once enabled, to `~/DSView.log` as
+  - messages up to the level (0-5) go to stderr and, once enabled, to `~/DSViewR.log` as
     `DSView: <message>`;
   - the file opens once, appending or overwriting;
   - it can be switched off and on;

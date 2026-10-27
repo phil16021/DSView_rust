@@ -760,7 +760,7 @@ orders.
 | Decode progress, one-sample capture (F25) | Division by zero | Progress 100 | 4b ✔ |
 | Decoder's capture signal (F25) | First bound channel by pointer order | First bound channel in declaration order (required, then optional) | 4b ✔ |
 | View indexes from a session with fewer channels (F25) | Reads past the vector | Extra signals keep theirs | 4b ✔ |
-| Single capture in stream mode (demo, files, DSLogic stream) | Decoders start with the capture and decode while it runs | Decoders run when the capture ends; same results, progress jumps at the end | 4b ✔ |
+| Single capture in stream mode (demo, files, DSLogic stream) | Decoders start with the capture and decode while it runs | Same since Phase 5 (live decoding, STATUS "Phase 5"); in 4b the decoders ran when the capture ended | 5 ✔ |
 | DSO voltages in `measure_dso`/`read_waveform` | `DsoSignal` scales by the view height, the dial and the snapshot's measure factor and data scale | Per code `vdiv × probe factor × 10 / (ref_max − ref_min)` with the V/div of the capture, which is what Qt's factors reduce to (the data scale is the view height over the code range); every value in the demo transcript is identical | 4b ✔, capture V/div M6g ✔ |
 | DSO data lock, feed timer, trigger-check timer | Throttle the display; poll the hardware's trigger flag every 200 ms | Not needed without a display; `triggered` comes from the first data, as with demo and file devices in C | 4b ✔ |
 | Control methods in `dsview-cli serve` | Run on the GUI thread; waiting replies answered from the event loop | One method at a time under a lock; captures, decoding and saving wait outside it | 4b ✔ |

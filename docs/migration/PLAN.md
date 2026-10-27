@@ -23,7 +23,14 @@ Analysis findings that shape the plan:
 - **GUI shape:** about 70% custom-painted traces. The data core (LogicSnapshot mipmap and friends) is self-contained.
 - **No working tests exist today.** A differential oracle against the C code is therefore the backbone of the plan.
 
-### State on 2026-10-18 (revision after M6e)
+### State on 2026-10-27
+- **Done:** Phases 0-6 through M7a. PARITY.md stands at 52 of 52; R1 and M7a shipped together as
+  DSViewR 1.0.0 (2026-10-19), with every C/C++ and Qt line removed (tag `c-final` keeps them).
+- **In progress:** M7b, the post-parity fixes, tracked in `M7b-PLAN.md` with results in STATUS.
+- **Open:** the hardware items (M7b-PLAN B6), wgpu as the default after GPU measurements (B5), and
+  merge, tag and release (user).
+
+### State on 2026-10-18 (revision after M6e, kept for history)
 - **Done:** Phases 0-4 and GUI milestones M6.0-M6e.
   - The Rust GUI is the default on Linux: CMake `DSVIEW_RUST_GUI` installs it as `DSView`, and the
     Qt GUI as `DSView-qt`.
@@ -77,7 +84,9 @@ Dev crates:
 
 Other top-level directories: `compat/` (transitional C shims), `fuzz/`, `xtask/`.
 
-**As built (2026-10-18), where it differs from the table above:**
+**As built (2026-10-18), where it differs from the table above.** *Since then (2026-10-27): AccessKit
+runs over AT-SPI (M6f); `dsview-ffi`, the shims and the oracle went with the C code in M7a;
+`dsview-cli` has the subcommands of §4 (M6g); the GUI defaults to glow, wgpu stays optional (B5).*
 - **`dsview-gui`:** egui/eframe 0.37 with glow (`DSVIEW_RENDERER=wgpu` optional), `rfd` file
   dialogs and egui_kittest tests.
   - **No egui_dock or catppuccin-egui.** Docks are fixed panels, and the themes come as hand-written
@@ -503,7 +512,7 @@ offline registry.
      which is not cached.
    - **History:** `rfd` dialogs start in the directories from the history.
 2. **Log.**
-   - **File sink:** behind `dsview_drivers::sys::set_log_sink`, writing `~/DSView.log` (`DSView: <msg>`,
+   - **File sink:** behind `dsview_drivers::sys::set_log_sink`, writing `~/DSViewR.log` (`DSView: <msg>`,
      levels 0-5, append or overwrite, clear).
    - **Log Options** dialog.
    - **Command line:**
@@ -623,7 +632,7 @@ subsystem at once.*
     from the installed package;*
   - *draft release notes (`RELEASE-R1.md`).*
 - *Open:*
-  - *the manual checklist and the GitHub CI run;*
+  - *the manual checklist and the GitHub CI run (the unplug recording is M7b-PLAN B6);*
   - *merge, tag and release (user).*
 - **Defaults:** `dsview-ffi/src/switch.rs` makes Rust the default for every `DSVIEW_IMPL_*`
   subsystem inside `DSView-qt`; `DSVIEW_IMPL=c` still selects C. The Rust GUI (`DSView`) is the
@@ -659,8 +668,8 @@ subsystem at once.*
   - *the oracle is archived by tag only, no worktree build or archive workflow;*
   - *the Windows installer files are deleted too.*
 - *Open:*
-  - *the Fedora AppImage check;*
-  - *the DSLogic matrix on the packaged build;*
+  - *the Fedora AppImage check (done: Fedora 44, STATUS "M7a");*
+  - *the DSLogic matrix on the packaged build (only `hwmatrix --quick` so far; M7b-PLAN B6);*
   - *merge, tag and release (user).*
 
 1. **Assets out of `DSView/`.**
@@ -867,7 +876,7 @@ alongside M6f.
   - `dsview-cli decode --pdb`.
 - **Crashes:** a panic hook writes local reports to `$XDG_STATE_HOME/dsview/crash/` (nothing is uploaded). Every `extern "C"` function is wrapped in `catch_unwind`, mapped to an error code, and keeps a thread-local last error (like `ds_get_last_error`).
 - **A/B:** use `DSVIEW_IMPL*` to bisect a regression to one subsystem in seconds.
-- **Status (2026-10-18):**
+- **Status (2026-10-18; M7b updates in STATUS):**
   - **Done:**
     - USB recording to pcapng (`cargo xtask usb record`) and `usb-diff`;
     - `dsview-cli serve --mcp` and `soak`;

@@ -110,7 +110,7 @@ retired", parts 1–4. F24/F26 (item 6) reviewed 2026-10-27: F26's three envelop
    - MSO-E8;
    - USB3, 32-channel and 1 GHz paths.
 
-   Plan: get the 14/16 missing `.fw` files; ask owners for `dsviewr-cli selftest --out DIR`
+   Plan: get the 14 missing `.fw` files (4 of 18 models' are in `assets/res`); ask owners for `dsviewr-cli selftest --out DIR`
    bundles; add an issue template that asks for them.
 2. **Manual pcapng recording** of an unplug during capture (`cargo xtask usb record`), pinned in
    the manifest.
@@ -134,7 +134,7 @@ retired", parts 1–4. F24/F26 (item 6) reviewed 2026-10-27: F26's three envelop
 4. **Test data:** an LFS or separate repository for the pcapng traces; the `.sr`→`.dsl` converter
    plus the sigrok-dumps corpus.
 
-### B8. Documentation drift (cheap, do with M7b)
+### B8. Documentation drift (cheap, do with M7b) ✔ done 2026-10-27
 
 | Where | Stale entry | Fix |
 |---|---|---|
