@@ -652,6 +652,10 @@ impl App {
         if let Some(t) = dsview_session::session::device_error_text(err) {
             self.message = Some(t.into());
         }
+        // a capture the memory check refused
+        if let Some(e) = self.session.state().start_error.take() {
+            self.message = Some(e);
+        }
         // the docks of this work mode, as last left (`TrigBar::reload`)
         self.load_docks();
         // `MainWindow::eventFilter`: the shortcuts, outside text fields

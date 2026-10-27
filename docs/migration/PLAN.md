@@ -150,10 +150,12 @@ trait ControlBackend { async fn call(method, params) -> Result<Value, RpcError> 
 
 **As built:**
 - The stores sit behind a mutex, as the C++ classes do.
-- There is no `rtrb` ingest queue: overflow is reported by the driver.
-- There is no mmap spill, no `loom` verification and no separate `AnnotationStore`. The Rust
-  `DecoderStack` has its own interval index since M6.0.
-- All four are performance decisions for M7 (§2, "M7"), not parity work.
+- Since M7b B4 an ingest queue (`std::sync::mpsc`, per session) carries packets and events from the
+  collect thread to an `ingest` thread, in order; the collect thread waits only past 256 MiB queued.
+  Leaves come from a pre-faulted pool, which brings a first capture above 1 GB/s.
+- There is no mmap spill: a memory guard refuses a logic capture larger than the available memory.
+  There is no `loom` verification and no separate `AnnotationStore`; the Rust `DecoderStack` has its
+  own interval index since M6.0.
 
 ---
 

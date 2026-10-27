@@ -80,11 +80,10 @@ retired", parts 1–4. F24/F26 (item 6) are not reviewed yet.
 
 ### B4. Performance decisions (M7b)
 
-1. **Ingest:** 766 MiB/s against a gate of ≥ 1 GB/s.
-   - Benchmark first with `criterion` in `dsview-store/benches`.
-   - Decide: accept it, or move to an `rtrb` queue with pooled leaves.
-2. **mmap spill** for captures larger than RAM. Decide whether to build it; if so, put it behind a
-   threshold option.
+1. ✔ **Ingest:** 766 MiB/s against a gate of ≥ 1 GB/s. Done 2026-10-27: an ingest queue, pooled
+   pre-faulted leaves and a blockwise mip-map; 1.1–1.3 GiB/s first capture (STATUS, "M7b B4").
+2. ✔ **mmap spill** for captures larger than RAM: not built (user decision); a memory guard refuses
+   such a capture with a clear message instead.
 3. **`loom`/lock-free readers.** Add `loom` tests for the store's reader/writer handoff, under
    `cfg(loom)` with a CI job.
 4. **`AnnotationStore`.** Keep the `DecoderStack` index unless a profile on `protocol_large` (262k

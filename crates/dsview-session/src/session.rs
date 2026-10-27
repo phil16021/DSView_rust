@@ -261,6 +261,9 @@ pub struct State {
     /// The `ds_get_last_error()` of the last device switch that has a
     /// message ([`device_error_text`]), until the GUI takes it.
     pub device_error: i32,
+    /// Why the last [`Session::start_capture`] refused to start (the memory
+    /// check), until the GUI takes it.
+    pub start_error: Option<String>,
     pub ended_seq: u64,
     pub cur_snap_samplerate: u64,
     pub cur_samplelimits: u64,
@@ -338,31 +341,175 @@ struct Inner {
     capture: AtomicUsize,
     /// `set_capture_end_flag`: false while a live decode follows a capture.
     capture_ended: AtomicBool,
+    /// Times the collect thread waited for the ingest queue (see [`HostShim`]).
+    ingest_waits: Arc<std::sync::atomic::AtomicU64>,
+    /// Bytes the system can still give the process ([`mem_available`] or a
+    /// test's stand-in); `None` skips the memory check.
+    mem_available: Mutex<fn() -> Option<u64>>,
     trigger: Mutex<Trigger>,
     data_dir: PathBuf,
     profile_dir: Option<PathBuf>,
     version: String,
 }
 
-/// Forwards the library's callbacks to the session.
-struct HostShim(Weak<Inner>);
+/// Memory the memory check leaves to the rest of the system and process.
+const MEM_HEADROOM: u64 = 256 << 20;
+
+/// Bytes a logic capture of `samples` samples on `channels` channels takes
+/// in the store: whole 64-sample words per channel plus the toggle mip-map
+/// (one bit per word at each of up to three levels, about 1/63 more).
+pub fn logic_capture_bytes(samples: u64, channels: u64) -> u64 {
+    let data = samples
+        .div_ceil(64)
+        .saturating_mul(8)
+        .saturating_mul(channels);
+    data.saturating_add(data.div_ceil(63))
+}
+
+/// `MemAvailable` of `/proc/meminfo` in bytes; `None` where there is no
+/// such file (the memory check is then skipped).
+pub fn mem_available() -> Option<u64> {
+    let info = std::fs::read_to_string("/proc/meminfo").ok()?;
+    let kib = info
+        .lines()
+        .find_map(|l| l.strip_prefix("MemAvailable:"))?
+        .trim()
+        .strip_suffix("kB")?
+        .trim()
+        .parse::<u64>()
+        .ok()?;
+    Some(kib * 1024)
+}
+
+/// Bytes of packet data the ingest queue holds before the collect thread
+/// waits for it (a few hundred ms of the fastest device's stream).
+const INGEST_QUEUE_BYTES: usize = 256 << 20;
+/// The longest the collect thread waits for room before it queues anyway.
+const INGEST_WAIT_MAX: Duration = Duration::from_secs(2);
+
+/// What the collect thread hands the ingest thread, in order.
+enum Feed {
+    Packets(Vec<Packet>, usize),
+    Event(i32),
+}
+
+/// Forwards the library's callbacks to the session. Packets and events go
+/// through a queue to a session thread that ingests them in order, so the
+/// collect thread (which resubmits the USB transfers) never waits for the
+/// store's lock or the ingest itself; DSView ingested on the collect
+/// thread. Called on the ingest thread itself (a stop from there), they
+/// are handled at once.
+struct HostShim {
+    inner: Weak<Inner>,
+    feed: Mutex<std::sync::mpsc::Sender<Feed>>,
+    /// Packet bytes queued and not ingested yet.
+    queued: Arc<AtomicUsize>,
+    /// Times the collect thread had to wait for the queue.
+    waits: Arc<std::sync::atomic::AtomicU64>,
+    ingest: Arc<std::sync::OnceLock<std::thread::ThreadId>>,
+}
+
+impl HostShim {
+    fn new(inner: Weak<Inner>, waits: Arc<std::sync::atomic::AtomicU64>) -> HostShim {
+        let (tx, rx) = std::sync::mpsc::channel::<Feed>();
+        let queued = Arc::new(AtomicUsize::new(0));
+        let ingest = Arc::new(std::sync::OnceLock::new());
+        let (w, q, id) = (inner.clone(), queued.clone(), ingest.clone());
+        std::thread::Builder::new()
+            .name("ingest".into())
+            .spawn(move || {
+                let _ = id.set(std::thread::current().id());
+                // ends when the shim (and with it the sender) is dropped
+                for f in rx {
+                    match f {
+                        Feed::Packets(ps, bytes) => {
+                            if let Some(i) = w.upgrade() {
+                                let s = Session(i);
+                                for p in &ps {
+                                    s.data_feed_in(p);
+                                }
+                            }
+                            q.fetch_sub(bytes, Ordering::AcqRel);
+                        }
+                        Feed::Event(ev) => {
+                            if let Some(i) = w.upgrade() {
+                                Session(i).on_event(ev);
+                            }
+                        }
+                    }
+                }
+            })
+            .expect("ingest thread");
+        HostShim {
+            inner,
+            feed: Mutex::new(tx),
+            queued,
+            waits,
+            ingest,
+        }
+    }
+
+    fn on_ingest_thread(&self) -> bool {
+        self.ingest.get() == Some(&std::thread::current().id())
+    }
+
+    fn send(&self, f: Feed) {
+        let _ = lock(&self.feed).send(f);
+    }
+}
 
 impl Host for HostShim {
     fn event(&self, ev: i32) {
-        if let Some(i) = self.0.upgrade() {
-            Session(i).on_event(ev);
+        if self.on_ingest_thread() {
+            if let Some(i) = self.inner.upgrade() {
+                Session(i).on_event(ev);
+            }
+        } else {
+            self.send(Feed::Event(ev));
         }
     }
     fn packets(&self, _h: Handle, packets: &[Packet]) {
-        if let Some(i) = self.0.upgrade() {
-            let s = Session(i);
-            for p in packets {
-                s.data_feed_in(p);
+        if packets.is_empty() {
+            return;
+        }
+        if self.on_ingest_thread() {
+            if let Some(i) = self.inner.upgrade() {
+                let s = Session(i);
+                for p in packets {
+                    s.data_feed_in(p);
+                }
+            }
+            return;
+        }
+        let bytes: usize = packets
+            .iter()
+            .map(|p| match &p.body {
+                Body::Logic { data, .. } | Body::Dso { data, .. } | Body::Analog { data, .. } => {
+                    data.len()
+                }
+                _ => 0,
+            })
+            .sum();
+        // the ingest is behind: wait for room, but not forever
+        if self.queued.load(Ordering::Acquire) + bytes > INGEST_QUEUE_BYTES {
+            self.waits.fetch_add(1, Ordering::Relaxed);
+            let t0 = Instant::now();
+            while self.queued.load(Ordering::Acquire) + bytes > INGEST_QUEUE_BYTES {
+                if t0.elapsed() > INGEST_WAIT_MAX {
+                    sr_err!(
+                        "The sample ingest is behind by {} MiB.",
+                        self.queued.load(Ordering::Acquire) >> 20
+                    );
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(1));
             }
         }
+        self.queued.fetch_add(bytes, Ordering::AcqRel);
+        self.send(Feed::Packets(packets.to_vec(), bytes));
     }
     fn before_start(&self, h: Handle) {
-        if let Some(i) = self.0.upgrade() {
+        if let Some(i) = self.inner.upgrade() {
             let t = *lock(&i.trigger);
             if let Some(e) = i.lib.entry(h) {
                 e.lock().set_trigger(&t);
@@ -410,8 +557,14 @@ impl Session {
         if dsview_drivers::sys::res_dir().as_os_str().is_empty() {
             dsview_drivers::sys::set_res_dir(paths.data_dir.join("res"));
         }
+        let ingest_waits = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let inner = Arc::new_cyclic(|w: &Weak<Inner>| Inner {
-            lib: Library::init(Arc::new(HostShim(w.clone())), usb),
+            lib: Library::init(
+                Arc::new(HostShim::new(w.clone(), ingest_waits.clone())),
+                usb,
+            ),
+            ingest_waits,
+            mem_available: Mutex::new(mem_available),
             state: Mutex::new(State {
                 trig_pos: MIN_TRIG_POS,
                 trig_pos_max: MAX_TRIG_PERCENT,
@@ -431,6 +584,59 @@ impl Session {
             version: paths.version,
         });
         Session(inner)
+    }
+
+    /// The device side of a capture still runs (the collect thread; its
+    /// data may still be on the way to the store).
+    pub fn is_collecting(&self) -> bool {
+        self.0.lib.is_collecting()
+    }
+
+    /// How often the collect thread had to wait because the sample ingest
+    /// fell more than [`INGEST_QUEUE_BYTES`] behind (since the session began).
+    pub fn ingest_waits(&self) -> u64 {
+        self.0.ingest_waits.load(Ordering::Relaxed)
+    }
+
+    /// Replaces the source of [`mem_available`] (tests; `|| None` turns the
+    /// memory check off).
+    pub fn set_mem_available(&self, f: fn() -> Option<u64>) {
+        *lock(&self.0.mem_available) = f;
+    }
+
+    /// The memory check of [`start_capture`](Self::start_capture): a logic
+    /// capture of `sample_limit` samples on the enabled channels must fit
+    /// into the available memory (plus what the buffer it replaces holds).
+    /// DSView started it and stopped with "memory allocation failed" once a
+    /// leaf could not be had; the kernel kills the process before that.
+    pub fn check_capture_memory(&self) -> Result<(), String> {
+        if self.mode() != Mode::Logic as i32 {
+            return Ok(());
+        }
+        let Some(avail) = (lock(&self.0.mem_available))() else {
+            return Ok(());
+        };
+        let channels = self
+            .channels()
+            .iter()
+            .filter(|c| c.ty == channel_type::LOGIC && c.enabled)
+            .count() as u64;
+        let need = logic_capture_bytes(self.sample_limit(), channels);
+        let held = {
+            let l = lock(&self.capture_data().logic);
+            logic_capture_bytes(l.ring_sample_count(), u64::from(l.channel_num()))
+        };
+        let budget = (avail + held).saturating_sub(MEM_HEADROOM);
+        if need <= budget {
+            return Ok(());
+        }
+        const GIB: f64 = (1u64 << 30) as f64;
+        Err(format!(
+            "This capture needs {:.1} GiB of memory, {:.1} GiB are available. \
+             Reduce the sample depth or the number of enabled channels.",
+            need as f64 / GIB,
+            budget as f64 / GIB
+        ))
     }
 
     /// `ds_lib_exit()`: stops a capture and closes the devices.
@@ -1564,6 +1770,12 @@ impl Session {
         }
         if self.0.lib.is_collecting() {
             sr_err!("Error!Device is running.");
+            return false;
+        }
+        if let Err(e) = self.check_capture_memory() {
+            sr_err!("{e}");
+            self.state().start_error = Some(e);
+            self.notify();
             return false;
         }
         self.clear_all_decode_tasks();

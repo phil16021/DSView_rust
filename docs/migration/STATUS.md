@@ -1647,3 +1647,47 @@ So a first capture is bound by page faults. The fastest DSLogic streams about 0.
 - the full ingest redesign: a queue between the USB thread and the store, pooled pre-faulted
   leaves, a faster transposing copy;
 - a memory guard against captures larger than the available RAM.
+
+## M7b B4: ingest redesign and memory guard (2026-10-27)
+
+**Pooled, pre-faulted leaves** (`crates/dsview-store/src/logic.rs`, `logic::leaf_pool`):
+- a freed leaf goes to a process-wide pool (at most 64 idle leaves are kept once a capture ends;
+  `release()` empties it); a new leaf comes from the pool before the allocator;
+- at the first packet of a capture whose leaves are not pooled, a `leaf-prefault` thread allocates
+  and touches the leaves the capture will need (at most 1024, 2 GiB) ahead of the writer;
+- the level-1 toggle mip-map is computed in 64-word blocks.
+
+**Ingest queue** (`crates/dsview-session/src/session.rs`, `HostShim`): the collect thread no longer
+ingests. It queues packets and events, in order, for the session's `ingest` thread, and waits only
+once 256 MiB are queued (`Session::ingest_waits` counts it; after 2 s it queues anyway and logs).
+A GUI frame or decoder holding the store lock no longer stalls the USB transfers.
+
+**Memory guard:** `start_capture` refuses a logic capture whose store
+(`logic_capture_bytes`: whole 64-sample words per channel + 1/63 mip-map) does not fit into
+`MemAvailable` less 256 MiB, counting the buffer it replaces as free. The message ("This capture
+needs X GiB of memory, Y GiB are available. Reduce the sample depth or the number of enabled
+channels.") is shown by the GUI and returned by the control API's `start_capture`. The shown capture
+is kept. Without `/proc/meminfo` the check is skipped.
+
+**Tried and dropped:** a blocked transposing copy and an unchecked strided read: no measurable gain
+over the strided copy (the copy is bound by memory bandwidth once page faults are gone).
+
+**Measurements** (`cargo bench -p dsview-store`, 16 ch × 128M samples, this VM):
+
+| | Before | After | Gate |
+|---|---|---|---|
+| First capture (pool released before each run) | 632–702 MiB/s | 1145–1302 MiB/s | ≥ 954 MiB/s (1 GB/s) |
+| Repeated capture | 991 MiB/s | 1181–1239 MiB/s | |
+
+**Tests:**
+- `dsview-store/tests/leaf_pool.rs`: a second store allocates nothing new; a reused leaf reads back
+  clean; `prefault` fills the pool and the next capture takes from it; the idle trim.
+- `dsview-session/tests/session.rs`:
+  - `collect_does_not_wait_for_the_store`: with the store locked, the device side of a demo
+    capture still finishes, and the capture ends once the lock is released (fails without the
+    queue);
+  - `logic_capture_estimate`, `capture_beyond_memory_is_refused` (injected available memory via
+    `Session::set_mem_available`).
+
+**Not verified here:** a DSLogic stream at its highest rate (the `ingest_waits` counter and
+`hwmatrix` need the hardware).

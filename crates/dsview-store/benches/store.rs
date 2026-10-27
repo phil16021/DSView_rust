@@ -57,6 +57,8 @@ fn ingest() {
     let data = stream(n, samples / 64, &periods);
     let chans: Vec<u16> = (0..n as u16).collect();
     let t = median(7, || {
+        // a cold start: nothing pooled (the pre-fault starts from scratch)
+        dsview_store::logic::leaf_pool::release();
         let mut s = LogicStore::new();
         let mut first = true;
         for p in data.chunks(PACKET) {

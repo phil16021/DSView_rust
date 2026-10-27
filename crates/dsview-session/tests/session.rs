@@ -56,6 +56,81 @@ fn wait(s: &Session, what: &str, cond: impl Fn(&dsview_session::session::State) 
     assert!(s.wait(Duration::from_secs(60), cond), "timed out: {what}");
 }
 
+/// B4: the collect thread hands packets to the ingest thread and goes on
+/// reading the device, also while the store is locked (a GUI frame, a live
+/// decode): it used to ingest under that lock itself. The data and the
+/// capture's end then arrive in order.
+#[test]
+fn collect_does_not_wait_for_the_store() {
+    let (_g, s) = session("Demo Logic");
+    assert!(s.start_capture(false));
+    let held = s.data().logic.lock().unwrap();
+    let t0 = std::time::Instant::now();
+    while s.is_collecting() {
+        assert!(
+            t0.elapsed() < Duration::from_secs(30),
+            "the collect thread waits for the store"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    // the device is done, the ingest is not: the capture has not ended
+    assert_eq!(s.state().ended_seq, 0);
+    drop(held);
+    wait(&s, "capture end", |st| st.ended_seq > 0 && !st.working);
+    assert_eq!(s.data().logic.lock().unwrap().ring_sample_count(), 131_072);
+    s.exit();
+}
+
+#[test]
+fn logic_capture_estimate() {
+    use dsview_session::session::logic_capture_bytes;
+    assert_eq!(logic_capture_bytes(0, 16), 0);
+    // a partial word still takes a whole one; the mip-map adds 1/63
+    assert_eq!(logic_capture_bytes(1, 1), 9);
+    assert_eq!(logic_capture_bytes(64 * 63, 1), 8 * 63 + 8);
+    // 16 channels x 1G samples: 2 GiB of data, 32.5 MiB of mip-map
+    let b = logic_capture_bytes(1 << 30, 16);
+    assert!(b > 2 << 30 && b < (2 << 30) + (33 << 20), "{b}");
+    assert_eq!(logic_capture_bytes(u64::MAX, 32), u64::MAX);
+}
+
+/// A capture that does not fit into the available memory is refused
+/// before anything is cleared, with a message the GUI shows.
+#[test]
+fn capture_beyond_memory_is_refused() {
+    let (_g, s) = session("Demo Logic");
+    assert!(s.start_capture(false));
+    wait(&s, "capture end", |st| st.ended_seq > 0 && !st.working);
+    // 131072 samples x 16 channels need 260 KiB; the old capture's buffer
+    // counts as available, so 256 MiB (the headroom kept for the rest of the
+    // system) leave room for it
+    s.set_mem_available(|| Some(256 << 20));
+    assert!(s.check_capture_memory().is_ok());
+    s.set_config(key::LIMIT_SAMPLES, ConfValue::U64(16 << 20), None);
+    s.update_sample_rate_list();
+    s.commit_settings();
+    let limit = s.sample_limit();
+    assert!(limit >= 16 << 20, "{limit}");
+    s.set_mem_available(|| Some(288 << 20));
+    assert!(!s.start_capture(false));
+    let e = s.state().start_error.clone().expect("no message");
+    assert!(
+        e.contains("GiB") && e.contains("Reduce the sample depth"),
+        "{e}"
+    );
+    assert_eq!(s.state().started_seq, 1);
+    // the shown capture is still there
+    assert_eq!(s.data().logic.lock().unwrap().ring_sample_count(), 131_072);
+    // where the available memory is unknown there is no check
+    s.set_mem_available(|| None);
+    s.state().start_error = None;
+    assert!(s.start_capture(false));
+    wait(&s, "capture end", |st| st.ended_seq > 1 && !st.working);
+    assert_eq!(s.state().started_seq, 2);
+    assert!(s.state().start_error.is_none());
+    s.exit();
+}
+
 #[test]
 fn sample_count_snaps_up_to_1024() {
     let (_g, s) = session("Demo Logic");

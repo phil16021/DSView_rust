@@ -41,6 +41,8 @@ const LEVEL_MASK: [u64; 4] = [0x3f, 0x3f << 6, 0x3f << 12, 0x3f << 18];
 const LEVEL_OFFSET: [usize; 4] = [0, 262_144, 262_144 + 4096, 262_144 + 4096 + 64];
 /// Words of one leaf: samples plus mip-map levels (C++ `LeafBlockSpace / 8`).
 const LEAF_WORDS: usize = 262_144 + 4096 + 64 + 1;
+/// The most leaves a capture maps ahead of itself (about 2 GiB).
+const PREFAULT_MAX_LEAVES: u64 = 1024;
 /// Bytes of sample data in a leaf.
 const LEAF_DATA_BYTES: usize = (LEAF_BLOCK_SAMPLES / 8) as usize;
 const MSB: u64 = 1 << (SCALE - 1);
@@ -64,9 +66,13 @@ impl Leaf {
         Layout::array::<u64>(LEAF_WORDS).expect("leaf layout")
     }
 
-    /// A zeroed leaf, or None when the allocation fails (C++: malloc failure,
-    /// the packet is dropped).
+    /// A zeroed leaf, from the [`leaf_pool`] when it has one, or None when
+    /// the allocation fails (C++: malloc failure, the packet is dropped).
     fn new() -> Option<Leaf> {
+        if let Some(ptr) = leaf_pool::take() {
+            return Some(Leaf { ptr });
+        }
+        leaf_pool::count_fresh();
         // SAFETY: the layout has a non-zero size.
         let p = unsafe { alloc_zeroed(Self::layout()) } as *mut u64;
         NonNull::new(p).map(|ptr| Leaf { ptr })
@@ -124,8 +130,176 @@ impl Leaf {
 
 impl Drop for Leaf {
     fn drop(&mut self) {
-        // SAFETY: allocated in Leaf::new with the same layout.
-        unsafe { dealloc(self.ptr.as_ptr() as *mut u8, Self::layout()) }
+        if !leaf_pool::put(self.ptr, false) {
+            // SAFETY: allocated in Leaf::new with the same layout.
+            unsafe { dealloc(self.ptr.as_ptr() as *mut u8, Self::layout()) }
+        }
+    }
+}
+
+/// Leaves kept for reuse across captures and stores (process-wide).
+///
+/// A fresh leaf costs its page faults on first write (2 MiB each), which
+/// bound the first capture's ingest at about the speed of a copy into fresh
+/// memory. Freed leaves (constant ones during a capture, a store's leaves
+/// when it is cleared or dropped) wait here instead, and [`prefault`] fills
+/// the pool ahead of a capture on another thread, so the capture writes
+/// memory that is already mapped. A leaf is zeroed when it is taken, unless
+/// it is known clean.
+pub mod leaf_pool {
+    use super::{Leaf, NonNull};
+    use std::alloc::{alloc_zeroed, dealloc};
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+
+    /// Leaves kept while no capture asked for more (about 135 MiB).
+    pub const IDLE_LEAVES: usize = 64;
+
+    struct Slot(NonNull<u64>, bool);
+    // SAFETY: a pooled leaf is owned by the pool alone.
+    unsafe impl Send for Slot {}
+
+    static POOL: Mutex<Vec<Slot>> = Mutex::new(Vec::new());
+    /// The most leaves the pool keeps (raised by a pre-fault).
+    static CAP: AtomicUsize = AtomicUsize::new(IDLE_LEAVES);
+    static FRESH: AtomicU64 = AtomicU64::new(0);
+    /// Bumped by [`release`]: a pre-fault still running stops.
+    static GENERATION: AtomicU64 = AtomicU64::new(0);
+
+    fn pool() -> std::sync::MutexGuard<'static, Vec<Slot>> {
+        POOL.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// A pooled leaf, zeroed.
+    pub(super) fn take() -> Option<NonNull<u64>> {
+        let Slot(p, clean) = {
+            let mut v = pool();
+            // a clean one first: no zeroing on the capture's thread
+            match v.iter().rposition(|s| s.1) {
+                Some(i) => v.swap_remove(i),
+                None => v.pop()?,
+            }
+        };
+        if !clean {
+            // SAFETY: the whole leaf allocation, owned by the caller now.
+            unsafe { std::ptr::write_bytes(p.as_ptr(), 0, super::LEAF_WORDS) };
+        }
+        Some(p)
+    }
+
+    /// Keeps a freed leaf; false when the pool is full (the caller frees it).
+    pub(super) fn put(p: NonNull<u64>, clean: bool) -> bool {
+        put_in(p, clean, None)
+    }
+
+    /// `put`, for a pre-fault of `generation`: false once [`release`] ran
+    /// (checked under the pool's lock, which `release` holds too).
+    fn put_in(p: NonNull<u64>, clean: bool, generation: Option<u64>) -> bool {
+        let mut v = pool();
+        if generation.is_some_and(|g| GENERATION.load(Ordering::SeqCst) != g)
+            || v.len() >= CAP.load(Ordering::Relaxed)
+        {
+            return false;
+        }
+        v.push(Slot(p, clean));
+        true
+    }
+
+    pub(super) fn count_fresh() {
+        FRESH.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Leaves allocated fresh so far (not taken from the pool).
+    pub fn fresh_allocations() -> u64 {
+        FRESH.load(Ordering::Relaxed)
+    }
+
+    /// Leaves waiting in the pool.
+    pub fn pooled() -> usize {
+        pool().len()
+    }
+
+    /// Allocates and maps up to `leaves` leaves into the pool on another
+    /// thread (the pool's cap rises to fit them). The capture takes them as
+    /// it goes; a leaf it needs before the thread made one is allocated as
+    /// before.
+    pub fn prefault(leaves: usize) -> std::thread::JoinHandle<()> {
+        CAP.fetch_max(leaves.max(IDLE_LEAVES), Ordering::Relaxed);
+        let generation = GENERATION.load(Ordering::SeqCst);
+        let current = move || GENERATION.load(Ordering::SeqCst) == generation;
+        std::thread::Builder::new()
+            .name("leaf-prefault".into())
+            .spawn(move || {
+                // zero the pooled leaves first, so the capture takes clean ones
+                loop {
+                    let dirty = {
+                        let mut v = pool();
+                        let i = v.iter().position(|s| !s.1);
+                        i.map(|i| v.swap_remove(i))
+                    };
+                    let Some(Slot(p, _)) = dirty else { break };
+                    if !current() {
+                        // SAFETY: a pooled leaf, allocated with this layout.
+                        unsafe { dealloc(p.as_ptr() as *mut u8, Leaf::layout()) };
+                        return;
+                    }
+                    // SAFETY: the whole leaf, out of the pool and owned here.
+                    unsafe { std::ptr::write_bytes(p.as_ptr(), 0, super::LEAF_WORDS) };
+                    if !put_in(p, true, Some(generation)) {
+                        // SAFETY: a pooled leaf, allocated with this layout.
+                        unsafe { dealloc(p.as_ptr() as *mut u8, Leaf::layout()) };
+                    }
+                }
+                for _ in 0..leaves {
+                    if pooled() >= leaves || !current() {
+                        break;
+                    }
+                    // SAFETY: the layout has a non-zero size.
+                    let p = unsafe { alloc_zeroed(Leaf::layout()) } as *mut u64;
+                    let Some(p) = NonNull::new(p) else { break };
+                    // map every page now: a write per 4 KiB
+                    for page in (0..super::LEAF_WORDS).step_by(512) {
+                        // SAFETY: inside the allocation; nobody else has it.
+                        unsafe { p.as_ptr().add(page).write_volatile(0) };
+                    }
+                    FRESH.fetch_add(1, Ordering::Relaxed);
+                    if !put_in(p, true, Some(generation)) {
+                        // SAFETY: allocated above with the same layout.
+                        unsafe { dealloc(p.as_ptr() as *mut u8, Leaf::layout()) };
+                        break;
+                    }
+                }
+            })
+            .expect("pre-fault thread")
+    }
+
+    /// Back to the idle size: the cap drops and the leaves above it are
+    /// freed (after a capture).
+    pub fn trim_idle() {
+        CAP.store(IDLE_LEAVES, Ordering::Relaxed);
+        let extra: Vec<Slot> = {
+            let mut v = pool();
+            let keep = v.len().min(IDLE_LEAVES);
+            v.split_off(keep)
+        };
+        for Slot(p, _) in extra {
+            // SAFETY: a pooled leaf, allocated with this layout.
+            unsafe { dealloc(p.as_ptr() as *mut u8, Leaf::layout()) };
+        }
+    }
+
+    /// Frees every pooled leaf (the device or mode changed, memory is
+    /// needed elsewhere).
+    pub fn release() {
+        let all: Vec<Slot> = {
+            let mut v = pool();
+            GENERATION.fetch_add(1, Ordering::SeqCst);
+            std::mem::take(&mut *v)
+        };
+        for Slot(p, _) in all {
+            // SAFETY: a pooled leaf, allocated with this layout.
+            unsafe { dealloc(p.as_ptr() as *mut u8, Leaf::layout()) };
+        }
     }
 }
 
@@ -423,6 +597,10 @@ impl LogicStore {
                     .push((0..rootnode_size).map(|_| RootNode::new()).collect());
                 self.ch_index.push(ch);
             }
+            // map the capture's leaves ahead of it on another thread
+            let leaves = (self.total_sample_count.div_ceil(LEAF_BLOCK_SAMPLES) * channel_num as u64)
+                .min(PREFAULT_MAX_LEAVES) as usize;
+            let _ = leaf_pool::prefault(leaves.saturating_sub(leaf_pool::pooled()));
         } else {
             for chan in &mut self.ch_data {
                 for rn in chan.iter_mut() {
@@ -707,6 +885,7 @@ impl LogicStore {
     /// mip-map.
     pub fn capture_ended(&mut self) {
         self.last_ended = true;
+        leaf_pool::trim_idle();
         self.sample_count = self.ring_sample_count;
         if !self.is_loop {
             self.trim_single_capture();
@@ -808,18 +987,33 @@ impl LogicStore {
             last_sample = if words[0] & LSB != 0 { !0 } else { 0 };
         }
         let end = ((samples / SCALE) as usize).min(words.len());
-        let mut acc = 0u64;
-        for (i, &w) in words.iter().enumerate().take(end).skip(start) {
-            acc |= u64::from(last_sample ^ w != 0) << (i % 64);
-            last_sample = if w & MSB != 0 { !0 } else { 0 };
-            if i % 64 == 63 {
-                mip[i / 64] |= acc;
-                acc = 0;
+        // a word's previous sample is the last bit of the word before it, so
+        // whole blocks of 64 words need no carried state (and vectorise)
+        let ext = |w: u64| ((w as i64) >> 63) as u64;
+        let mut i = start;
+        let mut prev = last_sample;
+        let one = |i: usize, prev: u64| u64::from(prev ^ words[i] != 0) << (i % 64);
+        while i < end && !i.is_multiple_of(64) {
+            mip[i / 64] |= one(i, prev);
+            prev = ext(words[i]);
+            i += 1;
+        }
+        while i + 64 <= end {
+            let b = &words[i..i + 64];
+            let mut m = u64::from(prev ^ b[0] != 0);
+            for j in 1..64 {
+                m |= u64::from(b[j] ^ ext(b[j - 1]) != 0) << j;
             }
+            mip[i / 64] |= m;
+            prev = ext(b[63]);
+            i += 64;
         }
-        if acc != 0 {
-            mip[(end - 1) / 64] |= acc;
+        while i < end {
+            mip[i / 64] |= one(i, prev);
+            prev = ext(words[i]);
+            i += 1;
         }
+        last_sample = prev;
 
         // level 2: the whole level is rescanned, from where it was left
         let start = (last_count / SCALE / SCALE) as usize;

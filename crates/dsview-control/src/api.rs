@@ -786,8 +786,12 @@ impl Api {
             .clamp(1.0, 3600.0);
             let before = self.seqs();
             // the analog toolbar has no single-shot button
-            if !(instant && mode == Mode::Analog as i32) {
-                self.s.start_capture(instant);
+            if !(instant && mode == Mode::Analog as i32) && !self.s.start_capture(instant) {
+                // the GUI's message box shows it as well
+                let refused = self.s.state().start_error.clone();
+                if let Some(e) = refused {
+                    return Err(e);
+                }
             }
             (instant, wait, timeout, before)
         };
