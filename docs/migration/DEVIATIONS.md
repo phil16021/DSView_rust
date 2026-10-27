@@ -499,6 +499,17 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
 - **`update_dso_data_scale` is never called.** The snapshot's data scale is set only with the
   sample rate, so a V/div changed after a capture stretches the trace and keeps its voltages.
   The control API now does the same (row below).
+  - **Fixed 2026-10-27 (M7b).** The session's `cap_vdiv` is the one record of the V/div the data
+    was taken at:
+    - while a capture runs, a V/div change becomes it, since the frames that follow are in the new
+      V/div. Before, the GUI and the control API kept the V/div of the start, so after a dial step
+      during a run, DSO voltages were off by the ratio (the demo's Vpp halved when V/div doubled);
+    - a stopped capture keeps it.
+  - **Trace scale:** the view derives the trace's stop scale from it (`cap_vdiv / V/div`) instead
+    of counting dial steps. A V/div set from Device Options, auto-set or the control socket now
+    rescales a stopped trace too; before, only the header dial did.
+  - **Tests:** `transcript::dso_vdiv_changed_while_running` and
+    `dsoview::tests::stopped_trace_follows_vdiv_from_any_path`.
 
 ### F32. Decoder chunk edges (M6g)
 - **libsigrokdecode's results depend on the chunks.** The new chunking-invariance test found:

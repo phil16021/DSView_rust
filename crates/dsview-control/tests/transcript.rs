@@ -156,3 +156,76 @@ fn dso_voltages_keep_the_capture_vdiv() {
     assert_eq!(before, after);
     session.exit();
 }
+
+/// F31: a V/div changed while a capture runs applies to the frames that
+/// follow, which are in the new V/div: the signal's voltages stay.
+#[test]
+fn dso_vdiv_changed_while_running() {
+    use dsview_control::ControlBackend;
+    let _g = serial();
+    init_decoders();
+    let session = Session::new(
+        Paths {
+            data_dir: root().join("assets"),
+            profile_dir: None,
+            version: "test".into(),
+        },
+        Arc::new(NoUsb),
+    );
+    session.set_default_device();
+    let api = Api::new(session.clone(), "test");
+    let call = |m: &str, p: serde_json::Value| {
+        api.call(m, p.as_object().unwrap())
+            .unwrap_or_else(|e| panic!("{m}: {e}"))
+    };
+    // the peak-to-peak voltage of channel 0, in mV
+    let vpp = || -> f64 {
+        let m = call("measure_dso", serde_json::json!({"channel": 0}));
+        let v = m["measurements"]["peak_to_peak"]
+            .as_str()
+            .unwrap_or_else(|| panic!("no peak_to_peak in {m}"))
+            .to_owned();
+        let (num, unit) = v.split_at(v.find(|c: char| c.is_ascii_alphabetic()).unwrap());
+        num.parse::<f64>().unwrap() * if unit.starts_with("mV") { 1.0 } else { 1000.0 }
+    };
+    let frames = || session.state().dso_seq;
+    let wait_frames = |n: u64| {
+        let from = frames();
+        let t0 = std::time::Instant::now();
+        while frames() < from + n {
+            assert!(
+                t0.elapsed() < std::time::Duration::from_secs(30),
+                "no DSO frames"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    };
+    call("set_mode", serde_json::json!({"mode": "dso"}));
+    call(
+        "start_capture",
+        serde_json::json!({"instant": false, "wait": false}),
+    );
+    wait_frames(3);
+    let before = vpp();
+    // the GUI's V/div dial while running (the API refuses set_dso then)
+    let pos = session
+        .channels()
+        .iter()
+        .position(|c| c.index == 0 && c.ty == dsview_core::channel_type::DSO)
+        .unwrap();
+    let v0 = session.channels()[pos].vdiv;
+    assert!(session.set_config(
+        dsview_core::key::PROBE_VDIV,
+        dsview_core::ConfValue::U64(v0 * 2),
+        Some(pos)
+    ));
+    assert_eq!(session.channels()[pos].vdiv, v0 * 2);
+    wait_frames(3);
+    let after = vpp();
+    call("stop_capture", serde_json::json!({}));
+    assert!(
+        (after / before - 1.0).abs() < 0.2,
+        "Vpp {before} mV before, {after} mV after the V/div change"
+    );
+    session.exit();
+}

@@ -1462,3 +1462,29 @@ stays a manual hardware step.
   - `xtask control check` 38 steps;
   - `xtask mcp suite` 30 tools, 37 steps.
 - **Not run here:** the cargo-fuzz smoke (no cargo-fuzz or nightly toolchain); CI runs it.
+
+## M7b: F31 fixed, DSO V/div after or during a capture (2026-10-27)
+
+- **Problem** (DEVIATIONS F31):
+  - while a capture ran, a V/div change left voltages in the V/div of the start, so after a dial
+    step the demo's Vpp halved when V/div doubled (GUI and control API);
+  - when stopped, only the header dial rescaled the trace. V/div from Device Options, auto-set or
+    the control socket changed the grid but not the trace.
+- **Fix:**
+  - `Session::set_config` updates `cap_vdiv` for a DSO channel's V/div while a capture runs, and
+    leaves it alone when stopped;
+  - the DSO view takes the data's V/div from there and derives the trace's stop scale from it; its
+    own step counting is gone.
+- **Tests:**
+  - `dsview-control` `transcript::dso_vdiv_changed_while_running` (Vpp 3940 mV before, 1970 mV
+    after without the fix);
+  - `dsview-gui` `dsoview::tests::stopped_trace_follows_vdiv_from_any_path` (scale 1 instead of
+    0.5 without it);
+  - the existing `dso_voltages_keep_the_capture_vdiv` still passes.
+- **Checked:**
+  - workspace tests, clippy `-D warnings`, golden check, control transcript (38 steps), MCP suite
+    (30 tools, 37 steps);
+  - the GUI snapshots are unchanged.
+- **Seen in passing:** `hotplug::detach_during_capture` failed 2 times in 46 runs with this change
+  and 0 in 21 without. Its 3 s waits are timing-sensitive and it does not use `Session`, so this
+  looks like an existing flake; to be watched.

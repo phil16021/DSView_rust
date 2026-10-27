@@ -544,7 +544,27 @@ impl Session {
 
     pub fn set_config(&self, key: i32, v: ConfValue, ch: Option<usize>) -> bool {
         let Some(e) = self.active() else { return false };
-        e.lock().config_set(key, &v, ch).is_ok()
+        let mut d = e.lock();
+        if d.config_set(key, &v, ch).is_err() {
+            return false;
+        }
+        // F31: the frames after a V/div change while running are in the
+        // new V/div (`set_measure_voltage_factor` in `go_vDialNext`); a
+        // stopped capture keeps the V/div it was taken at
+        if key == key::PROBE_VDIV
+            && let Some(c) = ch.and_then(|i| d.channels().get(i))
+            && c.ty == channel_type::DSO
+        {
+            let (index, vdiv) = (c.index, c.vdiv);
+            drop(d);
+            let mut st = self.state();
+            if st.working
+                && let Some(slot) = st.cap_vdiv.iter_mut().find(|(i, _)| *i == index)
+            {
+                slot.1 = vdiv;
+            }
+        }
+        true
     }
 
     pub fn config_list(&self, key: i32) -> Option<ConfValue> {

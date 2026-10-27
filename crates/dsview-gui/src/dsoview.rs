@@ -16,24 +16,10 @@ use eframe::egui::{self, Color32, Pos2, Rect, Stroke, Ui, pos2, vec2};
 use crate::timeview::{HEADER_WIDTH, RULER_HEIGHT, TimeView, timebase};
 
 /// What the view keeps per DSO channel (index 0-3).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 struct Chan {
-    /// `_stop_scale`: V/div changed after the capture stretches the trace.
-    stop_scale: f32,
-    /// `set_measure_voltage_factor`, `set_data_scale`: V/div and the
-    /// trace's scale when the capture started.
-    cap_vdiv: u64,
+    /// `set_data_scale`: the trace's scale when the capture started.
     data_scale: f32,
-}
-
-impl Default for Chan {
-    fn default() -> Self {
-        Chan {
-            stop_scale: 1.0,
-            cap_vdiv: 0,
-            data_scale: 0.0,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -125,6 +111,9 @@ pub(crate) struct ChanView {
     pub(crate) colour: Color32,
     /// The device's V/div list (the dial's entries).
     pub(crate) vdivs: std::sync::Arc<Vec<u64>>,
+    /// The V/div the shown data was taken at (the session's `cap_vdiv`),
+    /// 0 before a capture.
+    pub(crate) data_vdiv: u64,
 }
 
 impl ChanView {
@@ -246,15 +235,26 @@ fn channel_layout(
         let c = &chans[pos];
         let get = |k: i32| s.config(k, Some(pos));
         let mut geom = Geom::new(rect, ref_min, ref_max, bits);
-        let stop = st
-            .chans
-            .get(sig.index as usize)
-            .map_or(1.0, |c| c.stop_scale);
+        let vdiv = get(key::PROBE_VDIV).map_or(c.vdiv, |v| v.get_u64());
+        let data_vdiv = s
+            .state()
+            .cap_vdiv
+            .iter()
+            .find(|x| x.0 == sig.index)
+            .map_or(0, |x| x.1);
+        // `_stop_scale` (F31): data taken at another V/div than the dial's
+        // shows at the dial's scale, whichever way V/div changed (dial,
+        // device options, auto-set, control socket)
+        let stop = if data_vdiv > 0 && vdiv > 0 {
+            (data_vdiv as f64 / vdiv as f64) as f32
+        } else {
+            1.0
+        };
         geom.set_scale(rect.h, stop);
         out.push(ChanView {
             pos,
             enabled: c.enabled,
-            vdiv: get(key::PROBE_VDIV).map_or(c.vdiv, |v| v.get_u64()),
+            vdiv,
             factor: get(key::PROBE_FACTOR).map_or(1, |v| v.get_u64()).max(1),
             coupling: get(key::PROBE_COUPLING).map_or(c.coupling, |v| v.get_byte()),
             zero_offset: get(key::PROBE_OFFSET).map_or(c.offset, |v| v.get_u16()),
@@ -264,6 +264,7 @@ fn channel_layout(
             y,
             colour: colour(&sig),
             vdivs: vdivs.clone(),
+            data_vdiv,
             sig,
         });
     }
@@ -300,13 +301,13 @@ impl TimeView {
         let Some(c) = chans.iter().find(|c| c.sig.index == index && c.enabled) else {
             return false;
         };
-        step_vdiv(s, &mut self.dso, c, up)
+        step_vdiv(s, c, up)
     }
 }
 
 /// `go_vDialPre` / `go_vDialNext`: one step of the V/div dial; while
-/// stopped the shown trace stretches with it.
-fn step_vdiv(s: &Session, st: &mut DsoState, c: &ChanView, up: bool) -> bool {
+/// stopped the shown trace stretches with it (`channel_views`).
+fn step_vdiv(s: &Session, c: &ChanView, up: bool) -> bool {
     let list = &c.vdivs;
     let Some(i) = list.iter().position(|&v| v == c.vdiv) else {
         return false;
@@ -316,11 +317,6 @@ fn step_vdiv(s: &Session, st: &mut DsoState, c: &ChanView, up: bool) -> bool {
         return false;
     };
     s.set_config(key::PROBE_VDIV, ConfValue::U64(v), Some(c.pos));
-    if !s.is_working()
-        && let Some(ch) = st.chans.get_mut(c.sig.index as usize)
-    {
-        ch.stop_scale *= (c.vdiv as f64 / v as f64) as f32;
-    }
     s.set_config(
         key::PROBE_OFFSET,
         ConfValue::U16(c.zero_offset),
@@ -358,8 +354,6 @@ impl TimeView {
             for c in &chans {
                 if let Some(ch) = self.dso.chans.get_mut(c.sig.index as usize) {
                     *ch = Chan {
-                        stop_scale: 1.0,
-                        cap_vdiv: c.vdiv,
                         data_scale: (c.geom.rect.h as f64 / (c.geom.ref_max - c.geom.ref_min))
                             as f32,
                     };
@@ -693,10 +687,10 @@ impl TimeView {
             .copied()
             .unwrap_or_default();
         Volts {
-            vdiv_mv: if ch.cap_vdiv == 0 {
+            vdiv_mv: if c.data_vdiv == 0 {
                 c.vdiv
             } else {
-                ch.cap_vdiv
+                c.data_vdiv
             },
             data_scale: if ch.data_scale == 0.0 {
                 c.geom.scale
@@ -1038,15 +1032,15 @@ impl TimeView {
                 && let Some(p) = resp.interact_pointer_pos()
                 && p.x > dial.center().x
             {
-                changed |= step_vdiv(s, &mut self.dso, c, p.y > dial.center().y);
+                changed |= step_vdiv(s, c, p.y > dial.center().y);
             }
             if resp.hovered() {
                 // mouse_wheel: shift = delta / 120
                 let dy = ui.input(|i| crate::timeview::wheel_angle(i).1) as f64 / 120.0;
                 if dy > 0.5 {
-                    changed |= step_vdiv(s, &mut self.dso, c, false);
+                    changed |= step_vdiv(s, c, false);
                 } else if dy < -0.5 {
-                    changed |= step_vdiv(s, &mut self.dso, c, true);
+                    changed |= step_vdiv(s, c, true);
                 }
             }
             // AUTO (hardware only): starts auto-set while running
@@ -1614,7 +1608,7 @@ impl TimeView {
                         .map_or(c.vdiv, |v| v.get_u64());
                     let mut c2 = c.clone();
                     c2.vdiv = cur;
-                    step_vdiv(s, &mut self.dso, &c2, *a == Action::VdivUp);
+                    step_vdiv(s, &c2, *a == Action::VdivUp);
                 }
                 Action::Factor(f) => {
                     s.set_config(key::PROBE_FACTOR, ConfValue::U64(f), Some(c.pos));
@@ -1641,5 +1635,71 @@ impl TimeView {
                 Action::Lock => self.dso.auto_lock = AUTO_LOCK,
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dsview_session::Paths;
+    use dsview_usb::{Info, Open, UsbBackend, UsbDevice, UsbError};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    struct NoUsb;
+
+    impl UsbBackend for NoUsb {
+        fn list(&self) -> Result<Vec<Info>, UsbError> {
+            Ok(Vec::new())
+        }
+        fn open(&self, _: u8, _: u8, _: Open) -> Result<Box<dyn UsbDevice>, UsbError> {
+            Err(UsbError::NotFound)
+        }
+    }
+
+    /// F31: a stopped capture's trace follows V/div however it changed, not
+    /// only through the header's dial; its voltages stay those of the
+    /// capture.
+    #[test]
+    fn stopped_trace_follows_vdiv_from_any_path() {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let s = Session::new(
+            Paths {
+                data_dir: root.join("assets"),
+                profile_dir: None,
+                version: "test".into(),
+            },
+            Arc::new(NoUsb),
+        );
+        let (list, _) = s.devices();
+        let e = list.iter().find(|e| e.name == "Demo Logic").unwrap();
+        assert!(s.set_device(e.handle));
+        s.switch_work_mode(dsview_core::Mode::Dso as i32);
+        assert!(s.start_capture(true));
+        assert!(s.wait(Duration::from_secs(60), |st| st.ended_seq > 0
+            && !st.working));
+        let st = DsoState::default();
+        let view = |s: &Session| {
+            channel_views(s, 1000, 600, &st)
+                .into_iter()
+                .find(|c| c.sig.index == 0)
+                .unwrap()
+        };
+        let c0 = view(&s);
+        assert_eq!(c0.data_vdiv, c0.vdiv);
+        let i = c0.vdivs.iter().position(|&v| v == c0.vdiv).unwrap();
+        let next = c0.vdivs[i + 1];
+        // as the device options dialog or the control socket set it
+        assert!(s.set_config(key::PROBE_VDIV, ConfValue::U64(next), Some(c0.pos)));
+        let c1 = view(&s);
+        assert_eq!(c1.vdiv, next);
+        assert_eq!(c1.data_vdiv, c0.vdiv, "a stopped capture keeps its V/div");
+        let ratio = c1.geom.scale as f64 / c0.geom.scale as f64;
+        let want = c0.vdiv as f64 / next as f64;
+        assert!(
+            (ratio - want).abs() < 1e-4,
+            "trace scale {ratio}, want {want}"
+        );
+        s.exit();
     }
 }
