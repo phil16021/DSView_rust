@@ -943,7 +943,8 @@ the demo transcript is unchanged.
   - The language comes from the locale when none is stored.
   - Checked on the real `DSView.conf` of this machine, in a copy.
 - **Window:** the last normal rectangle and the maximised state are restored. A window that shows
-  less than 70 × 70 px of the screen moves to its middle (Qt's check). The rectangle is saved when
+  less than 70 × 70 px on every monitor moves to the primary's middle (Qt's check; see M7b
+  below). The rectangle is saved when
   the window closes.
 - **Persisted view state:** trace height factor and DSO split.
 - **File dialogs:** each starts in the directory its kind used last: open, save, export, sessions,
@@ -1622,9 +1623,9 @@ Other decoders that raise on unusual data are recorded as DEVIATIONS F35, a foll
 | Ctrl header drag (F29) | The selection drags with Ctrl held. Also fixed: a plain click on a header label no longer snaps the traces to the grid, renumbers them and clears the selection. A press selects only inside the label: egui's hover margin let a click on the left edge of the first trigger square select the trace too | `header_drag_and_multi_select`, snapshot `logic_trigger_squares` |
 | "Don't ask to save" (F29) | Choosing a device honours it | `app_flow::device_switch_respects_dont_ask` |
 | Log Options (F30) | The log file opens in the chosen append or overwrite mode | `log::tests::file_levels_and_clear` |
-| Window position (F30) | **Open:** with several monitors the existing check lacks the monitor positions (not available from egui). Follow-up task | — |
+| Window position (F30) | Checked against every monitor (section "the off-screen window check uses every monitor" below) | `qsettings::tests::window_back_onto_the_screen` |
 
-**M7b B3 is done** except that multi-monitor item.
+**M7b B3 is done.**
 
 ## M7b B4: store benchmark baseline (2026-10-27)
 
@@ -1851,3 +1852,19 @@ graycode's `ChannelMapError`, `rgb_led_ws281x` color-order options, and `ir_irmp
 **Checked:**
 - workspace: 255 tests pass, and clippy `-D warnings` is clean;
 - golden check ok, decoder golden unchanged.
+
+## M7b: the off-screen window check uses every monitor (2026-10-27)
+
+- **The bug:** the start-up check (DEVIATIONS F30) only knew the current monitor's size, and treated
+  it as if it started at (0, 0). So a window on a second monitor, right or left of the primary, was
+  moved to the primary on every start.
+- **The fix:** `main` runs eframe's winit event loop itself (`eframe::create_native`) and reads
+  every monitor and the primary before the window opens. `qsettings::onto_screen` keeps a window
+  that shows 70 × 70 px on any monitor, and moves any other to the primary's middle. Wayland gives
+  no layout, so there the check is skipped.
+- **Tests:**
+  - `qsettings::tests::window_back_onto_the_screen`: right and left secondary monitors, a removed
+    monitor, a window split over two monitors, a primary away from the origin, no layout;
+  - by hand under Xvfb: a window saved at x=2500 on a 1920 px screen moves to (360, 140); one at
+    x=2000 on a 3840 px screen stays;
+  - `--bench` exits cleanly through the new event loop.

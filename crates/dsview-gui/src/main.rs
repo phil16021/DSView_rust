@@ -19,6 +19,10 @@ use dsview_control::api::Api;
 use dsview_control::server::Server;
 use dsview_session::{Paths, Session};
 use eframe::egui;
+use winit::application::ApplicationHandler;
+use winit::event::{DeviceEvent, DeviceId, StartCause, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::window::WindowId;
 
 use dsview_gui::DSVIEW_VERSION;
 
@@ -27,6 +31,90 @@ fn usage() -> ! {
         "usage: DSViewR [-l N] [-s] [-v] [--mcp] [--data-dir DIR] [--bench SECONDS] [--soak MINUTES] [FILE]"
     );
     std::process::exit(2);
+}
+
+/// eframe's application, with the monitor layout read before its window
+/// opens. Wayland gives no layout: clients cannot place their windows there.
+struct MonitorProbe<'a> {
+    inner: eframe::EframeWinitApplication<'a>,
+    monitors: app::Monitors,
+    wayland: bool,
+    probed: bool,
+}
+
+impl ApplicationHandler<eframe::UserEvent> for MonitorProbe<'_> {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if !std::mem::replace(&mut self.probed, true) && !self.wayland {
+            let all: Vec<_> = event_loop.available_monitors().collect();
+            let primary = event_loop.primary_monitor();
+            let layout = (!all.is_empty()).then(|| app::MonitorLayout {
+                monitors: all
+                    .iter()
+                    .map(|m| {
+                        let (p, s) = (m.position(), m.size());
+                        [p.x, p.y, s.width as i32, s.height as i32]
+                    })
+                    .collect(),
+                // none known: the first one
+                primary: primary
+                    .and_then(|p| all.iter().position(|m| *m == p))
+                    .unwrap_or(0),
+            });
+            if let Ok(mut m) = self.monitors.lock() {
+                *m = layout;
+            }
+        }
+        self.inner.resumed(event_loop);
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+        self.inner.window_event(event_loop, id, event);
+    }
+
+    fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
+        self.inner.new_events(event_loop, cause);
+    }
+
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: eframe::UserEvent) {
+        self.inner.user_event(event_loop, event);
+    }
+
+    fn device_event(&mut self, event_loop: &ActiveEventLoop, id: DeviceId, event: DeviceEvent) {
+        self.inner.device_event(event_loop, id, event);
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.inner.about_to_wait(event_loop);
+    }
+
+    fn suspended(&mut self, event_loop: &ActiveEventLoop) {
+        self.inner.suspended(event_loop);
+    }
+
+    fn exiting(&mut self, event_loop: &ActiveEventLoop) {
+        self.inner.exiting(event_loop);
+    }
+
+    fn memory_warning(&mut self, event_loop: &ActiveEventLoop) {
+        self.inner.memory_warning(event_loop);
+    }
+}
+
+#[cfg(all(
+    unix,
+    not(any(target_os = "macos", target_os = "ios", target_os = "android"))
+))]
+fn is_wayland<T>(event_loop: &EventLoop<T>) -> bool {
+    use winit::platform::wayland::EventLoopExtWayland as _;
+    event_loop.is_wayland()
+}
+
+#[cfg(not(all(
+    unix,
+    not(any(target_os = "macos", target_os = "ios", target_os = "android"))
+)))]
+fn is_wayland<T>(_: &EventLoop<T>) -> bool {
+    false
 }
 
 fn main() -> eframe::Result {
@@ -174,7 +262,12 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
     let s2 = session.clone();
-    let r = eframe::run_native(
+    // eframe's event loop, run here to read the monitor layout winit only
+    // gives inside it (`MainFrame::ReadSettings`' screen check)
+    let event_loop = EventLoop::<eframe::UserEvent>::with_user_event().build()?;
+    let monitors = app::Monitors::default();
+    let m2 = monitors.clone();
+    let inner = eframe::create_native(
         "dsview",
         options,
         Box::new(move |cc| {
@@ -206,6 +299,7 @@ fn main() -> eframe::Result {
             }
             app.options.apply(&mut app.view, &cc.egui_ctx);
             app.session.state().swap_back_buffer_always = app.options.swap_back_buffer_always;
+            app.monitors = m2;
             app.soak = soak.map(dsview_gui::soak::Soak::new);
             app.bench = bench.map(|secs| app::Bench {
                 until: Instant::now() + Duration::from_secs_f64(secs),
@@ -216,7 +310,15 @@ fn main() -> eframe::Result {
             });
             Ok(Box::new(app))
         }),
+        &event_loop,
     );
+    let mut probe = MonitorProbe {
+        inner,
+        monitors,
+        wayland: is_wayland(&event_loop),
+        probed: false,
+    };
+    let r = event_loop.run_app(&mut probe).map_err(eframe::Error::from);
     drop(server);
     session.exit();
     r

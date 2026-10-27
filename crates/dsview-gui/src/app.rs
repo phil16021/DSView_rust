@@ -24,6 +24,18 @@ enum FileJob {
     Screenshot(PathBuf),
 }
 
+/// The monitors winit reports at start, in physical pixels: x, y, width,
+/// height each, and the primary's index. Unset when there is no layout to
+/// judge by (Wayland, where clients cannot place their windows).
+#[derive(Clone, Debug, PartialEq)]
+pub struct MonitorLayout {
+    pub monitors: Vec<[i32; 4]>,
+    pub primary: usize,
+}
+
+/// Filled by `main`'s event loop before the window opens.
+pub type Monitors = std::sync::Arc<std::sync::Mutex<Option<MonitorLayout>>>;
+
 pub struct Bench {
     pub until: Instant,
     pub frames: Vec<f64>,
@@ -83,6 +95,8 @@ pub struct App {
     pub startup: Option<crate::startup::Startup>,
     /// The restored window was checked against the screen.
     window_checked: bool,
+    /// The monitor layout the check uses (set by `main`).
+    pub monitors: Monitors,
     pub bench: Option<Bench>,
     pub soak: Option<crate::soak::Soak>,
 }
@@ -252,24 +266,40 @@ impl App {
     /// Records the window state while it is normal (Qt keeps the normal
     /// rectangle while maximised).
     fn track_window(&mut self, ctx: &egui::Context) {
-        let (max, outer, inner, monitor) = ctx.input(|i| {
+        let (max, outer, inner) = ctx.input(|i| {
             let v = i.viewport();
-            (v.maximized, v.outer_rect, v.inner_rect, v.monitor_size)
+            (v.maximized, v.outer_rect, v.inner_rect)
         });
         // once, at start: a window left on a screen that is gone comes back
         if !self.window_checked
-            && let (Some(o), Some(m)) = (outer, monitor)
+            && let Some(o) = outer
         {
             self.window_checked = true;
+            let layout = self.monitors.lock().ok().and_then(|l| l.clone());
+            // without a layout the window may well be right: left alone
             if max == Some(false)
-                && let Some((x, y)) = dsview_viewmodel::qsettings::onto_screen(
-                    (o.left(), o.top(), o.width(), o.height()),
-                    m.x,
-                    m.y,
-                )
+                && let Some(l) = layout
             {
-                ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(x, y)));
-                return;
+                // outer_rect is physical pixels over egui's pixels per point
+                let ppp = ctx.pixels_per_point();
+                let screens: Vec<_> = l
+                    .monitors
+                    .iter()
+                    .map(|m| {
+                        let [x, y, w, h] = m.map(|v| v as f32 / ppp);
+                        (x, y, w, h)
+                    })
+                    .collect();
+                if let Some(&primary) = screens.get(l.primary)
+                    && let Some((x, y)) = dsview_viewmodel::qsettings::onto_screen(
+                        (o.left(), o.top(), o.width(), o.height()),
+                        &screens,
+                        primary,
+                    )
+                {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(x, y)));
+                    return;
+                }
             }
         }
         if let Some(m) = max {
@@ -400,6 +430,7 @@ impl App {
             dock_mode: None,
             startup: None,
             window_checked: false,
+            monitors: Monitors::default(),
             bench: None,
             soak: None,
         }
