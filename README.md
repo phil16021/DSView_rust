@@ -15,9 +15,12 @@ decoders are the sigrok Python decoders DSView ships.
 ## Features
 
 - **Logic analyzer:** buffer and stream capture at every rate of the DSLogic channel modes;
-  simple, advanced (multi-stage) and serial triggers; cursors, measurements and edge search.
+  simple, advanced (multi-stage) and serial triggers, set per channel with the trigger buttons
+  next to the channel name; cursors, measurements and edge search. A capture that would not fit
+  into the free memory is refused with a message instead of running out of memory.
 - **Protocol decoders:** 150+ decoders (I²C, SPI, UART, CAN/CAN-FD, I3C, SMBus/PMBus, JTAG,
-  SENT, DShot, …), stacked decoders, a protocol table with search and export.
+  SENT, DShot, …), stacked decoders, decoding while a stream capture runs, and a time-aligned
+  protocol table with search and CSV/TXT export.
 - **Oscilloscope and data acquisition:** V/div and timebase controls, trigger settings,
   measurements, math channels, FFT, Lissajous view, persistence, reference waveforms,
   histograms, channel-to-channel measurements, and a demo oscilloscope for use without hardware.
@@ -28,8 +31,9 @@ decoders are the sigrok Python decoders DSView ships.
 - **Automation:** a JSON-RPC control socket (`DSViewR --mcp`) and an MCP server
   ([`dsview-mcp`](dsview-mcp/README.md)), so scripts and AI agents can drive captures and read
   the results.
-- **Interface:** dark, light, Catppuccin Latte and Frappé themes; English, German and Chinese;
-  keyboard shortcuts; accessible to screen readers (AT-SPI).
+- **Interface:** dark, light, Catppuccin Latte and Frappé themes; English, German and Chinese
+  (with a built-in CJK font, so Chinese works without system fonts); keyboard shortcuts;
+  accessible to screen readers (AT-SPI).
 
 ## Install
 
@@ -58,10 +62,24 @@ dsviewr-cli export cap.dsl cap.csv                    # .csv, .vcd or .srzip
 dsviewr-cli decode cap.dsl --decoder i2c:scl=0,sda=1  # one line per annotation
 dsviewr-cli verify-counter --device dslogic           # DSLogic internal test mode
 dsviewr-cli selftest --out report/                    # a report bundle for bug reports
+dsviewr-cli diff-dsl a.dsl b.dsl                      # first differing sample per channel
+dsviewr-cli decode a.dsl --decoder uart:rxtx=0 --json > a.json
+dsviewr-cli diff-ann a.json b.json                    # first differing annotation
 dsviewr-cli serve --mcp                               # headless, behind the control socket
 ```
 
 `dsviewr-cli --help` lists every option.
+
+## When something goes wrong
+
+- **Log:** *Help → Log Options* sets the level and writes `~/DSViewR.log`; `dsviewr-cli` takes
+  `--log-level 0-5`.
+- **Crash reports:** a crash writes the message, a backtrace and the last 200 log lines to
+  `~/.local/state/dsview/crash/` (or `$XDG_STATE_HOME/dsview/crash/`). Nothing is uploaded.
+- **A decoder hangs or crashes:** start with `DSVIEW_PY_FAULTHANDLER=10` to print the Python
+  stack of every thread every 10 seconds (`=1`: only on a crash).
+- **Bug reports:** `dsviewr-cli selftest --out DIR` collects the device settings, a capture and
+  the full log; please attach the directory to the issue.
 
 ## Building from source
 
@@ -75,7 +93,10 @@ target/release/dsview-cli    # dsviewr-cli
 ```
 
 The packages are built by `.github/workflows/build.yml` with `cargo deb` and the scripts in
-`tools/package/`. Tests: `cargo nextest run --workspace` and `cargo xtask golden check`.
+`tools/package/`. Tests: `cargo nextest run --workspace` and `cargo xtask golden check`; CI also
+runs the control-API transcript, the MCP suite, fuzzing, Miri on the sample stores and an ingest
+benchmark (`.github/workflows/rust.yml`). Windows and macOS are not supported yet; the workspace
+type-checks for Windows in CI as groundwork for a port.
 
 ## Project status
 
@@ -85,7 +106,13 @@ compared with the original C/C++ code at each step: file formats, sample stores 
 output byte for byte, and USB traffic on a DSLogic Plus. The tag `c-final` holds the last tree
 with that C code and the comparison tools.
 
+Since 1.0, the post-parity work (M7b) fixed the defects found while porting and retired Qt
+quirks: data loss in captures whose length is not a multiple of 64, decoder hangs and crashes
+found by a decoder soak test, the DSO envelope, a faster capture ingest (above 1 GB/s) with a
+queue between USB and the sample store, and several start/stop races.
+
 - How the port was done, and what is left: [docs/migration/PLAN.md](docs/migration/PLAN.md),
+  [docs/migration/M7b-PLAN.md](docs/migration/M7b-PLAN.md),
   [docs/migration/STATUS.md](docs/migration/STATUS.md).
 - Where DSViewR intentionally behaves differently, and the defects of the original that were
   found: [docs/migration/DEVIATIONS.md](docs/migration/DEVIATIONS.md).

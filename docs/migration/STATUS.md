@@ -1907,3 +1907,22 @@ graycode's `ChannelMapError`, `rgb_led_ws281x` color-order options, and `ir_irmp
   tests fixed"). The combined code: the flag is set and taken under one lock (this section); the
   bus check applies only when no stop was asked, so a user's stop is not relabelled as a detach;
   and `start_collect` also clears the flag.
+
+## README and screenshots renewed (2026-10-28)
+
+- **Screenshots** (`docs/screenshots/`, 1280×800):
+  - taken from the release GUI under Xvfb with a fresh config (driver hint off); the scenes were
+    set over the control socket (`open_file`, `show_region`, `select_device`, `start_capture`),
+    the docks and DSO measurements with `xdotool`, and captured with `import -window root`;
+  - they show the M7b GUI: 16 px trigger buttons, the 1-2-5 ruler, the time-aligned protocol
+    table, and real DSO measurements (frequency, period, peak-to-peak, amplitude, duty).
+- **Found while doing so:** the demo oscilloscope's RMS and mean are wrong (13.90 mV and 5.04 V
+  for a ±1.97 V sine; ≈ 1.39 V and 0 V expected), in the GUI and in `measure_dso` alike. Not yet
+  investigated; those two are left out of the screenshot.
+- **README:**
+  - the features of M7b: the memory guard, live decoding, the TXT export, the built-in CJK font;
+  - `diff-dsl`/`diff-ann` in the `dsviewr-cli` block;
+  - a "When something goes wrong" section: the log, crash reports, `DSVIEW_PY_FAULTHANDLER`,
+    `selftest`;
+  - CI coverage and the Windows status;
+  - an M7b summary, linking `M7b-PLAN.md`.
