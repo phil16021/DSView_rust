@@ -6,7 +6,6 @@
 //! `PYTHONPATH`; here the binary finds the layout itself.
 
 use std::ffi::{CStr, CString, c_char};
-use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
 use pyo3::ffi;
@@ -62,7 +61,19 @@ fn check(status: ffi::PyStatus) -> Result<(), String> {
 }
 
 fn c_path(p: &Path) -> Result<CString, String> {
-    CString::new(p.as_os_str().as_bytes()).map_err(|e| e.to_string())
+    #[cfg(unix)]
+    let bytes = {
+        use std::os::unix::ffi::OsStrExt;
+        p.as_os_str().as_bytes().to_vec()
+    };
+    // CPython decodes the bytes as UTF-8 there
+    #[cfg(not(unix))]
+    let bytes = p
+        .to_str()
+        .ok_or_else(|| format!("{} is not UTF-8", p.display()))?
+        .as_bytes()
+        .to_vec();
+    CString::new(bytes).map_err(|e| e.to_string())
 }
 
 /// Starts the interpreter with `home` and the bundled search path, then

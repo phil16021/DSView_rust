@@ -1,7 +1,9 @@
 //! Blocking client for DSView's control socket (`DSView --mcp`) and the
 //! scenario runner used to record and check control-API transcripts.
 
+#[cfg(unix)]
 use std::io::{BufRead, BufReader, Write};
+#[cfg(unix)]
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -44,19 +46,10 @@ impl Client {
         params: &Value,
         timeout: Duration,
     ) -> Result<Result<Value, String>> {
-        let mut stream = UnixStream::connect(&self.socket).with_context(|| {
-            format!(
-                "connect {} (is `DSView --mcp` running?)",
-                self.socket.display()
-            )
-        })?;
-        stream.set_read_timeout(Some(timeout))?;
         let id = self.next_id;
         self.next_id += 1;
         let req = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
-        stream.write_all(format!("{req}\n").as_bytes())?;
-        let mut line = String::new();
-        BufReader::new(stream).read_line(&mut line)?;
+        let line = self.exchange(&format!("{req}\n"), timeout)?;
         let resp: Value =
             serde_json::from_str(&line).with_context(|| format!("bad response to {method}"))?;
         if resp["id"] != json!(id) {
@@ -66,6 +59,33 @@ impl Client {
             Some(e) => Err(e["message"].as_str().unwrap_or("error").to_string()),
             None => Ok(resp["result"].clone()),
         })
+    }
+}
+
+impl Client {
+    /// Sends one request line and reads the reply line.
+    #[cfg(unix)]
+    fn exchange(&self, req: &str, timeout: Duration) -> Result<String> {
+        let mut stream = UnixStream::connect(&self.socket).with_context(|| {
+            format!(
+                "connect {} (is `DSView --mcp` running?)",
+                self.socket.display()
+            )
+        })?;
+        stream.set_read_timeout(Some(timeout))?;
+        stream.write_all(req.as_bytes())?;
+        let mut line = String::new();
+        BufReader::new(stream).read_line(&mut line)?;
+        Ok(line)
+    }
+
+    /// No control transport here yet (PLAN, follow-on ports).
+    #[cfg(not(unix))]
+    fn exchange(&self, _req: &str, _timeout: Duration) -> Result<String> {
+        bail!(
+            "the control socket {} needs a Unix socket (not on this platform yet)",
+            self.socket.display()
+        )
     }
 }
 

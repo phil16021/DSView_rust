@@ -982,10 +982,13 @@ fn local_now() -> [u16; 6] {
 
 fn local_tm(secs: i64) -> libc::tm {
     let t = secs as libc::time_t;
-    // SAFETY: localtime_r writes the struct it is given
+    // SAFETY: localtime_r / localtime_s write the struct they are given
     unsafe {
         let mut tm: libc::tm = std::mem::zeroed();
+        #[cfg(unix)]
         libc::localtime_r(&t, &mut tm);
+        #[cfg(windows)]
+        libc::localtime_s(&mut tm, &t);
         tm
     }
 }

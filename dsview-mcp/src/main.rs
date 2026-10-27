@@ -4,12 +4,17 @@
 //! process translates MCP tool calls into requests on that socket and is
 //! started by the MCP client (e.g. `claude mcp add dsview -- dsview-mcp`).
 
+#[cfg(unix)]
 mod bridge;
+#[cfg(unix)]
 mod paths;
+#[cfg(unix)]
 mod tools;
 
+#[cfg(unix)]
 use rmcp::ServiceExt;
 
+#[cfg(unix)]
 const HELP: &str = "\
 dsview-mcp - MCP server for DSViewR (stdio transport)
 
@@ -24,6 +29,15 @@ Environment:
   DSVIEW_MCP_NO_LAUNCH=1   never launch DSViewR
 ";
 
+/// DSViewR's control transport is a Unix socket; other platforms have none
+/// yet (PLAN, follow-on ports).
+#[cfg(not(unix))]
+fn main() {
+    eprintln!("dsview-mcp needs DSViewR's Unix control socket, which this platform lacks yet");
+    std::process::exit(2);
+}
+
+#[cfg(unix)]
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     if let Some(arg) = std::env::args().nth(1) {

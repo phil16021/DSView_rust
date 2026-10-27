@@ -3,12 +3,16 @@
 //! requests; each line is answered on its own (requests on one connection
 //! one after another, connections in parallel).
 
+#[cfg(unix)]
 use std::io::{BufRead, BufReader, Read, Write};
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+#[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(unix)]
 use std::time::Duration;
 
 use serde_json::{Map, Value};
@@ -34,6 +38,7 @@ impl Server {
     /// `ControlServer::start()` on `path`: refuses a path too long for
     /// `sockaddr_un`, creates the directory (owner-only), and never takes
     /// over a socket another instance still listens on.
+    #[cfg(unix)]
     pub fn start(path: &Path, backend: Arc<dyn ControlBackend>) -> Result<Server, String> {
         let shown = path.display();
         // sockaddr_un.sun_path holds 108 bytes including the terminator.
@@ -72,6 +77,16 @@ impl Server {
         })
     }
 
+    /// Other platforms have no control transport yet (a named pipe or a
+    /// TCP port with a token: PLAN, follow-on ports).
+    #[cfg(not(unix))]
+    pub fn start(path: &Path, _backend: Arc<dyn ControlBackend>) -> Result<Server, String> {
+        Err(format!(
+            "MCP: the control socket is not available on this platform yet ({})",
+            path.display()
+        ))
+    }
+
     pub fn path(&self) -> &Path {
         &self.path
     }
@@ -81,6 +96,7 @@ impl Drop for Server {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
         // wake the accept loop
+        #[cfg(unix)]
         let _ = UnixStream::connect(&self.path);
         if let Some(t) = self.thread.take() {
             let _ = t.join();
@@ -90,10 +106,12 @@ impl Drop for Server {
 }
 
 /// Whether something answers on `path` (QLocalSocket::waitForConnected(300)).
+#[cfg(unix)]
 fn probe(path: &Path) -> bool {
     UnixStream::connect(path).is_ok()
 }
 
+#[cfg(unix)]
 fn accept_loop(listener: UnixListener, backend: Arc<dyn ControlBackend>, stop: Arc<AtomicBool>) {
     for conn in listener.incoming() {
         if stop.load(Ordering::SeqCst) {
@@ -109,6 +127,7 @@ fn accept_loop(listener: UnixListener, backend: Arc<dyn ControlBackend>, stop: A
 
 /// Reads one line of at most [`MAX_LINE_BYTES`] (plus the newline):
 /// `Ok(None)` at the end of the stream, `Err(())` when the line is too long.
+#[cfg(unix)]
 fn read_line(r: &mut impl BufRead) -> std::io::Result<Option<Result<Vec<u8>, ()>>> {
     let mut line = Vec::new();
     let n = r
@@ -130,6 +149,7 @@ fn read_line(r: &mut impl BufRead) -> std::io::Result<Option<Result<Vec<u8>, ()>
     Ok(Some(Ok(line)))
 }
 
+#[cfg(unix)]
 fn serve(conn: UnixStream, backend: &dyn ControlBackend) {
     let _ = conn.set_write_timeout(Some(Duration::from_secs(30)));
     let Ok(mut out) = conn.try_clone() else {
@@ -161,7 +181,8 @@ fn serve(conn: UnixStream, backend: &dyn ControlBackend) {
     }
 }
 
-fn send(out: &mut UnixStream, msg: &Value) -> std::io::Result<()> {
+#[cfg(unix)]
+fn send(out: &mut impl Write, msg: &Value) -> std::io::Result<()> {
     let mut data = serde_json::to_vec(msg).unwrap_or_default();
     data.push(b'\n');
     out.write_all(&data)?;
@@ -218,7 +239,7 @@ pub fn handle_line(line: &[u8], backend: &dyn ControlBackend) -> Option<Value> {
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use serde_json::json;

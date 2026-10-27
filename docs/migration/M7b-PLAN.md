@@ -136,10 +136,18 @@ retired", parts 1–4. F24/F26 (item 6) reviewed 2026-10-27: F26's three envelop
    - ✔ add a Rust-side differential `.dsl` fuzz (writer→reader round trip): fuzz target
      `dsl_roundtrip` and the proptest `dsview-formats/tests/dsl_roundtrip.rs`.
 3. **Ports (follow-on):** Windows and macOS need:
-   - a `localtime_r` cfg;
-   - a replacement for `/proc` use;
-   - a control transport other than the Unix socket (named pipe or TCP on localhost with a token);
+   - ✔ a `localtime_r` cfg (`localtime_s` on Windows, 2026-10-27);
+   - ✔ a replacement for `/proc` use: the memory guard and the soak's RSS read `/proc` and skip
+     where it is missing;
+   - a control transport other than the Unix socket (named pipe or TCP on localhost with a token).
+     *Open, a security decision for the user: who may drive the device. Until then the server
+     and `dsview-mcp` say the socket is not available there;*
    - installers.
+
+   *Groundwork 2026-10-27: the whole workspace, GUI included, type-checks for
+   `x86_64-pc-windows-gnu` without warnings (CI job `windows-check`). Also needed: WinUSB control
+   transfers through a claimed interface (`nusb`), UTF-8 paths for the bundled Python. Not built,
+   linked or run on Windows yet.*
 4. **Test data:** an LFS or separate repository for the pcapng traces; the `.sr`→`.dsl` converter
    plus the sigrok-dumps corpus.
 

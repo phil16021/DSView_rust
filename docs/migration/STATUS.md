@@ -1785,3 +1785,20 @@ or 24.04 or both. Reproduced with `nextest -j 4` (as on the 4-core runners) and 
   `crash::tests::a_panic_leaves_a_report` (the log lines, and no detail-level ones). By hand: a
   flipped bit in `L-3/0` byte 500 is reported at sample 4004 of channel 3; two UART decodes at
   different baud rates part at annotation #0.
+
+## M7b B7: Windows port groundwork (2026-10-27)
+
+`cargo check --workspace --all-targets --target x86_64-pc-windows-gnu` passes without warnings
+(with `PYO3_NO_PYTHON=1`, `PYO3_CROSS_PYTHON_VERSION=3.12`); the new CI job `windows-check` keeps
+it so. Changes, each a `cfg` with Linux and macOS unchanged:
+- `dsview-usb`: control transfers without a claimed interface are an error on Windows (WinUSB has
+  none at device level);
+- `dsview-decode`: the bundled Python's paths as UTF-8 off Unix;
+- `dsview-session`: `localtime_s` for `localtime_r`;
+- `dsview-control` server, the testkit control client and `dsview-mcp`: Unix-only, with a clear
+  "not available on this platform yet" elsewhere. A Windows transport (named pipe, or TCP on
+  localhost with a token) is a security choice left to the user;
+- `dsview-cli soak` and `decoder-soak`: the page size and the child memory cap are Unix-only.
+
+Not done: building, linking or running on Windows (needs a Windows Python and libusb/WinUSB setup),
+installers. Linux: nextest 268 of 268; `xtask mcp suite` 30 tools, 37 steps.

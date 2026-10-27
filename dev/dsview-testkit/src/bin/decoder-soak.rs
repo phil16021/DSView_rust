@@ -435,12 +435,14 @@ fn stacks(rng: &mut Rng, decoders: &[Value], buses: &Buses, samplerate: u64) -> 
     out
 }
 
+#[cfg(unix)]
 #[repr(C)]
 struct Rlimit {
     cur: u64,
     max: u64,
 }
 
+#[cfg(unix)]
 unsafe extern "C" {
     fn setrlimit(resource: i32, rlim: *const Rlimit) -> i32;
 }
@@ -471,6 +473,7 @@ fn run_decode(
     lim: &Limits,
 ) -> Result<Ran> {
     use std::io::Read;
+    #[cfg(unix)]
     use std::os::unix::process::CommandExt;
     let mut cmd = Command::new(bin);
     cmd.arg(capture)
@@ -480,8 +483,11 @@ fn run_decode(
         .env("PYTHONHASHSEED", "0")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
+    #[cfg(unix)]
     let mem = lim.max_mem << 20;
     // SAFETY: only async-signal-safe setrlimit between fork and exec.
+    // (Unix only: elsewhere the memory cap is not enforced.)
+    #[cfg(unix)]
     unsafe {
         cmd.pre_exec(move || {
             const RLIMIT_AS: i32 = 9;

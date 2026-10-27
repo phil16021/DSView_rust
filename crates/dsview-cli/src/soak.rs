@@ -17,7 +17,11 @@ fn rss_kib() -> u64 {
         .and_then(|v| v.parse().ok())
         .unwrap_or(0);
     // SAFETY: sysconf has no preconditions
+    #[cfg(unix)]
     let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) }.max(4096) as u64;
+    // no /proc either: the soak reads 0 there
+    #[cfg(not(unix))]
+    let page = 4096;
     pages * page / 1024
 }
 

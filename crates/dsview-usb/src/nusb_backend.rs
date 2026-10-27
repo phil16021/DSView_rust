@@ -161,6 +161,8 @@ fn bus_of(d: &nusb::DeviceInfo) -> u8 {
 }
 
 pub struct NusbDevice {
+    // control transfers without an interface (not on Windows)
+    #[cfg_attr(windows, allow(dead_code))]
     device: nusb::Device,
     interface: Option<nusb::Interface>,
     endpoints: HashMap<u8, nusb::Endpoint<Bulk, In>>,
@@ -205,10 +207,19 @@ impl UsbDevice for NusbDevice {
             data,
         };
         match &self.interface {
-            Some(i) => i.control_out(req, timeout).wait(),
-            None => self.device.control_out(req, timeout).wait(),
+            Some(i) => i.control_out(req, timeout).wait().map_err(ctrl_err),
+            #[cfg(not(windows))]
+            None => self
+                .device
+                .control_out(req, timeout)
+                .wait()
+                .map_err(ctrl_err),
+            // WinUSB sends control transfers through a claimed interface only
+            #[cfg(windows)]
+            None => Err(UsbError::Io(
+                "control transfer without a claimed interface".into(),
+            )),
         }
-        .map_err(ctrl_err)
     }
 
     fn control_in(&mut self, s: Setup, len: u16, timeout: Duration) -> Result<Vec<u8>, UsbError> {
@@ -221,10 +232,19 @@ impl UsbDevice for NusbDevice {
             length: len,
         };
         match &self.interface {
-            Some(i) => i.control_in(req, timeout).wait(),
-            None => self.device.control_in(req, timeout).wait(),
+            Some(i) => i.control_in(req, timeout).wait().map_err(ctrl_err),
+            #[cfg(not(windows))]
+            None => self
+                .device
+                .control_in(req, timeout)
+                .wait()
+                .map_err(ctrl_err),
+            // WinUSB sends control transfers through a claimed interface only
+            #[cfg(windows)]
+            None => Err(UsbError::Io(
+                "control transfer without a claimed interface".into(),
+            )),
         }
-        .map_err(ctrl_err)
     }
 
     fn bulk_out(&mut self, ep: u8, data: &[u8], timeout: Duration) -> Result<usize, UsbError> {

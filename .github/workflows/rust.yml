@@ -157,3 +157,19 @@ jobs:
         run: |
           rustup show
           cargo check --locked --workspace --all-targets
+
+  windows-check:
+    # The workspace type-checks for Windows (cross, no Python needed): the
+    # groundwork of the port (PLAN, follow-on). The control socket and
+    # dsview-mcp are Unix-only there until a Windows transport is chosen.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: cargo check for x86_64-pc-windows-gnu
+        env:
+          PYO3_CROSS_PYTHON_VERSION: "3.12"
+          PYO3_NO_PYTHON: "1"
+          RUSTFLAGS: -D warnings
+        run: |
+          rustup target add x86_64-pc-windows-gnu
+          cargo check --locked --workspace --all-targets --target x86_64-pc-windows-gnu
