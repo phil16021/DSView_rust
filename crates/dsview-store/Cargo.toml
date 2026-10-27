@@ -11,3 +11,9 @@ publish.workspace = true
 
 [dev-dependencies]
 proptest = "1"
+
+# `cargo bench -p dsview-store`: ingest and display timings (std timing, no
+# harness; the C++ comparison lived in dev/dsview-oracle up to tag c-final)
+[[bench]]
+name = "store"
+harness = false

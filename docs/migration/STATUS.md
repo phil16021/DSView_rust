@@ -1622,3 +1622,28 @@ Other decoders that raise on unusual data are recorded as DEVIATIONS F35, a foll
 | Window position (F30) | **Open:** with several monitors the existing check lacks the monitor positions (not available from egui). Follow-up task | — |
 
 **M7b B3 is done** except that multi-monitor item.
+
+## M7b B4: store benchmark baseline (2026-10-27)
+
+**The benchmark:** `cargo bench -p dsview-store` (`crates/dsview-store/benches/store.rs`). It has
+the workloads of the former C++/Rust comparison, timed with `std::time` (median of the runs).
+
+**Measurements on this VM:**
+
+| Benchmark | Result |
+|---|---|
+| Ingest, 16 ch × 128M samples, first capture | 632–702 MiB/s |
+| Ingest, repeated capture (the store's allocations kept) | 991 MiB/s |
+| Display edges, 256M samples, 1920 px | 2.6–303 µs |
+| 20k next-edge steps | 0.51–1.39 ms |
+
+**For comparison**, a bare copy of 256 MiB:
+- into fresh memory: 1.2–1.5 GiB/s, limited by first-touch page faults;
+- into memory already touched: 8.5 GiB/s.
+
+So a first capture is bound by page faults. The fastest DSLogic streams about 0.4 GB/s.
+
+**Decisions (user, 2026-10-27):**
+- the full ingest redesign: a queue between the USB thread and the store, pooled pre-faulted
+  leaves, a faster transposing copy;
+- a memory guard against captures larger than the available RAM.
