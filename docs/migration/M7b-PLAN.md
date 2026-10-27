@@ -84,10 +84,14 @@ retired", parts 1–4. F24/F26 (item 6) reviewed 2026-10-27: F26's three envelop
    pre-faulted leaves and a blockwise mip-map; 1.1–1.3 GiB/s first capture (STATUS, "M7b B4").
 2. ✔ **mmap spill** for captures larger than RAM: not built (user decision); a memory guard refuses
    such a capture with a clear message instead.
-3. **`loom`/lock-free readers.** Add `loom` tests for the store's reader/writer handoff, under
-   `cfg(loom)` with a CI job.
-4. **`AnnotationStore`.** Keep the `DecoderStack` index unless a profile on `protocol_large` (262k
-   rows) shows a need.
+3. ✔ **`loom`/lock-free readers.** Add `loom` tests for the store's reader/writer handoff, under
+   `cfg(loom)` with a CI job. *Decided 2026-10-27: not built. There are no lock-free readers; every
+   handoff (store mutex, ingest `mpsc` queue, leaf pool under its mutex with a generation checked
+   under the same lock) is lock- or channel-based, and loom cannot model the pool's process-wide
+   statics without rewriting them. Covered instead by stress runs (STATUS "M7b B7").*
+4. ✔ **`AnnotationStore`.** Keep the `DecoderStack` index unless a profile on `protocol_large` (262k
+   rows) shows a need. *Kept 2026-10-27: 1.4 ms per whole-app frame with 262,142 rows shown in the
+   table and the time view (release), about 40 bytes per annotation with shared texts.*
 5. **Frame budget** of ≤ 8 ms at 4K × 32 channels. Run `dsview --bench` on a real GPU with glow and
    with wgpu. This is a prerequisite for B5.
 

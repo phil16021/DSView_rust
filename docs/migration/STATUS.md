@@ -1757,3 +1757,14 @@ or 24.04 or both. Reproduced with `nextest -j 4` (as on the 4-core runners) and 
   channels with names using `;=\#[]` and non-ASCII, up to 300k samples, five rates).
 - **24 h cumulative fuzzing:** not reached. `fuzz-nightly.yml` runs on a schedule, and GitHub runs
   schedules only on the default branch, so it has not run while `philipp` is unmerged.
+
+## M7b B4: loom and AnnotationStore decisions (2026-10-27)
+
+- **`loom`: not built.** The store has no lock-free readers: the stores sit behind mutexes, the
+  ingest queue is an `mpsc` channel, and the leaf pool checks its generation under its own mutex.
+  loom also cannot model the pool's process-wide statics without rewriting them. The handoffs are
+  covered by stress runs instead (STATUS "M7b B7").
+- **`AnnotationStore`: kept as is.** `protocol_large` (262,142 rows, release): 1.4 ms per
+  whole-app frame with the protocol table and the time view shown; sorting the rows once takes
+  16 ms and is cached. An annotation takes about 40 bytes, its texts shared.
+- Still open in B4: the frame budget at 4K × 32 channels on real GPUs (with B5).
