@@ -1729,3 +1729,31 @@ the last 5 min (flat with the leaf pool).
   without a system font. `app_chinese.png` re-blessed: the same text, slightly different
   anti-aliasing of the subset (no hinting).
 - Still open in B5: wgpu as the default renderer needs `--bench` on real GPUs.
+
+## M7b B7: CI hardening, and two flaky tests fixed (2026-10-27)
+
+**CI was red since the B4 commit.** The GitHub "Rust" workflow's unit-test job (`cargo nextest`,
+one process per test, all in parallel) failed on every push from `56b0e8bd` on, on Ubuntu 22.04
+or 24.04 or both. Reproduced with `nextest -j 4` (as on the 4-core runners) and with CPU burners:
+- **`dsview-store::leaf_pool`** (new in B4): a capture's pre-fault thread still allocated while the
+  test counted `fresh_allocations()`. The pool now keeps the handles of the pre-faults captures
+  start, and `leaf_pool::settle()` waits for them; the test settles before counting. Under load:
+  7 of 200 runs failed before, 0 of 200 after.
+- **`dsview-session::hotplug::detach_during_capture`** (the flake known since Phase 4, 2 of 46):
+  a real race. When the failing transfers ended the capture before the hotplug thread saw the
+  unplug, the capture reported a normal end, so the GUI showed no "device detached" message. The
+  collect thread now checks the bus when a capture ends on its own (DEVIATIONS, departures).
+  Under load: 21 of 120 runs failed without the check, 0 of 200 with it.
+- Then three full `nextest --profile ci -j 4` runs: 265 of 265 each.
+
+**CI additions:**
+- **Miri:** every unit test of the logic, DSO and analog stores but the length proptest (each
+  timed locally, about 5 min in all; no undefined behaviour found). The leaf-pool integration test
+  did not finish in 20 min under Miri (zeroing 2 MiB leaves) and stays out.
+- **`bench-gate` job:** `cargo bench -p dsview-store -- ingest` fails below 500 MiB/s
+  (`DSVIEW_BENCH_MIN_MIBS`); 1167 MiB/s here.
+- **`.dsl` round trip:** fuzz target `dsl_roundtrip` (in the PR smoke run and the nightly matrix;
+  1.15M runs in 2 min locally, no failure) and the proptest `dsl_roundtrip.rs` (64 cases: 1–4
+  channels with names using `;=\#[]` and non-ASCII, up to 300k samples, five rates).
+- **24 h cumulative fuzzing:** not reached. `fuzz-nightly.yml` runs on a schedule, and GitHub runs
+  schedules only on the default branch, so it has not run while `philipp` is unmerged.

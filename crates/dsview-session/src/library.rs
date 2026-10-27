@@ -889,7 +889,25 @@ impl Library {
         }
         sr_info!("Collect thread end.");
         self.inner.collecting.store(false, Ordering::Release);
-        let detached = std::mem::take(&mut self.state().stop_by_detached);
+        let mut detached = std::mem::take(&mut self.state().stop_by_detached);
+        // the transfers can fail and end the capture before the hotplug
+        // thread hears of the unplug (C has the same race): a capture that
+        // ended on its own while its device is off the bus ended by detach
+        if !detached
+            && !error
+            && !stop.load(Ordering::Acquire)
+            && let Kind::Usb { bus, address, .. } = e.kind
+        {
+            let present = self
+                .inner
+                .usb
+                .list()
+                .map(|l| l.iter().any(|i| i.bus == bus && i.address == address));
+            if present == Ok(false) {
+                sr_info!("The collecting device is gone: the capture ended by detach.");
+                detached = true;
+            }
+        }
         if error {
             host.event(event::COLLECT_TASK_END_BY_ERROR);
         } else if detached {

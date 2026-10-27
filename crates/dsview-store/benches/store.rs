@@ -73,11 +73,12 @@ fn ingest() {
         black_box(s.sample_count());
     });
     let mib = data.len() as f64 / (1 << 20) as f64;
+    let rate = mib / t.as_secs_f64();
     println!(
-        "ingest 16 ch × 128M samples, first capture: {:.1} ms, {:.0} MiB/s (gate ≥ 1 GB/s = 954 MiB/s)",
+        "ingest 16 ch × 128M samples, first capture: {:.1} ms, {rate:.0} MiB/s (gate ≥ 1 GB/s = 954 MiB/s)",
         t.as_secs_f64() * 1e3,
-        mib / t.as_secs_f64()
     );
+    check_floor(rate);
     // a repeated capture with the same settings: `first_payload` keeps the
     // allocations and zeroes them (DSView's repeat and loop captures)
     let mut s = LogicStore::new();
@@ -94,11 +95,28 @@ fn ingest() {
         s.capture_ended();
         black_box(s.sample_count());
     });
+    let rate = mib / t.as_secs_f64();
     println!(
-        "ingest 16 ch × 128M samples, repeated capture: {:.1} ms, {:.0} MiB/s",
+        "ingest 16 ch × 128M samples, repeated capture: {:.1} ms, {rate:.0} MiB/s",
         t.as_secs_f64() * 1e3,
-        mib / t.as_secs_f64()
     );
+    check_floor(rate);
+}
+
+/// The CI bench gate: with `DSVIEW_BENCH_MIN_MIBS` set, an ingest slower
+/// than that many MiB/s fails the run. It is a floor against regressions
+/// on shared runners, below the 1 GB/s measured on the development VM.
+fn check_floor(rate: f64) {
+    let Some(min) = std::env::var("DSVIEW_BENCH_MIN_MIBS")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+    else {
+        return;
+    };
+    if rate < min {
+        eprintln!("bench gate: {rate:.0} MiB/s is below DSVIEW_BENCH_MIN_MIBS = {min:.0}");
+        std::process::exit(1);
+    }
 }
 
 fn display(which: &str) {

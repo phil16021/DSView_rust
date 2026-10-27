@@ -104,8 +104,9 @@ jobs:
         run: cargo test --locked -p dsview-cli --test oneshot
 
   miri:
-    # The store's unsafe code (leaf blocks, raw block pointers) under Miri,
-    # on the tests that reach it with small data (the proptests take hours).
+    # The store's unsafe code (leaf blocks, raw block pointers, the leaf
+    # pool) under Miri: every unit test of the logic, DSO and analog stores
+    # but the length proptest (hours under Miri); about 5 min (M7b B7).
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
@@ -114,7 +115,20 @@ jobs:
       - name: Store tests under Miri
         env:
           MIRIFLAGS: -Zmiri-disable-isolation
-        run: cargo +nightly miri test --locked -p dsview-store --lib -- single_channel_roundtrip_and_edges leaf_words
+        run: cargo +nightly miri test --locked -p dsview-store --lib -- --skip any_length_reads_back
+
+  bench-gate:
+    # The store's ingest rate (cargo bench -p dsview-store, M7b B4): a floor
+    # well under the 1.1-1.3 GiB/s of the development VM, so a shared runner
+    # passes and a regression to the old page-fault-bound path (~650 MiB/s
+    # there) on a comparable runner does not.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Ingest benchmark with a floor
+        env:
+          DSVIEW_BENCH_MIN_MIBS: "500"
+        run: cargo bench --locked -p dsview-store -- ingest
 
   supply-chain:
     runs-on: ubuntu-24.04

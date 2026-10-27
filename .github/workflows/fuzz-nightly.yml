@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         target: [header, dsl_reader, stores, usb_header, dso_status_block, pcapng_reader,
-                 jsonrpc_request, srzip, dsc_json, decoders_json, demo]
+                 jsonrpc_request, srzip, dsc_json, decoders_json, demo, dsl_roundtrip]
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     steps:

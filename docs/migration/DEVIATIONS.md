@@ -707,6 +707,7 @@ orders.
 | DSCope device mode the profile does not offer | All channels deleted, later NULL dereference or division by zero | Same state (no channels), no crash; a mode value outside 0-2 is SR_ERR_ARG | 3e ✔ |
 | MSO-E8 without firmware/bitstream name | `strlen(NULL)` crash | Error: firmware missing | 3e ✔ |
 | DSCope `dso_tune()` | Dead code | Not ported | 3e ✔ |
+| A capture whose device is unplugged (M7b) | `COLLECT_TASK_END_BY_DETACHED` only when the hotplug thread saw the unplug while the capture still ran; when the failing transfers ended it first, a normal end (no "device detached" message) | A capture that ends on its own while its USB device is off the bus ends by detach; the flag is cleared when a capture starts. Test: `hotplug::detach_during_capture` (failed 21 of 120 stressed runs without it, 0 of 200 with it) | M7b ✔ |
 | DSCope channel values during a capture (`hw_offset`, calibration V/div and offsets) | Written into `sdi->channels` by the driver | Copied into the C channel list before each packet is forwarded and after each poll | 3e ✔ |
 | Decoder `wait()` pin tuple | One tuple object, mutated in place | A fresh tuple per call | 2 |
 | Decoder options from files | Applied as stored | Path/exec options (`objdump`, `elffile`, `mapping`) from a file the user opens (`.dsl`, a loaded `.dsc`) start at their defaults; the GUI asks before setting them. DSView's own profiles and the shipped demos are trusted; a headless session keeps the defaults | M6g ✔ |

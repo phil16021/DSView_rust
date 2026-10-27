@@ -99,3 +99,10 @@ bench = false
 
 # Not part of the main workspace (needs nightly + sanitizers).
 [workspace]
+
+[[bin]]
+name = "dsl_roundtrip"
+path = "fuzz_targets/dsl_roundtrip.rs"
+test = false
+doc = false
+bench = false

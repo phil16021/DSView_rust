@@ -122,10 +122,15 @@ retired", parts 1–4. F24/F26 (item 6) reviewed 2026-10-27: F26's three envelop
 
 1. **Release:** merge, tag `v1.0.0`, publish (needs the user's decision).
 2. **CI:**
-   - confirm that the 24 h cumulative fuzzing was reached and record it;
-   - widen Miri beyond two tests (split per crate, under 30 min);
-   - add a `bench-gate` job (criterion/iai);
-   - add a Rust-side differential `.dsl` fuzz (writer→reader round trip).
+   - confirm that the 24 h cumulative fuzzing was reached and record it. *Not reachable yet: the
+     nightly workflow is scheduled, and GitHub runs schedules only on the default branch, so it
+     has never run while `philipp` is unmerged. Recorded in STATUS; recheck after the merge.*
+   - ✔ widen Miri beyond two tests: every store unit test but the length proptest (about 5 min).
+     `dsview-decode` and `dsview-session` cross into CPython and libc, which Miri cannot run.
+   - ✔ add a `bench-gate` job: `cargo bench -p dsview-store -- ingest` with a 500 MiB/s floor
+     (`DSVIEW_BENCH_MIN_MIBS`), std timing instead of criterion/iai.
+   - ✔ add a Rust-side differential `.dsl` fuzz (writer→reader round trip): fuzz target
+     `dsl_roundtrip` and the proptest `dsview-formats/tests/dsl_roundtrip.rs`.
 3. **Ports (follow-on):** Windows and macOS need:
    - a `localtime_r` cfg;
    - a replacement for `/proc` use;

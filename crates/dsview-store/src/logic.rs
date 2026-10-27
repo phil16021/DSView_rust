@@ -273,6 +273,27 @@ pub mod leaf_pool {
             .expect("pre-fault thread")
     }
 
+    /// Pre-faults started by captures, until [`settle`] waits for them.
+    static RUNNING: Mutex<Vec<std::thread::JoinHandle<()>>> = Mutex::new(Vec::new());
+
+    /// [`prefault`] for a capture: the thread runs on its own; [`settle`]
+    /// waits for it.
+    pub(super) fn prefault_in_background(leaves: usize) {
+        let h = prefault(leaves);
+        let mut r = RUNNING.lock().unwrap_or_else(|e| e.into_inner());
+        r.retain(|h| !h.is_finished());
+        r.push(h);
+    }
+
+    /// Waits until the pre-faults that captures started are done (tests,
+    /// and anything that counts [`fresh_allocations`]).
+    pub fn settle() {
+        let all = std::mem::take(&mut *RUNNING.lock().unwrap_or_else(|e| e.into_inner()));
+        for h in all {
+            let _ = h.join();
+        }
+    }
+
     /// Back to the idle size: the cap drops and the leaves above it are
     /// freed (after a capture).
     pub fn trim_idle() {
@@ -600,7 +621,7 @@ impl LogicStore {
             // map the capture's leaves ahead of it on another thread
             let leaves = (self.total_sample_count.div_ceil(LEAF_BLOCK_SAMPLES) * channel_num as u64)
                 .min(PREFAULT_MAX_LEAVES) as usize;
-            let _ = leaf_pool::prefault(leaves.saturating_sub(leaf_pool::pooled()));
+            leaf_pool::prefault_in_background(leaves.saturating_sub(leaf_pool::pooled()));
         } else {
             for chan in &mut self.ch_data {
                 for rn in chan.iter_mut() {

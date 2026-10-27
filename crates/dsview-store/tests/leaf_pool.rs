@@ -39,12 +39,15 @@ fn leaves_are_reused_and_prefaulted() {
     // a first capture allocates
     let mut a = LogicStore::new();
     capture(&mut a, samples);
+    // the pre-fault the capture started allocates on its own thread
+    leaf_pool::settle();
     assert!(leaf_pool::fresh_allocations() > 0);
     // a second store, after the first one is gone: its leaves come back
     drop(a);
     let before = leaf_pool::fresh_allocations();
     let mut b = LogicStore::new();
     capture(&mut b, samples);
+    leaf_pool::settle();
     assert_eq!(
         leaf_pool::fresh_allocations(),
         before,
@@ -56,6 +59,7 @@ fn leaves_are_reused_and_prefaulted() {
     let mut c = LogicStore::new();
     c.first_payload(&[0xffu8; 8 * 4], 64 * 4, &[0], true);
     c.capture_ended();
+    leaf_pool::settle();
     assert_eq!(leaf_pool::fresh_allocations(), before, "c reused a leaf");
     for i in 0..256 {
         assert!(c.get_sample(i, 0), "sample {i}");
@@ -74,6 +78,7 @@ fn leaves_are_reused_and_prefaulted() {
     let before = leaf_pool::fresh_allocations();
     let mut d = LogicStore::new();
     d.first_payload(&[0u8; 8], LEAF_BLOCK_SAMPLES * 2, &[0, 1, 2], true);
+    leaf_pool::settle();
     assert_eq!(
         leaf_pool::fresh_allocations(),
         before,
