@@ -81,6 +81,9 @@ pub fn init(paths: &[&Path]) -> Result<(), String> {
             .and_then(|s| s.setattr("dont_write_bytecode", true))
     })
     .map_err(|e| e.to_string())?;
+    if let Ok(v) = std::env::var("DSVIEW_PY_FAULTHANDLER") {
+        faulthandler(&v).map_err(|e| e.to_string())?;
+    }
     for p in paths {
         searchpath_add(p)?;
     }
@@ -88,6 +91,33 @@ pub fn init(paths: &[&Path]) -> Result<(), String> {
         log::dbg(&format!("Protocol decoder search path: {}", p.display()));
     }
     Ok(())
+}
+
+/// `DSVIEW_PY_FAULTHANDLER`: `1` prints every Python thread's traceback
+/// to stderr on a fatal signal (a decoder crashing the interpreter); a
+/// number of seconds above 1 also prints them that often, so a decoder
+/// stuck in a loop shows where. Empty or `0`: off.
+fn faulthandler(value: &str) -> PyResult<()> {
+    let secs: f64 = match value.trim() {
+        "" | "0" => return Ok(()),
+        v => v.parse().unwrap_or(1.0),
+    };
+    Python::attach(|py| {
+        let fh = py.import("faulthandler")?;
+        let kw = pyo3::types::PyDict::new(py);
+        kw.set_item("all_threads", true)?;
+        fh.call_method("enable", (), Some(&kw))?;
+        if secs > 1.0 {
+            // dumps every thread's traceback
+            let kw = pyo3::types::PyDict::new(py);
+            kw.set_item("repeat", true)?;
+            fh.call_method("dump_traceback_later", (secs,), Some(&kw))?;
+        }
+        log::warn(&format!(
+            "Python faulthandler on (DSVIEW_PY_FAULTHANDLER={value})"
+        ));
+        Ok(())
+    })
 }
 
 /// `srd_decoder_searchpath_add`.

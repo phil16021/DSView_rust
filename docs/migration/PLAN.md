@@ -876,7 +876,8 @@ alongside M6f.
   - `dsview-cli decode --pdb`.
 - **Crashes:** a panic hook writes local reports to `$XDG_STATE_HOME/dsview/crash/` (nothing is uploaded). Every `extern "C"` function is wrapped in `catch_unwind`, mapped to an error code, and keeps a thread-local last error (like `ds_get_last_error`).
 - **A/B:** use `DSVIEW_IMPL*` to bisect a regression to one subsystem in seconds.
-- **Status (2026-10-18; M7b updates in STATUS):**
+- **Status (2026-10-18; M7b updates in STATUS):** *M7b added `diff-dsl`, `diff-ann`,
+  `DSVIEW_PY_FAULTHANDLER` and the last log lines in crash reports.*
   - **Done:**
     - USB recording to pcapng (`cargo xtask usb record`) and `usb-diff`;
     - `dsview-cli serve --mcp` and `soak`;

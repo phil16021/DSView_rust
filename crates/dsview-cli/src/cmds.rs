@@ -275,6 +275,8 @@ pub fn run(cmd: &str, s: &Session, version: &str, o: &Opts) -> i32 {
             }
             Ok(())
         })(),
+        "diff-dsl" => crate::diff::dsl(&o.args),
+        "diff-ann" => crate::diff::ann_files(&o.args),
         "verify-counter" => verify_counter(&c, s, o),
         "selftest" => selftest(&c, s, version, o),
         _ => Err(format!("unknown command {cmd}")),

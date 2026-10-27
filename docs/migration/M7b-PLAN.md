@@ -231,8 +231,10 @@ oracle.
 **Tools to build (follow-on, in priority order):**
 
 1. `tracing` with `DSVIEW_LOG` filters, plus a crash ring buffer of the last N events in the crash
-   report.
-2. `DSVIEW_PY_FAULTHANDLER` (Python tracebacks on a decoder hang); this pairs with the F16 watchdog.
-3. `dsviewr-cli diff-dsl` / `diff-ann` (compare two captures or annotation sets) and `replay`.
+   report. *Ring buffer done 2026-10-27: the last 200 log lines up to info in every crash report;
+   `tracing` itself not yet.*
+2. ✔ `DSVIEW_PY_FAULTHANDLER` (Python tracebacks on a decoder hang); this pairs with the F16 watchdog.
+3. ✔ `dsviewr-cli diff-dsl` / `diff-ann` (compare two captures or annotation sets). `replay` not
+   yet (`dslogic_replay` covers it in tests).
 4. Perfetto/Tracy exporters for frame and ingest profiling (B4/B5).
 5. `decode --pdb` and `DSVIEW_DEBUGPY` for decoder authors.

@@ -1768,3 +1768,20 @@ or 24.04 or both. Reproduced with `nextest -j 4` (as on the 4-core runners) and 
   whole-app frame with the protocol table and the time view shown; sorting the rows once takes
   16 ms and is cached. An annotation takes about 40 bytes, its texts shared.
 - Still open in B4: the frame budget at 4K × 32 channels on real GPUs (with B5).
+
+## M7b: debugging tools (2026-10-27)
+
+- **`dsviewr-cli diff-dsl A.dsl B.dsl`:** header fields (mode, rate, samples, probes, trigger,
+  channel names), then per logic channel the count of differing samples and the first one with 16
+  samples around it; DSO/analog files by data bytes. Exit 1 when anything differs.
+- **`dsviewr-cli diff-ann A B`:** two annotation lists (`decode --json` output, or JSON lines of
+  annotations), the first one that differs with three around it. Exit 1 when they differ.
+- **`DSVIEW_PY_FAULTHANDLER`:** `1` turns on Python's faulthandler for every thread (tracebacks on
+  a fatal signal in a decoder); a number of seconds above 1 also dumps the tracebacks that often, to
+  show where a decoder hangs.
+- **Crash reports** end with the last 200 log lines up to info level, whatever level the log
+  shows (`dsview_drivers::sys::recent_log`; read with `try_lock`, so the hook never waits).
+- Tests: `diff::tests` (bit counting, windows, both annotation inputs), `dsview-decode/tests/faulthandler.rs`,
+  `crash::tests::a_panic_leaves_a_report` (the log lines, and no detail-level ones). By hand: a
+  flipped bit in `L-3/0` byte 500 is reported at sample 4004 of channel 3; two UART decodes at
+  different baud rates part at annotation #0.

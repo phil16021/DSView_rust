@@ -1,6 +1,7 @@
-//! Crash reports: a panic writes the message, where it happened and a
-//! backtrace to `$XDG_STATE_HOME/dsview/crash/` (`~/.local/state` when
-//! unset), then the default hook prints it as before.
+//! Crash reports: a panic writes the message, where it happened, a
+//! backtrace and the last log lines (up to info, whatever the log level)
+//! to `$XDG_STATE_HOME/dsview/crash/` (`~/.local/state` when unset), then
+//! the default hook prints it as before.
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -26,12 +27,16 @@ pub fn report(app: &str, version: &str, info: &std::panic::PanicHookInfo<'_>) ->
     let at = info
         .location()
         .map_or_else(|| "unknown".into(), |l| l.to_string());
+    let log = dsview_drivers::sys::recent_log();
     format!(
-        "{app} {version} ({} {})\nthread '{}' panicked at {at}:\n{msg}\n\nbacktrace:\n{}\n",
+        "{app} {version} ({} {})\nthread '{}' panicked at {at}:\n{msg}\n\nbacktrace:\n{}\n\
+         \nlast {} log lines:\n{}\n",
         std::env::consts::OS,
         std::env::consts::ARCH,
         thread.name().unwrap_or("<unnamed>"),
-        std::backtrace::Backtrace::force_capture()
+        std::backtrace::Backtrace::force_capture(),
+        log.len(),
+        log.join("\n")
     )
 }
 
@@ -66,6 +71,8 @@ mod tests {
         std::panic::set_hook(Box::new(move |info| {
             *t.lock().unwrap() = super::report("dsview", "1.2.3", info);
         }));
+        dsview_drivers::sys::log(3, "Start collect.");
+        dsview_drivers::sys::log(5, "too detailed to keep");
         let r = std::thread::Builder::new()
             .name("worker".into())
             .spawn(|| panic!("boom {}", 42))
@@ -81,5 +88,10 @@ mod tests {
         );
         assert!(text.contains("\nboom 42\n"), "{text}");
         assert!(text.contains("backtrace:"), "{text}");
+        assert!(
+            text.contains("log lines:\n") && text.contains("[3] Start collect."),
+            "{text}"
+        );
+        assert!(!text.contains("too detailed"), "{text}");
     }
 }

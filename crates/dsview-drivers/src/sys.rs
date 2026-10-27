@@ -126,10 +126,36 @@ pub fn set_log_sink(sink: LogSink) {
     *log_cell().write().unwrap() = Some(sink);
 }
 
+/// Log lines a crash report shows (the last ones, errors to info).
+const RECENT_LINES: usize = 200;
+
+fn recent_cell() -> &'static std::sync::Mutex<std::collections::VecDeque<String>> {
+    static RECENT: OnceLock<std::sync::Mutex<std::collections::VecDeque<String>>> = OnceLock::new();
+    RECENT.get_or_init(|| std::sync::Mutex::new(std::collections::VecDeque::new()))
+}
+
 pub fn log(level: i32, msg: &str) {
+    if level <= 3
+        && let Ok(mut r) = recent_cell().lock()
+    {
+        if r.len() == RECENT_LINES {
+            r.pop_front();
+        }
+        r.push_back(format!("[{level}] {msg}"));
+    }
     if let Some(sink) = log_cell().read().unwrap().as_ref() {
         sink(level, msg);
     }
+}
+
+/// The last log lines up to info level, oldest first, whatever the sink
+/// shows (for crash reports). Empty when another thread holds them, so a
+/// panic hook never waits.
+pub fn recent_log() -> Vec<String> {
+    recent_cell()
+        .try_lock()
+        .map(|r| r.iter().cloned().collect())
+        .unwrap_or_default()
 }
 
 macro_rules! sr_err { ($($t:tt)*) => { $crate::sys::log(1, &format!($($t)*)) } }

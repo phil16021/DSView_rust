@@ -13,6 +13,7 @@ use dsview_control::server::Server;
 use dsview_session::{Paths, Session};
 
 mod cmds;
+mod diff;
 mod matrix;
 mod soak;
 
@@ -36,6 +37,8 @@ usage: dsviewr-cli serve --mcp [options]
        dsviewr-cli verify-counter [--device D] [--samples N] [--timeout S]
        dsviewr-cli selftest [--timeout S] --out DIR
        dsviewr-cli hwmatrix [--cycles N] [--quick] [--out REPORT.json]
+       dsviewr-cli diff-dsl A.dsl B.dsl
+       dsviewr-cli diff-ann A.json B.json
 
 Runs DSViewR's capture session without a GUI behind the control socket
 (DSVIEW_MCP_SOCKET, else $XDG_RUNTIME_DIR/dsview/mcp.sock).
@@ -53,6 +56,12 @@ options:
 commands take the first hardware device, else the active one.
 
 verify-counter: the DSLogic's internal test mode; every sample must count up.
+diff-dsl: header fields and samples of two captures; the first differing
+sample of each channel with 16 samples around it. diff-ann: two annotation
+lists (`decode --json` output, or JSON lines of annotations); the first one
+that differs with three around it. Both exit 1 when anything differs.
+DSVIEW_PY_FAULTHANDLER=1 prints Python tracebacks on a decoder crash; =N
+(seconds) also every N seconds, to see where a decoder hangs.
 selftest: for owners of devices the developers do not have (DSCope, MSO-E8):
 a capture per hardware device, the settings and the full log in DIR.
 
@@ -93,6 +102,8 @@ fn main() {
         "verify-counter",
         "selftest",
         "hwmatrix",
+        "diff-dsl",
+        "diff-ann",
     ];
     if cmd != "serve" && cmd != "soak" && !ONESHOT.contains(&cmd) {
         eprint!("{USAGE}");
