@@ -252,6 +252,8 @@ C.
   All six are fixed in the decoders.
 - **F36:** `smart_qspi` wrote each command's address mode into its shared command table, so the
   first mode stuck for later commands and decodes. Fixed in the decoder.
+- **F37:** `swd` searched all bits since the last request on every clock edge (quadratic, 39 s
+  for one soak capture). Fixed in the decoder.
 
 **Left for later:**
 - Making Rust the default (after one release of A/B), then deleting `libsigrokdecode4DSL/*.c`. *Moot: M7a.*
@@ -1958,5 +1960,27 @@ graycode's `ChannelMapError`, `rgb_led_ws281x` color-order options, and `ir_irmp
 
 **Checked:**
 - workspace: 276 tests pass, and clippy `-D warnings` is clean;
+- golden check ok, decoder golden unchanged.
+
+## M7b: F37 fixed, `swd` quadratic while waiting (2026-10-28)
+
+**Soaks on new seeds:**
+
+| Soak | Stacks | Findings | Python errors |
+|---|---|---|---|
+| 200 runs from seed 200000 | 30 600 | 0 | Configuration errors only (as for F35) |
+| 100 runs from seed 300000, `--max-samples 500000` | 15 300 | 9 timeouts | Configuration errors only |
+
+Of the 9 timeouts:
+- **1 is F37:** `swd` searched all bits since the last request on every edge.
+  - It now keeps a 64-bit tail; the capture decodes in 0.7 s instead of 39 s.
+  - Output is identical there and on 65 more decodes.
+  - Test: `decoder_hangs.rs::swd_long_idle_clock_is_linear`.
+- **The other 8 are not decoder defects:** one 466 027-sample capture decoded one sample per
+  chunk, where a stack needs a little over 10 s. For example, `wiegand` takes 13 s there and
+  0.66 s with the normal chunking, with the same output.
+
+**Checked:**
+- workspace: 277 tests pass, and clippy `-D warnings` is clean;
 - golden check ok, decoder golden unchanged.
 

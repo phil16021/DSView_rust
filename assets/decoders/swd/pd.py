@@ -173,6 +173,12 @@ class Decoder(srd.Decoder):
 
             self.bits += str(dio)
             self.samplenums.append(self.samplenum)
+            # DSViewR: UNKNOWN and REQ keep bits until a request or line
+            # reset, and REQ searches all of them on every edge: quadratic.
+            # Its patterns are 16 bits at most and anchored at the end, so a
+            # tail of the bits is enough (samplenums stays whole).
+            if self.state in ('UNKNOWN', 'REQ') and len(self.bits) > 128:
+                self.bits = self.bits[-64:]
             {
                 'UNKNOWN': self.handle_unknown_edge,
                 'REQ': self.handle_req_edge,

@@ -721,6 +721,29 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
   E9, a 3-byte READ). It failed before: no 24-bit address. The goldens are unchanged (no
   `smart_qspi` in the decode golden).
 
+### F37. `swd` is quadratic while it waits for a request (M7b, decoder soak)
+- **Found by** `cargo xtask decoders soak --runs 100 --seed 300000 --max-samples 500000`: one
+  `swd` stack (seed 300086, 340 380 samples) ran past the 10 s limit. It finished in 39 s with
+  almost no annotations.
+- **The defect:** in the UNKNOWN and REQ states, every sampled SWDIO bit is appended to
+  `self.bits`, which is cleared only by a recognised request or line reset. In REQ, each clock
+  edge runs two `re.search` calls over all of it. A long stretch of clocking without a request
+  (noise, a stuck line, the wrong channels) therefore costs time quadratic in its edges, and a
+  long capture can take hours.
+- **Reach:** C DSView runs the same file, so it is just as slow.
+- **Fix:** in those states, `bits` keeps a tail of 64 once it passes 128 (`DSViewR` comment).
+  The patterns are at most 16 bits long and anchored at the end, so the matches are the same.
+  `samplenums` is only indexed, not searched, so it stays whole and annotation start samples
+  are unchanged.
+- **Test:** `decoder_hangs.rs::swd_long_idle_clock_is_linear`: 40 000 clocks with SWDIO high.
+  Before the fix it ran past the 20 s watchdog; after, the whole file runs in under 1 s.
+  - The soak capture now decodes in 0.7 s instead of 39 s, with byte-identical output.
+  - Old and new output are also identical on 65 more decodes of soak captures (about 9 200
+    annotations).
+- **Not decoder defects:** the same soak's other 8 timeouts are one capture (seed 300076,
+  466 027 samples) decoded one sample per chunk (`--max-chunk 1`). For example, `wiegand` needs
+  13 s there and 0.66 s with the normal chunking, with the same output.
+
 ## Planned behaviour deviations (Rust intentionally differs)
 
 | Area | C behaviour | Rust behaviour | Phase |

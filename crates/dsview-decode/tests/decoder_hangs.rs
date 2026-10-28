@@ -1,5 +1,5 @@
 //! Shipped decoders that never returned or failed on ordinary input
-//! (DEVIATIONS F16, F35 from the decoder soak, and F36), each on the
+//! (DEVIATIONS F16, F35 and F37 from the decoder soak, and F36), each on the
 //! smallest input that showed it. A decoder that loops holds the GIL in its
 //! thread, so a hang cannot be recovered from: the watchdog aborts the test
 //! process with the decoder's name.
@@ -482,4 +482,22 @@ fn smart_qspi_address_mode_follows_each_command() {
         texts.iter().any(|t| t == "24-Bit Address : 0xabcdef"),
         "{texts:?}"
     );
+}
+
+/// `swd`: in the REQ state every sampled bit is kept, and each clock edge
+/// searches all of them for a request: quadratic in the edges since the
+/// last request or line reset (F37). With SWDIO high (no request; a line
+/// reset is only reported when it ends), 40 000 clocks ran past the
+/// watchdog's 20 s before.
+#[test]
+fn swd_long_idle_clock_is_linear() {
+    let _w = Watchdog::start("swd");
+    let n = 40_000;
+    let clk: Vec<bool> = (0..4 * n).map(|i| (i / 2) % 2 == 1).collect();
+    let dio = vec![true; clk.len()];
+    let t = std::time::Instant::now();
+    let (_, res) = decode("swd", None, &["swclk", "swdio"], &[], &[clk, dio]);
+    res.expect("decodes");
+    let took = t.elapsed();
+    assert!(took < Duration::from_secs(3), "took {took:?}");
 }
