@@ -402,7 +402,11 @@ class Decoder(srd.Decoder):
 
                 if len(command[self.io0data][2]) != 0:
                     self.command = self.io0data
-                    self.diagram = command[self.command][2]
+                    # DSViewR: a copy per command. The address and dummy
+                    # steps resolve their mode by writing to the step, which
+                    # changed the shared table: the first mode stuck.
+                    self.diagram = [process_info(st.enum, st.mode)
+                                    for st in command[self.command][2]]
 
             elif self.command != 0:
                 cur_state = self.diagram[self.state_count]

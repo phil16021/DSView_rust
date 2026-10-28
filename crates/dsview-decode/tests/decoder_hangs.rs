@@ -1,8 +1,8 @@
 //! Shipped decoders that never returned or failed on ordinary input
-//! (DEVIATIONS F16, and F35 from the decoder soak), each on the smallest
-//! input that showed it. A decoder
-//! that loops holds the GIL in its thread, so a hang cannot be recovered
-//! from: the watchdog aborts the test process with the decoder's name.
+//! (DEVIATIONS F16, F35 from the decoder soak, and F36), each on the
+//! smallest input that showed it. A decoder that loops holds the GIL in its
+//! thread, so a hang cannot be recovered from: the watchdog aborts the test
+//! process with the decoder's name.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -430,5 +430,56 @@ fn spdif_long_pulse_in_subframe() {
     assert!(
         texts.iter().any(|t| t == "Sample 0xb2b2b2"),
         "valid subframes keep their values: {texts:?}"
+    );
+}
+
+/// `smart_qspi`: resolving a command's address mode (24 or 32 bits) wrote it
+/// into the shared command table, so the first mode stuck: after a 4-byte
+/// read, a 3-byte one waited for a fourth address byte (F36).
+#[test]
+fn smart_qspi_address_mode_follows_each_command() {
+    let _w = Watchdog::start("smart_qspi");
+    // one CS# low frame per command: Enter 4-byte mode, READ at 0x12345678,
+    // Exit 4-byte mode, READ at 0xABCDEF. IO1 idle low selects the
+    // configured two-line mode.
+    let frames: [&[u8]; 4] = [
+        &[0xB7],
+        &[0x03, 0x12, 0x34, 0x56, 0x78],
+        &[0xE9],
+        &[0x03, 0xAB, 0xCD, 0xEF],
+    ];
+    // buffers by decoder channel: CLK, IO0, IO1, IO2, IO3, CS#
+    let mut l = vec![Vec::new(); 6];
+    for bytes in frames {
+        let bits = bits_msb(bytes);
+        let n = bits.len();
+        let f = clocked(&[bits, vec![false; n]]);
+        let len = f[0].len();
+        for (o, c) in l.iter_mut().zip(f) {
+            o.extend(c);
+        }
+        l[3].extend(vec![false; len]);
+        l[4].extend(vec![false; len]);
+        l[5].extend(vec![false; len]);
+        // CS# high between frames
+        for (k, o) in l.iter_mut().enumerate() {
+            o.extend([k == 5; 16]);
+        }
+    }
+    let (texts, res) = decode(
+        "smart_qspi",
+        None,
+        &["clk", "io0", "io1", "cs"],
+        &[("twolinesmode", OptValue::Str("dspi".into()))],
+        &l,
+    );
+    res.expect("decodes");
+    assert!(
+        texts.iter().any(|t| t == "32-Bit Address : 0x12345678"),
+        "{texts:?}"
+    );
+    assert!(
+        texts.iter().any(|t| t == "24-Bit Address : 0xabcdef"),
+        "{texts:?}"
     );
 }

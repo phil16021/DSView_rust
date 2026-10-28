@@ -250,6 +250,8 @@ C.
 - **F35:** the decoder soak (M7b) found `st7735`, `spdif`, `fsi`, `i2s`, `seven_segment` and
   `smart_qspi` raising on data (KeyError, ValueError, AttributeError, struct.error, IndexError).
   All six are fixed in the decoders.
+- **F36:** `smart_qspi` wrote each command's address mode into its shared command table, so the
+  first mode stuck for later commands and decodes. Fixed in the decoder.
 
 **Left for later:**
 - Making Rust the default (after one release of A/B), then deleting `libsigrokdecode4DSL/*.c`. *Moot: M7a.*
@@ -1559,7 +1561,7 @@ decoders are covered by the engine tests only.
 **Decoder soak:**
 - What it does: every decoder on random captures with random options and chunk sizes, each stack
   limited to 10 s and each process to 2 GB; it reports hangs, deaths and Python errors with what
-  replays them.
+  replays them (for Python errors since 2026-10-28).
 - Where: `cargo xtask decoders soak` (`dev/dsview-testkit/src/bin/decoder-soak.rs`). It is the
   former `decode-diff` generator without the C side.
 - Runs nightly: 100 runs with a moving seed, in `fuzz-nightly.yml`.
@@ -1572,7 +1574,7 @@ decoders are covered by the engine tests only.
 | Before | 34 (`gpib` 18, `ltc26x7` 16) | `lfast` failed in 199 runs, `sipi` in 200 |
 | After | 0 | `lfast` 0, `sipi` 0 |
 
-Other decoders that raise on unusual data are recorded as DEVIATIONS F35, a follow-up.
+Other decoders that raise on unusual data are fixed as F35 (below).
 
 **Checked:** workspace tests (249) and clippy `-D warnings`, golden check unchanged.
 
@@ -1946,3 +1948,15 @@ graycode's `ChannelMapError`, `rgb_led_ws281x` color-order options, and `ir_irmp
   - the snapshot `dso_measure_bar` re-blessed, now showing RMS 1.40 V (13.90 mV before);
   - `measure_dso` on the running GUI: RMS 1.40 V, mean 9.45 mV, in both modes;
   - control transcript 38 steps, MCP suite 37 steps, clippy clean.
+
+## M7b: F36 fixed, and soak replays for Python errors (2026-10-28)
+
+| Item | Fix | Test |
+|---|---|---|
+| F36 | `smart_qspi` copies a command's steps when the command starts, so its address mode (24/32 bit) no longer sticks in the shared table | `decoder_hangs.rs::smart_qspi_address_mode_follows_each_command` |
+| Decoder soak | Python errors come with a replay like hangs. The error from the lowest seed per decoder, so the output does not depend on job order. Only the captures a replay names are kept | Soak of 20 runs from seed 100000: 10 captures kept, one per replay; a replay run by hand gives the same error |
+
+**Checked:**
+- workspace: 276 tests pass, and clippy `-D warnings` is clean;
+- golden check ok, decoder golden unchanged.
+

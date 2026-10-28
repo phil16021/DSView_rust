@@ -704,6 +704,23 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
 - **Tests:** `dsview-decode/tests/decoder_hangs.rs`, one minimal input per decoder. Each test
   failed with the soak's exception before the fix. The goldens are unchanged.
 
+### F36. `smart_qspi` writes each command's address mode into its command table (M7b)
+- **Found by** reading the decoder while fixing F35. Nothing raises, so the soak cannot see it.
+- **The defect:** the command table's steps are module-level `process_info` objects, shared by
+  every instance. An address or dummy step resolves "by mode" to 24 or 32 bits (dummy: 32 or 40)
+  by assigning `cur_state.enum`, which writes into the shared step.
+  - The first mode seen then sticks for every later command with that step: for example, after
+    Enter 4-Byte Address Mode (0xB7), a 3-byte READ (0x03) after Exit 4-Byte Address Mode (0xE9)
+    waits for a fourth address byte, and its address and data are annotated wrongly.
+  - The same holds across decodes and sessions until the module is reloaded, so the `ads`
+    option at 32-bit also changes later 24-bit decodes.
+- **Reach:** C DSView loads the decoder modules once as well; the mode sticks until restart.
+- **Fix:** a command starts with its own copy of its steps (`DSViewR` comment). The table is no
+  longer written.
+- **Test:** `decoder_hangs.rs::smart_qspi_address_mode_follows_each_command` (B7, a 4-byte READ,
+  E9, a 3-byte READ). It failed before: no 24-bit address. The goldens are unchanged (no
+  `smart_qspi` in the decode golden).
+
 ## Planned behaviour deviations (Rust intentionally differs)
 
 | Area | C behaviour | Rust behaviour | Phase |
