@@ -1917,8 +1917,8 @@ graycode's `ChannelMapError`, `rgb_led_ws281x` color-order options, and `ir_irmp
   - they show the M7b GUI: 16 px trigger buttons, the 1-2-5 ruler, the time-aligned protocol
     table, and real DSO measurements (frequency, period, peak-to-peak, amplitude, duty).
 - **Found while doing so:** the demo oscilloscope's RMS and mean are wrong (13.90 mV and 5.04 V
-  for a ±1.97 V sine; ≈ 1.39 V and 0 V expected), in the GUI and in `measure_dso` alike. Not yet
-  investigated; those two are left out of the screenshot.
+  for a ±1.97 V sine; ≈ 1.39 V and 0 V expected), in the GUI and in `measure_dso` alike. Fixed
+  the same day; see the next section. Those two are not in the screenshot.
 - **README:**
   - the features of M7b: the memory guard, live decoding, the TXT export, the built-in CJK font;
   - `diff-dsl`/`diff-ann` in the `dsviewr-cli` block;
@@ -1926,3 +1926,23 @@ graycode's `ChannelMapError`, `rgb_led_ws281x` color-order options, and `ir_irmp
     `selftest`;
   - CI coverage and the Windows status;
   - an M7b summary, linking `M7b-PLAN.md`.
+
+## Demo oscilloscope RMS and mean fixed (2026-10-28)
+
+- **Cause:** a defect inherited from `demo.c`.
+  - DSView takes RMS and mean from the status block: `sqrt(acc_square / N)` and
+    `hw_offset - acc_mean / N`, N the frame's samples.
+  - The demo filled the accumulators with placeholder sums from the last packet's length. In
+    instant mode, the control API's default for DSO, a packet is one sample, so it showed
+    13.90 mV RMS and 5.04 V mean for its ±1.97 V sine.
+  - The Qt/C control transcript recorded the same values; that step compares by shape.
+- **Fix** (`crates/dsview-drivers/src/demo.rs::dso_status_update`):
+  - the accumulators are the scanned samples' own sums, per channel, about each channel's
+    `hw_offset`;
+  - they are scaled to the samples the session holds for the frame.
+- **Tests:**
+  - `dsview-drivers` `demo::dso_status_mean_and_rms_match_the_samples`, in instant and normal
+    mode. It failed before: a mean code of 0.13 where the samples give 127.76;
+  - the snapshot `dso_measure_bar` re-blessed, now showing RMS 1.40 V (13.90 mV before);
+  - `measure_dso` on the running GUI: RMS 1.40 V, mean 9.45 mV, in both modes;
+  - control transcript 38 steps, MCP suite 37 steps, clippy clean.

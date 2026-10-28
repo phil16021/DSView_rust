@@ -253,3 +253,69 @@ fn zero_vdiv_is_refused() {
             .any(|p| matches!(p.body, Body::Dso { .. }))
     );
 }
+
+/// The DSO status block's accumulators match the samples: DSView shows
+/// `rms = sqrt(acc_square / N)` and `mean = hw_offset - acc_mean / N`, N the
+/// frame's samples. C's demo wrote placeholder sums from the last packet's
+/// length, so in instant mode (small packets) the demo showed 13.90 mV RMS
+/// and 5.04 V mean for its ±1.97 V sine.
+#[test]
+fn dso_status_mean_and_rms_match_the_samples() {
+    let _g = setup();
+    for instant in [true, false] {
+        let mut d = demo::scan().remove(0);
+        d.open().unwrap();
+        d.config_set(key::INSTANT, &ConfValue::Bool(instant), None)
+            .unwrap();
+        let hw_offset = 128.0;
+        let mut out = Vec::new();
+        d.start(&mut out).unwrap();
+        // channel 0 over the frame so far (instant mode appends packets):
+        // samples, sum of codes, sum of squares about hw_offset
+        let (mut n, mut sum, mut sumsq) = (0usize, 0.0f64, 0.0f64);
+        let mut checked = 0;
+        for _ in 0..30_000 {
+            let mut pk = Vec::new();
+            let live = callback(&mut d, false, &mut pk);
+            for p in &pk {
+                let Body::Dso {
+                    num_samples, data, ..
+                } = &p.body
+                else {
+                    continue;
+                };
+                if !instant {
+                    (n, sum, sumsq) = (0, 0.0, 0.0);
+                }
+                for c in data.chunks(2).take(*num_samples as usize) {
+                    let v = c[0] as f64;
+                    n += 1;
+                    sum += v;
+                    sumsq += (hw_offset - v).powi(2);
+                }
+                let s = d.status(false).unwrap();
+                if s.measure_valid == 0 || n < 1000 || (instant && n % 1000 != 0) {
+                    continue;
+                }
+                let (ref_mean, ref_rms) = (sum / n as f64, (sumsq / n as f64).sqrt());
+                let mean = s.ch0_acc_mean as f64 / n as f64;
+                let rms = (s.ch0_acc_square as f64 / n as f64).sqrt();
+                assert!(
+                    (mean - ref_mean).abs() <= 1.0,
+                    "instant={instant}, {n} samples: mean code {mean:.2}, samples give {ref_mean:.2}"
+                );
+                assert!(
+                    (rms - ref_rms).abs() <= ref_rms * 0.03,
+                    "instant={instant}, {n} samples: rms {rms:.3} codes, samples give {ref_rms:.3}"
+                );
+                checked += 1;
+            }
+            if !live || checked >= 10 {
+                break;
+            }
+        }
+        callback(&mut d, true, &mut out);
+        d.stop(&mut out).unwrap();
+        assert!(checked > 0, "instant={instant}: no frame checked");
+    }
+}

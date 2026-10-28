@@ -1385,10 +1385,26 @@ impl Demo {
     fn dso_status_update(&mut self) {
         let pb = self.packet_buffer.as_ref().unwrap();
         let at = |i: usize| pb.post_buf.get(i).copied().unwrap_or(0);
+        // each channel's zero code, which DSView's mean and RMS are about
+        let offset = |ch: usize| {
+            self.channels
+                .get(ch)
+                .map_or(f64::from(DSO_MID_VAL), |c| f64::from(c.hw_offset))
+        };
+        let offsets = [offset(0), offset(1)];
+        // the samples per channel the session holds for this frame (its
+        // divisor N): instant mode appends the packets
+        let frame_samples = if self.instant {
+            self.post_data_len / 2
+        } else {
+            pb.post_len / 2
+        } as f64;
         let st = &mut self.mstatus;
         let mut ch_max = DSO_MID_VAL;
         let mut ch_min = DSO_MID_VAL;
-        let mut total_val: u32 = 0;
+        // per channel: samples scanned, sum of codes, sum of squares about
+        // the zero code
+        let (mut scanned, mut sum, mut sumsq) = (0u64, [0f64; 2], [0f64; 2]);
         let mut temp_plevel = false;
         let mut first_plevel = false;
         let mut temp_llen: u32 = 0;
@@ -1464,23 +1480,32 @@ impl Demo {
                 st.ch1_plevel = i32::from(temp_plevel);
                 first_plevel = true;
             }
-            total_val = total_val.wrapping_add(u32::from(val));
+            scanned += 1;
+            for (ch, v) in [val, at(i + 1)].into_iter().enumerate() {
+                let v = f64::from(v);
+                sum[ch] += v;
+                sumsq[ch] += (offsets[ch] - v).powi(2);
+            }
         }
         st.ch1_cyc_rlen /= 2;
         st.ch0_cyc_rlen = st.ch1_cyc_rlen;
         st.ch1_cyc_flen /= 2;
         st.ch0_cyc_flen = st.ch1_cyc_flen;
 
-        let mean = if self.sample_generator != PATTERN_RANDOM {
-            (u64::from(DSO_MID_VAL) * pb.post_len / 2) as u32
-        } else {
-            total_val
-        };
-        st.ch0_acc_mean = mean;
-        st.ch1_acc_mean = mean;
-        let square = u64::from(ch_max) * pb.post_len / 2 * 7;
-        st.ch0_acc_square = square;
-        st.ch1_acc_square = square;
+        // DSViewR: C wrote placeholder sums from the last packet's length
+        // (`DSO_MID_VAL * post_len / 2`, `ch_max * post_len / 2 * 7`), which
+        // DSView divides by the frame's samples; in instant mode a packet is
+        // one sample, so the demo showed 13.90 mV RMS and 5.04 V mean for its
+        // ±1.97 V sine. The sums are now the scanned samples' own, scaled to
+        // the frame.
+        if scanned > 0 {
+            let scale = frame_samples / scanned as f64;
+            let acc = |x: f64| (x * scale).round();
+            st.ch0_acc_mean = acc(sum[0]) as u32;
+            st.ch1_acc_mean = acc(sum[1]) as u32;
+            st.ch0_acc_square = acc(sumsq[0]) as u64;
+            st.ch1_acc_square = acc(sumsq[1]) as u64;
+        }
     }
 
     // -------------------------------------------------------------- analog
