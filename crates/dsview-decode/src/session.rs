@@ -417,6 +417,7 @@ impl Session {
                 let mut st = di.lock();
                 st.first_pos = true;
                 st.abs_cur_matched = false;
+                st.matched_before_chunk = false;
                 st.skip_zero = false;
             }
             let _ = inst.setattr("samplenum", 0);

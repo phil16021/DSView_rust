@@ -254,6 +254,9 @@ C.
   first mode stuck for later commands and decodes. Fixed in the decoder.
 - **F37:** `swd` searched all bits since the last request on every clock edge (quadratic, 39 s
   for one soak capture). Fixed in the decoder.
+- **F38:** `skip: 0` right after a match on a chunk's last sample matched one sample later (the
+  engine, left over from F32). Fixed in `instance.rs`.
+- **F39:** `ir_rc6` raised IndexError on a stray pulse after a package. Fixed in the decoder.
 
 **Left for later:**
 - Making Rust the default (after one release of A/B), then deleting `libsigrokdecode4DSL/*.c`. *Moot: M7a.*
@@ -1982,5 +1985,28 @@ Of the 9 timeouts:
 
 **Checked:**
 - workspace: 277 tests pass, and clippy `-D warnings` is clean;
+- golden check ok, decoder golden unchanged.
+
+## M7b: F38 and F39 fixed (2026-10-28)
+
+**Soak:** 100 runs from seed 400000, `--max-samples 500000`, `--stack-timeout 30`; 15 300 stacks.
+
+| Finding | What it was |
+|---|---|
+| `ir_rc6` IndexError (1 stack) | F39: a stray pulse after a package left one bit; the length is now checked first |
+| `onewire_network`, `ufcs`: process limit (600 s) | Not decoder defects: one 486 358-sample capture decoded one sample per chunk takes longer than 600 s for its 153 stacks. Alone, `onewire_link` takes 12 s there and 0.4 s with the default chunking |
+| `onewire_link` output differs at chunks of 1 | F38, in the engine: `skip: 0` right after a match on a chunk's last sample matched one sample later |
+
+**F38 check:** all 153 stacks of three soak captures, about 615 000 output lines, are
+byte-identical at chunks of 1, 7 and the default. Before the fix, `sda2506` differed. The
+default output is unchanged.
+
+**Tests:**
+- `tests/chunking.rs`: a 1-Wire case and `skip_zero_pins_do_not_depend_on_the_chunks`;
+- `decoder_hangs.rs::ir_rc6_stray_pulse_after_a_package`;
+- each failed before its fix.
+
+**Checked:**
+- workspace: 279 tests pass, and clippy `-D warnings` is clean;
 - golden check ok, decoder golden unchanged.
 

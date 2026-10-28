@@ -648,6 +648,7 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
   - **`rust-decode protocol.demo`:** with chunks of 64, 77 and 1000 samples, 43, 42 and 3 lines
     used to differ from the default chunking; now none do. The default output equals the stored
     golden.
+  - One case was left: `skip: 0` right after a match on a chunk's last sample (F38).
 
 ### F33. The analog envelope writes one entry past its ring (R1, first CI run)
 - **Found by** the `oracle-asan` CI job: it had never run before the branch was pushed. One
@@ -743,6 +744,42 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
 - **Not decoder defects:** the same soak's other 8 timeouts are one capture (seed 300076,
   466 027 samples) decoded one sample per chunk (`--max-chunk 1`). For example, `wiegand` needs
   13 s there and 0.66 s with the normal chunking, with the same output.
+
+### F38. `skip: 0` after a match on a chunk's last sample (M7b, decoder soak)
+- **Found by** a soak with long captures (100 runs from seed 400000, `--max-samples 500000`).
+  `onewire_link` gave different annotations with one sample per chunk than with the default
+  chunking. Comparing all 153 stacks of three captures at chunks of 1 and 7 also showed
+  `sda2506`.
+- **The defect**, left over from the F32 fix:
+  - Like C, the engine treats `skip: 0` right after a match as a match at that same sample. It
+    steps past the match and then back, and knows "right after a match" from `abs_cur_matched`.
+  - When the match was the chunk's last sample, the step used up the chunk, and F32 cleared the
+    flag.
+  - In the next chunk, `skip: 0` therefore matched one sample later. `onewire_link` (a slot end
+    after a long low) and `sda2506` (the data bit at the falling clock edge, at rates of
+    2.5 MHz and up) moved an end by one sample or read the next sample's level.
+- **Fix** (`instance.rs`):
+  - When the step past a match uses up a chunk, the next chunk starts with the match still
+    counted, and without stepping again (`matched_before_chunk`).
+  - Stepping back to the previous chunk's last sample reads its levels from the old pins.
+    `update_old_pins` now reads all pins before it replaces them.
+- **Tests:** `tests/chunking.rs` has a 1-Wire case and `skip_zero_pins_do_not_depend_on_the_chunks`
+  (`sda2506` at 10 MHz). Both failed before, at chunks of 1.
+- **Checked:**
+  - All 153 stacks of three soak captures (about 615 000 output lines) are byte-identical at
+    chunks of 1, 7 and the default.
+  - The default output is unchanged on those captures, and the golden check is ok.
+
+### F39. `ir_rc6` checked a package's second bit before its length (M7b, decoder soak)
+- **Found by** the same soak (seed 400096): `IndexError: list index out of range`.
+- **The defect:** after a decoded package clears the bits, a stray pulse and the timeout leave
+  one bit. `handle_package` read `bits[1]` before checking the length.
+- **Fix:** the length check comes first (`DSViewR` comment). The result is the same for every
+  other length.
+- **Test:** `decoder_hangs.rs::ir_rc6_stray_pulse_after_a_package`: an RC6 mode-0 frame, then
+  pulses of 3/1 and 2/1 half bits (found with a search over random ones). It failed with the
+  soak's IndexError before.
+- **Reach:** C DSView runs the same file.
 
 ## Planned behaviour deviations (Rust intentionally differs)
 

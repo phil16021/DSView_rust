@@ -1,5 +1,5 @@
 //! Shipped decoders that never returned or failed on ordinary input
-//! (DEVIATIONS F16, F35 and F37 from the decoder soak, and F36), each on the
+//! (DEVIATIONS F16; F35, F37 and F39 from the decoder soak; F36), each on the
 //! smallest input that showed it. A decoder that loops holds the GIL in its
 //! thread, so a hang cannot be recovered from: the watchdog aborts the test
 //! process with the decoder's name.
@@ -500,4 +500,40 @@ fn swd_long_idle_clock_is_linear() {
     res.expect("decodes");
     let took = t.elapsed();
     assert!(took < Duration::from_secs(3), "took {took:?}");
+}
+
+/// `ir_rc6`: a pulse after a decoded package, then the timeout, left one
+/// bit, and the package check read the second (IndexError, F39).
+#[test]
+fn ir_rc6_stray_pulse_after_a_package() {
+    let _w = Watchdog::start("ir_rc6");
+    // 1 MHz: half a bit is 444 samples. IR marks are low, idle high.
+    let t = 444;
+    let mut ir = vec![true; 2000];
+    let level = |l: bool, n: usize, ir: &mut Vec<bool>| ir.extend(std::iter::repeat_n(l, n));
+    // leader, then start bit 1, mode 000, toggle 0 (double), address and data
+    level(false, 6 * t, &mut ir);
+    level(true, 2 * t, &mut ir);
+    let bit = |b: bool, len: usize, ir: &mut Vec<bool>| {
+        level(!b, len, ir);
+        level(b, len, ir);
+    };
+    bit(true, t, &mut ir);
+    for _ in 0..3 {
+        bit(false, t, &mut ir);
+    }
+    bit(false, 2 * t, &mut ir);
+    for b in bits_msb(&[0x2A, 0x5C]) {
+        bit(b, t, &mut ir);
+    }
+    level(true, 10 * t, &mut ir);
+    // stray pulses (found with a search over random ones), then idle
+    for (low, high) in [(3, 1), (2, 1)] {
+        level(false, low * t, &mut ir);
+        level(true, high * t, &mut ir);
+    }
+    level(true, 10 * t, &mut ir);
+    let (texts, res) = decode("ir_rc6", None, &["ir"], &[], &[ir]);
+    res.expect("no IndexError");
+    assert!(texts.iter().any(|t| t.starts_with("Data: ")), "{texts:?}");
 }
