@@ -1918,7 +1918,7 @@ graycode's `ChannelMapError`, `rgb_led_ws281x` color-order options, and `ir_irmp
     table, and real DSO measurements (frequency, period, peak-to-peak, amplitude, duty).
 - **Found while doing so:** the demo oscilloscope's RMS and mean are wrong (13.90 mV and 5.04 V
   for a ±1.97 V sine; ≈ 1.39 V and 0 V expected), in the GUI and in `measure_dso` alike. Fixed
-  the same day; see the next section. Those two are not in the screenshot.
+  the same day (next section); the screenshot was then re-shot with RMS and mean in the bar.
 - **README:**
   - the features of M7b: the memory guard, live decoding, the TXT export, the built-in CJK font;
   - `diff-dsl`/`diff-ann` in the `dsviewr-cli` block;
