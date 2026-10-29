@@ -1,8 +1,8 @@
 //! Shipped decoders that never returned or failed on ordinary input
-//! (DEVIATIONS F16, and F35 from the decoder soak), each on the smallest
-//! input that showed it. A decoder
-//! that loops holds the GIL in its thread, so a hang cannot be recovered
-//! from: the watchdog aborts the test process with the decoder's name.
+//! (DEVIATIONS F16; F35, F37 and F39 from the decoder soak; F36), each on the
+//! smallest input that showed it. A decoder that loops holds the GIL in its
+//! thread, so a hang cannot be recovered from: the watchdog aborts the test
+//! process with the decoder's name.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -431,4 +431,109 @@ fn spdif_long_pulse_in_subframe() {
         texts.iter().any(|t| t == "Sample 0xb2b2b2"),
         "valid subframes keep their values: {texts:?}"
     );
+}
+
+/// `smart_qspi`: resolving a command's address mode (24 or 32 bits) wrote it
+/// into the shared command table, so the first mode stuck: after a 4-byte
+/// read, a 3-byte one waited for a fourth address byte (F36).
+#[test]
+fn smart_qspi_address_mode_follows_each_command() {
+    let _w = Watchdog::start("smart_qspi");
+    // one CS# low frame per command: Enter 4-byte mode, READ at 0x12345678,
+    // Exit 4-byte mode, READ at 0xABCDEF. IO1 idle low selects the
+    // configured two-line mode.
+    let frames: [&[u8]; 4] = [
+        &[0xB7],
+        &[0x03, 0x12, 0x34, 0x56, 0x78],
+        &[0xE9],
+        &[0x03, 0xAB, 0xCD, 0xEF],
+    ];
+    // buffers by decoder channel: CLK, IO0, IO1, IO2, IO3, CS#
+    let mut l = vec![Vec::new(); 6];
+    for bytes in frames {
+        let bits = bits_msb(bytes);
+        let n = bits.len();
+        let f = clocked(&[bits, vec![false; n]]);
+        let len = f[0].len();
+        for (o, c) in l.iter_mut().zip(f) {
+            o.extend(c);
+        }
+        l[3].extend(vec![false; len]);
+        l[4].extend(vec![false; len]);
+        l[5].extend(vec![false; len]);
+        // CS# high between frames
+        for (k, o) in l.iter_mut().enumerate() {
+            o.extend([k == 5; 16]);
+        }
+    }
+    let (texts, res) = decode(
+        "smart_qspi",
+        None,
+        &["clk", "io0", "io1", "cs"],
+        &[("twolinesmode", OptValue::Str("dspi".into()))],
+        &l,
+    );
+    res.expect("decodes");
+    assert!(
+        texts.iter().any(|t| t == "32-Bit Address : 0x12345678"),
+        "{texts:?}"
+    );
+    assert!(
+        texts.iter().any(|t| t == "24-Bit Address : 0xabcdef"),
+        "{texts:?}"
+    );
+}
+
+/// `swd`: in the REQ state every sampled bit is kept, and each clock edge
+/// searches all of them for a request: quadratic in the edges since the
+/// last request or line reset (F37). With SWDIO high (no request; a line
+/// reset is only reported when it ends), 40 000 clocks ran past the
+/// watchdog's 20 s before.
+#[test]
+fn swd_long_idle_clock_is_linear() {
+    let _w = Watchdog::start("swd");
+    let n = 40_000;
+    let clk: Vec<bool> = (0..4 * n).map(|i| (i / 2) % 2 == 1).collect();
+    let dio = vec![true; clk.len()];
+    let t = std::time::Instant::now();
+    let (_, res) = decode("swd", None, &["swclk", "swdio"], &[], &[clk, dio]);
+    res.expect("decodes");
+    let took = t.elapsed();
+    assert!(took < Duration::from_secs(3), "took {took:?}");
+}
+
+/// `ir_rc6`: a pulse after a decoded package, then the timeout, left one
+/// bit, and the package check read the second (IndexError, F39).
+#[test]
+fn ir_rc6_stray_pulse_after_a_package() {
+    let _w = Watchdog::start("ir_rc6");
+    // 1 MHz: half a bit is 444 samples. IR marks are low, idle high.
+    let t = 444;
+    let mut ir = vec![true; 2000];
+    let level = |l: bool, n: usize, ir: &mut Vec<bool>| ir.extend(std::iter::repeat_n(l, n));
+    // leader, then start bit 1, mode 000, toggle 0 (double), address and data
+    level(false, 6 * t, &mut ir);
+    level(true, 2 * t, &mut ir);
+    let bit = |b: bool, len: usize, ir: &mut Vec<bool>| {
+        level(!b, len, ir);
+        level(b, len, ir);
+    };
+    bit(true, t, &mut ir);
+    for _ in 0..3 {
+        bit(false, t, &mut ir);
+    }
+    bit(false, 2 * t, &mut ir);
+    for b in bits_msb(&[0x2A, 0x5C]) {
+        bit(b, t, &mut ir);
+    }
+    level(true, 10 * t, &mut ir);
+    // stray pulses (found with a search over random ones), then idle
+    for (low, high) in [(3, 1), (2, 1)] {
+        level(false, low * t, &mut ir);
+        level(true, high * t, &mut ir);
+    }
+    level(true, 10 * t, &mut ir);
+    let (texts, res) = decode("ir_rc6", None, &["ir"], &[], &[ir]);
+    res.expect("no IndexError");
+    assert!(texts.iter().any(|t| t.starts_with("Data: ")), "{texts:?}");
 }

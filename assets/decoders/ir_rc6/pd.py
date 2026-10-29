@@ -96,10 +96,12 @@ class Decoder(srd.Decoder):
         self.putb(self.bits[5], [4, ['Toggle: %d' % self.bits[5][3]]])
 
     def handle_package(self):
+        # DSViewR: the length first. A pulse after a decoded package, then the
+        # timeout, left one bit, and bits[1] raised IndexError.
+        if len(self.bits) <= 6:
+            return
         # Sync and start bits have to be 1.
         if self.bits[0][3] == 0 or self.bits[1][3] == 0:
-            return
-        if len(self.bits) <= 6:
             return
 
         if self.mode == 0 and len(self.bits) == 22: # Mode 0 standard

@@ -550,10 +550,11 @@ fn stacks_done(out: &str, first: usize) -> usize {
         .unwrap_or(first)
 }
 
-/// The top decoder of each stack in `out` that ended in an error, with the
-/// first error text.
-fn errors(out: &str) -> Vec<(String, String)> {
+/// The index and top decoder of each stack in `out` that ended in an error,
+/// with the first error text.
+fn errors(out: &str) -> Vec<(usize, String, String)> {
     let mut found = Vec::new();
+    let mut index = 0usize;
     let mut top = String::new();
     let mut reported = false;
     for l in out.lines() {
@@ -562,6 +563,7 @@ fn errors(out: &str) -> Vec<(String, String)> {
         };
         match v["t"].as_str() {
             Some("stack") => {
+                index = v["index"].as_u64().unwrap_or(0) as usize;
                 top = v["decoders"]
                     .as_array()
                     .and_then(|d| d.last())
@@ -571,7 +573,11 @@ fn errors(out: &str) -> Vec<(String, String)> {
                 reported = false;
             }
             Some("error") if !reported => {
-                found.push((top.clone(), v["msg"].as_str().unwrap_or("").to_owned()));
+                found.push((
+                    index,
+                    top.clone(),
+                    v["msg"].as_str().unwrap_or("").to_owned(),
+                ));
                 reported = true;
             }
             _ => {}
@@ -594,7 +600,9 @@ struct Finding {
 struct Outcome {
     stacks: usize,
     findings: Vec<Finding>,
-    errors: Vec<(String, String)>,
+    /// Stacks that ended in a Python error (kind `error`, the message as
+    /// detail).
+    errors: Vec<Finding>,
 }
 
 fn one_run(
@@ -675,7 +683,12 @@ fn one_run(
     };
     while first < stacks.len() {
         let ran = run_decode(bin, &path, max_chunk, first, lim)?;
-        errs.extend(errors(&ran.out));
+        for (k, decoder, msg) in errors(&ran.out) {
+            errs.push(Finding {
+                decoder,
+                ..finding(k.min(stacks.len() - 1), "error", msg)
+            });
+        }
         let done = stacks_done(&ran.out, first);
         let timeout = ran
             .out
@@ -701,7 +714,9 @@ fn one_run(
             break;
         }
     }
-    if findings.is_empty() {
+    // a capture with only errors is kept for its replay; main removes the
+    // ones no replay names
+    if findings.is_empty() && errs.is_empty() {
         let _ = std::fs::remove_file(&path);
     }
     Ok(Outcome {
@@ -758,7 +773,9 @@ fn main() -> Result<()> {
 
     let next = AtomicUsize::new(0);
     let findings: Mutex<Vec<Finding>> = Mutex::new(Vec::new());
-    let errors: Mutex<BTreeMap<String, (usize, String)>> = Mutex::new(BTreeMap::new());
+    // per decoder: the count and the error of the lowest seed (deterministic
+    // whatever the job order)
+    let errors: Mutex<BTreeMap<String, (usize, Finding)>> = Mutex::new(BTreeMap::new());
     let stacks = AtomicUsize::new(0);
     let failed_runs = Mutex::new(Vec::new());
     let decoders = Arc::new(decoders);
@@ -788,9 +805,12 @@ fn main() -> Result<()> {
                             }
                             findings.lock().unwrap().extend(o.findings);
                             let mut e = errors.lock().unwrap();
-                            for (d, msg) in o.errors {
-                                let x = e.entry(d).or_insert((0, msg));
+                            for f in o.errors {
+                                let x = e.entry(f.decoder.clone()).or_insert((0, f.clone()));
                                 x.0 += 1;
+                                if f.seed < x.1.seed {
+                                    x.1 = f;
+                                }
                             }
                         }
                         Err(e) => {
@@ -813,24 +833,34 @@ fn main() -> Result<()> {
         stacks.load(Ordering::Relaxed),
         findings.len()
     );
-    for ((d, kind), fs) in &by {
-        let f = fs[0];
-        println!(
-            "  {d}: {} × {kind}; replay: rust-decode {}/decoder-soak-{}.dsl --max-chunk {} --stack '{}'",
-            fs.len(),
+    let replay = |f: &Finding| {
+        format!(
+            "replay: rust-decode {}/decoder-soak-{}.dsl --max-chunk {} --stack '{}'",
             keep.display(),
             f.seed,
             f.chunk,
             json!(f.stack)
-        );
+        )
+    };
+    for ((d, kind), fs) in &by {
+        println!("  {d}: {} × {kind}; {}", fs.len(), replay(fs[0]));
     }
     let errors = errors.into_inner().unwrap();
     if !errors.is_empty() {
-        println!("stacks ending in a Python error (decoder: count, first message):");
-        for (d, (n, msg)) in &errors {
-            let msg: String = msg.chars().take(160).collect();
-            println!("  {d}: {n}, {msg}");
+        println!("stacks ending in a Python error (decoder: count, first message, replay):");
+        for (d, (n, f)) in &errors {
+            let msg: String = f.detail.chars().take(160).collect();
+            println!("  {d}: {n}, {msg}\n    {}", replay(f));
         }
+    }
+    // keep only the captures a replay names (all runs with findings)
+    let named: std::collections::BTreeSet<u64> = findings
+        .iter()
+        .chain(errors.values().map(|(_, f)| f))
+        .map(|f| f.seed)
+        .collect();
+    for sd in (seed..seed + runs).filter(|sd| !named.contains(sd)) {
+        let _ = std::fs::remove_file(keep.join(format!("decoder-soak-{sd}.dsl")));
     }
     let blocking: Vec<&Finding> = findings
         .iter()

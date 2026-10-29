@@ -250,6 +250,13 @@ C.
 - **F35:** the decoder soak (M7b) found `st7735`, `spdif`, `fsi`, `i2s`, `seven_segment` and
   `smart_qspi` raising on data (KeyError, ValueError, AttributeError, struct.error, IndexError).
   All six are fixed in the decoders.
+- **F36:** `smart_qspi` wrote each command's address mode into its shared command table, so the
+  first mode stuck for later commands and decodes. Fixed in the decoder.
+- **F37:** `swd` searched all bits since the last request on every clock edge (quadratic, 39 s
+  for one soak capture). Fixed in the decoder.
+- **F38:** `skip: 0` right after a match on a chunk's last sample matched one sample later (the
+  engine, left over from F32). Fixed in `instance.rs`.
+- **F39:** `ir_rc6` raised IndexError on a stray pulse after a package. Fixed in the decoder.
 
 **Left for later:**
 - Making Rust the default (after one release of A/B), then deleting `libsigrokdecode4DSL/*.c`. *Moot: M7a.*
@@ -1559,7 +1566,7 @@ decoders are covered by the engine tests only.
 **Decoder soak:**
 - What it does: every decoder on random captures with random options and chunk sizes, each stack
   limited to 10 s and each process to 2 GB; it reports hangs, deaths and Python errors with what
-  replays them.
+  replays them (for Python errors since 2026-10-28).
 - Where: `cargo xtask decoders soak` (`dev/dsview-testkit/src/bin/decoder-soak.rs`). It is the
   former `decode-diff` generator without the C side.
 - Runs nightly: 100 runs with a moving seed, in `fuzz-nightly.yml`.
@@ -1572,7 +1579,7 @@ decoders are covered by the engine tests only.
 | Before | 34 (`gpib` 18, `ltc26x7` 16) | `lfast` failed in 199 runs, `sipi` in 200 |
 | After | 0 | `lfast` 0, `sipi` 0 |
 
-Other decoders that raise on unusual data are recorded as DEVIATIONS F35, a follow-up.
+Other decoders that raise on unusual data are fixed as F35 (below).
 
 **Checked:** workspace tests (249) and clippy `-D warnings`, golden check unchanged.
 
@@ -1946,3 +1953,60 @@ graycode's `ChannelMapError`, `rgb_led_ws281x` color-order options, and `ir_irmp
   - the snapshot `dso_measure_bar` re-blessed, now showing RMS 1.40 V (13.90 mV before);
   - `measure_dso` on the running GUI: RMS 1.40 V, mean 9.45 mV, in both modes;
   - control transcript 38 steps, MCP suite 37 steps, clippy clean.
+
+## M7b: F36 fixed, and soak replays for Python errors (2026-10-28)
+
+| Item | Fix | Test |
+|---|---|---|
+| F36 | `smart_qspi` copies a command's steps when the command starts, so its address mode (24/32 bit) no longer sticks in the shared table | `decoder_hangs.rs::smart_qspi_address_mode_follows_each_command` |
+| Decoder soak | Python errors come with a replay like hangs. The error from the lowest seed per decoder, so the output does not depend on job order. Only the captures a replay names are kept | Soak of 20 runs from seed 100000: 10 captures kept, one per replay; a replay run by hand gives the same error |
+
+**Checked:**
+- workspace: 276 tests pass, and clippy `-D warnings` is clean;
+- golden check ok, decoder golden unchanged.
+
+## M7b: F37 fixed, `swd` quadratic while waiting (2026-10-28)
+
+**Soaks on new seeds:**
+
+| Soak | Stacks | Findings | Python errors |
+|---|---|---|---|
+| 200 runs from seed 200000 | 30 600 | 0 | Configuration errors only (as for F35) |
+| 100 runs from seed 300000, `--max-samples 500000` | 15 300 | 9 timeouts | Configuration errors only |
+
+Of the 9 timeouts:
+- **1 is F37:** `swd` searched all bits since the last request on every edge.
+  - It now keeps a 64-bit tail; the capture decodes in 0.7 s instead of 39 s.
+  - Output is identical there and on 65 more decodes.
+  - Test: `decoder_hangs.rs::swd_long_idle_clock_is_linear`.
+- **The other 8 are not decoder defects:** one 466 027-sample capture decoded one sample per
+  chunk, where a stack needs a little over 10 s. For example, `wiegand` takes 13 s there and
+  0.66 s with the normal chunking, with the same output.
+
+**Checked:**
+- workspace: 277 tests pass, and clippy `-D warnings` is clean;
+- golden check ok, decoder golden unchanged.
+
+## M7b: F38 and F39 fixed (2026-10-28)
+
+**Soak:** 100 runs from seed 400000, `--max-samples 500000`, `--stack-timeout 30`; 15 300 stacks.
+
+| Finding | What it was |
+|---|---|
+| `ir_rc6` IndexError (1 stack) | F39: a stray pulse after a package left one bit; the length is now checked first |
+| `onewire_network`, `ufcs`: process limit (600 s) | Not decoder defects: one 486 358-sample capture decoded one sample per chunk takes longer than 600 s for its 153 stacks. Alone, `onewire_link` takes 12 s there and 0.4 s with the default chunking |
+| `onewire_link` output differs at chunks of 1 | F38, in the engine: `skip: 0` right after a match on a chunk's last sample matched one sample later |
+
+**F38 check:** all 153 stacks of three soak captures, about 615 000 output lines, are
+byte-identical at chunks of 1, 7 and the default. Before the fix, `sda2506` differed. The
+default output is unchanged.
+
+**Tests:**
+- `tests/chunking.rs`: a 1-Wire case and `skip_zero_pins_do_not_depend_on_the_chunks`;
+- `decoder_hangs.rs::ir_rc6_stray_pulse_after_a_package`;
+- each failed before its fix.
+
+**Checked:**
+- workspace: 279 tests pass, and clippy `-D warnings` is clean;
+- golden check ok, decoder golden unchanged.
+

@@ -6,7 +6,7 @@
 //! thread handed over (`send`) until a condition matches; `send` returns
 //! once the chunk is used up. The matching code is transliterated with its
 //! quirks (constant-chunk shortcut, `skip: 0` handling, sample-0 seeding),
-//! except the chunk-edge step (F32).
+//! except the chunk-edge step (F32, F38).
 
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::JoinHandle;
@@ -70,6 +70,11 @@ pub(crate) struct State {
     pub inbuflen: u64,
     pub abs_cur: u64,
     pub abs_cur_matched: bool,
+    /// The step past a match used up the chunk: the next chunk starts as if
+    /// that match were still the last sample seen (F38).
+    pub matched_before_chunk: bool,
+    /// The chunk's first sample (`abs_start` is rounded down to a byte).
+    pub chunk_start: u64,
     pub old_pins: Option<Vec<u8>>,
     pub got_new_samples: bool,
     pub handled_all_samples: bool,
@@ -177,6 +182,8 @@ pub(crate) fn new_state(num_channels: usize) -> State {
         inbuflen: 0,
         abs_cur: 0,
         abs_cur_matched: false,
+        matched_before_chunk: false,
+        chunk_start: 0,
         old_pins: None,
         got_new_samples: false,
         handled_all_samples: false,
@@ -206,6 +213,8 @@ pub(crate) fn reset_state(st: &mut State) {
     st.inbuf.clear();
     st.inbuflen = 0;
     st.abs_cur = 0;
+    st.matched_before_chunk = false;
+    st.chunk_start = 0;
     st.old_pins = None;
     st.got_new_samples = false;
     st.handled_all_samples = false;
@@ -220,6 +229,13 @@ impl State {
     /// pointer, or the chunk's constant level when it is NULL). Bits past a
     /// short buffer read as 0.
     fn sample(&self, ch: usize) -> (u8, bool) {
+        // `skip: 0` right after a match on the previous chunk's last sample
+        // steps back to it; its levels are still the old pins (F38)
+        if self.abs_cur.wrapping_add(1) == self.chunk_start
+            && let Some(p) = &self.old_pins
+        {
+            return (p.get(ch).copied().unwrap_or(0) & 1, false);
+        }
         match self.inbuf.get(ch).copied().flatten() {
             None => (
                 u8::from(self.inbuf_const.get(ch).copied().unwrap_or(0) != 0),
@@ -249,6 +265,7 @@ impl State {
         len: u64,
     ) {
         self.abs_start = start & !7;
+        self.chunk_start = start;
         self.abs_end = end;
         self.inbuf = bufs
             .iter()
@@ -299,11 +316,8 @@ fn sample_matches(old: u8, sample: u8, term: &mut Term) -> bool {
 
 fn update_old_pins(st: &mut State, n: usize) {
     oldpins_array_seed(st, n);
-    let mut pins = st.old_pins.take().unwrap_or_default();
-    pins.resize(n, 0);
-    for (i, p) in pins.iter_mut().enumerate() {
-        *p = st.sample(i).0;
-    }
+    // read before replacing: the sample may be the old pins themselves (F38)
+    let pins: Vec<u8> = (0..n).map(|i| st.sample(i).0).collect();
     st.old_pins = Some(pins);
 }
 
@@ -376,7 +390,11 @@ fn find_match_in(st: &mut State, n: usize, conds: &mut [Option<Vec<Term>>]) -> b
         st.first_pos = false;
         update_old_pins_initial(st, n);
     }
-    if st.abs_cur_matched {
+    // a step past a match taken at the end of the previous chunk is not
+    // taken again (F32), but the match still counts for `skip: 0` (F38)
+    if std::mem::take(&mut st.matched_before_chunk) {
+        st.abs_cur_matched = true;
+    } else if st.abs_cur_matched {
         st.abs_cur += 1;
     }
     let mut all_skip_allow = true;
@@ -407,7 +425,10 @@ fn find_match_in(st: &mut State, n: usize, conds: &mut [Option<Vec<Term>>]) -> b
     // the step past the last match is taken: when it used up the chunk, the
     // next chunk starts at its first sample. C kept the flag and stepped
     // again there, skipping that sample (an annotation moved by one; chunks
-    // of one sample decoded nothing, F32)
+    // of one sample decoded nothing, F32). When no sample was looked at
+    // since the match (the flag is still set), the next chunk still starts
+    // right after it (F38).
+    st.matched_before_chunk = st.abs_cur_matched;
     st.abs_cur_matched = false;
     false
 }
