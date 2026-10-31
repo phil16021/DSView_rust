@@ -781,6 +781,22 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
   soak's IndexError before.
 - **Reach:** C DSView runs the same file.
 
+### F40. A stream stopped with upload can report more remaining samples than asked for (hardware test)
+- **Found by** a crash report of `dsview-cli` from the DSLogic Plus hardware runs (2026-10-19, debug
+  build): `attempt to subtract with overflow` in `Dsl::receive_header`.
+- **The defect:** `receive_trigger_pos` (dsl.c:2600) computes `limit_samples - remain_cnt`. The
+  device was programmed with the sample count rounded up to 1024 (`actual_samples`), so a capture
+  stopped before it wrote a whole block reports `remain_cnt` above `limit_samples`. Buffer mode
+  rejects that header (`remain < limit_samples`), but stream mode accepts every header and
+  still takes this branch when the state is `Abort` (stop with upload).
+- **C:** the unsigned subtraction wraps, so `actual_samples`/`actual_bytes` become garbage and
+  the stop condition of the data path (`num_bytes >= actual_bytes`) is arbitrary. The Rust
+  release build wrapped the same way; the debug build panicked in the collect thread.
+- **Fix:** `limit_samples.saturating_sub(remain)`. Fewer than 1024 samples were captured, and
+  the C alignment (`& ~SAMPLES_ALIGN`) makes that 0 anyway, so the result is the value C means.
+- **Test:** `dsl::device::tests::stream_abort_header_with_remain_above_limit` (panicked before
+  the fix at the same line as the crash report) and `…_counts_captured_blocks` (the normal case).
+
 ## Planned behaviour deviations (Rust intentionally differs)
 
 | Area | C behaviour | Rust behaviour | Phase |

@@ -1091,7 +1091,13 @@ impl Dsl {
             {
                 if self.mode == Mode::Logic && (!self.stream || self.state == State::Abort) {
                     let en = self.en_ch_num();
-                    self.actual_samples = (self.limit_samples - remain) & !SAMPLES_ALIGN;
+                    // F40: the device counts down from the sample count
+                    // rounded up to 1024, so a stream stopped early can
+                    // report more remaining samples than were asked for;
+                    // fewer than 1024 were captured then, which aligns to 0
+                    // (C wraps here)
+                    self.actual_samples =
+                        self.limit_samples.saturating_sub(remain) & !SAMPLES_ALIGN;
                     self.actual_bytes =
                         self.actual_samples / DSLOGIC_ATOMIC_SAMPLES * en * DSLOGIC_ATOMIC_SIZE;
                     self.actual_samples = self.actual_bytes / en * 8;
@@ -1792,5 +1798,74 @@ impl Device for Dsl {
 
     fn last_error(&self) -> i32 {
         self.last_error
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dsview_usb::UsbError;
+
+    struct NoUsb;
+
+    impl UsbBackend for NoUsb {
+        fn list(&self) -> Result<Vec<Info>, UsbError> {
+            Ok(Vec::new())
+        }
+        fn open(&self, _: u8, _: u8, _: Open) -> Result<Box<dyn UsbDevice>, UsbError> {
+            Err(UsbError::NotFound)
+        }
+    }
+
+    fn header(d: &Dsl, remain: u64) -> InCompletion {
+        let mut data = vec![0u8; d.header_size()];
+        data[0..4].copy_from_slice(&TRIG_CHECKID.to_le_bytes());
+        data[12..16].copy_from_slice(&(remain as u32).to_le_bytes());
+        data[16..20].copy_from_slice(&((remain >> 32) as u32).to_le_bytes());
+        InCompletion {
+            data,
+            status: Ok(()),
+        }
+    }
+
+    /// F40: a stream capture stopped with "upload" before the device wrote
+    /// a whole block reports a remaining count above the requested sample
+    /// count (the device was programmed with the count rounded up to 1024).
+    /// C wraps `limit_samples - remain`; Rust panicked in debug builds.
+    #[test]
+    fn stream_abort_header_with_remain_above_limit() {
+        let profile = DSLOGIC_PROFILES.iter().find(|p| p.pid == 0x0034).unwrap();
+        let mut d = Dsl::new(Family::DsLogic, profile, Arc::new(NoUsb), 0, 0);
+        d.mode = Mode::Logic;
+        d.stream = true;
+        d.limit_samples = 1000;
+        d.reset_acquisition();
+        assert_eq!(d.actual_samples, 1024);
+        d.state = State::Abort;
+        d.submitted_transfers = 2;
+        let c = header(&d, 1024);
+        let mut out = Vec::new();
+        d.receive_header(c, &mut out);
+        assert_eq!(d.actual_samples, 0);
+        assert_eq!(d.actual_bytes, 0);
+        assert!(matches!(out[0].body, Body::Trigger(_)));
+        assert_eq!(d.state, State::Data);
+    }
+
+    /// The ordinary stream abort still takes the count from the header.
+    #[test]
+    fn stream_abort_header_counts_captured_blocks() {
+        let profile = DSLOGIC_PROFILES.iter().find(|p| p.pid == 0x0034).unwrap();
+        let mut d = Dsl::new(Family::DsLogic, profile, Arc::new(NoUsb), 0, 0);
+        d.mode = Mode::Logic;
+        d.stream = true;
+        d.limit_samples = 100_000;
+        d.reset_acquisition();
+        d.state = State::Abort;
+        d.submitted_transfers = 2;
+        let c = header(&d, 100_000 - 5000);
+        let mut out = Vec::new();
+        d.receive_header(c, &mut out);
+        assert_eq!(d.actual_samples, 4096);
     }
 }
