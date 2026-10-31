@@ -814,3 +814,53 @@ fn store_progress_and_cancel() {
     let _ = std::fs::remove_dir_all(&dir);
     s.exit();
 }
+
+/// F41: channels switched off and on again keep a place in the trace order.
+/// `reload_signals` gave the returning ones view index -1, which sorts before
+/// every other channel: after the DSLogic options went from 16 to 4 channels
+/// and back, the time view showed 4..15, then 0..3 (channel 0 out of sight
+/// below channel 15). Qt numbers every new signal (`make_channels_view_index`).
+#[test]
+fn reenabled_channels_keep_their_place() {
+    let (_g, s) = session("Demo Logic");
+    let order = |s: &Session| {
+        let mut v: Vec<(i32, u16)> = s
+            .state()
+            .signals
+            .iter()
+            .map(|x| (x.view_index, x.index))
+            .collect();
+        v.sort();
+        (
+            v.iter().map(|p| p.1).collect::<Vec<_>>(),
+            v.iter().all(|p| p.0 >= 0),
+        )
+    };
+    let all: Vec<u16> = s.channels().iter().map(|c| c.index).collect();
+    assert!(all.len() >= 8);
+    for c in &all[4..] {
+        s.enable_channel(*c, false);
+    }
+    s.reload_signals();
+    for c in &all {
+        s.enable_channel(*c, true);
+    }
+    s.reload_signals();
+    let (got, numbered) = order(&s);
+    assert_eq!(got, all, "trace order after re-enabling");
+    assert!(numbered, "every signal has a view index");
+}
+
+/// F41, a profile that an earlier build wrote with -1 for some channels:
+/// those take their position instead of jumping to the top.
+#[test]
+fn view_index_minus_one_in_a_profile_takes_the_position() {
+    let (_g, s) = session("Demo Logic");
+    let n = s.state().signals.len();
+    let chans: Vec<serde_json::Value> = (0..n)
+        .map(|i| serde_json::json!({"index": i, "view_index": if i < 3 { i as i64 } else { -1 }}))
+        .collect();
+    dsview_session::store::load_channel_view_indexes(&s, &serde_json::json!({ "channel": chans }));
+    let vi: Vec<i32> = s.state().signals.iter().map(|x| x.view_index).collect();
+    assert_eq!(vi, (0..n as i32).collect::<Vec<_>>());
+}

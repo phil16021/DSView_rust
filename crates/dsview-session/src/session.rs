@@ -1161,6 +1161,10 @@ impl Session {
                 continue;
             }
             let prev = old.iter().find(|s| s.index == c.index && s.ty == c.ty);
+            // F41: a new signal takes its position as view index, as Qt's
+            // make_channels_view_index() numbers every signal; -1 would sort
+            // it before all the others
+            let position = st.signals.len() as i32;
             st.signals.push(match prev {
                 Some(p) => p.clone(),
                 None => Signal {
@@ -1168,7 +1172,7 @@ impl Session {
                     ty: c.ty,
                     name: c.name.clone(),
                     trig: trig::NONE,
-                    view_index: -1,
+                    view_index: position,
                     colour: None,
                 },
             });

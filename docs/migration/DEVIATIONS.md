@@ -797,6 +797,22 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
 - **Test:** `dsl::device::tests::stream_abort_header_with_remain_above_limit` (panicked before
   the fix at the same line as the crash report) and `…_counts_captured_blocks` (the normal case).
 
+### F41. Channels switched off and on again lost their place in the trace order (hardware test, GUI)
+- **Found by** the GUI on the DSLogic after `hwsig`/`hwmatrix` runs: the time view began with
+  channel 1; channel 0 sat below channel 15, out of sight.
+- **The defect (Rust only):** `Session::reload_signals` gave a signal that was not there before
+  `view_index = -1`. The layout sorts logic traces by view index (`View::signals_changed`), so -1
+  went before every channel that kept its index. Switching the DSLogic from 16 to 4 channels and
+  back (the device options, `hwmatrix`, `hwsig`) left `0,1,2,3,-1,-1,…`; the profile saved it
+  and the next start showed 4..15 above 0..3.
+- **C:** `SigSession::reload()` numbers every new signal (`make_channels_view_index`) and then
+  copies the old indexes back by position, so a signal never has -1.
+- **Fix:** a new signal takes its position in the signal list as its view index (signals that
+  stay keep theirs, by channel, as before). `load_channel_view_indexes` maps a -1 in a profile
+  (written by an earlier DSViewR) to the position, so damaged profiles heal on the next load.
+- **Test:** `session.rs::reenabled_channels_keep_their_place` and
+  `…::view_index_minus_one_in_a_profile_takes_the_position` (both failed before the fix).
+
 ## Planned behaviour deviations (Rust intentionally differs)
 
 | Area | C behaviour | Rust behaviour | Phase |
