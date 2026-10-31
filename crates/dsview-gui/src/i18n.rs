@@ -259,8 +259,7 @@ pub const BUNDLED_CJK_FONT: &[u8] =
 /// (egui's own fonts have none): a system one, else the bundled subset.
 /// Returns where it came from.
 pub fn add_cjk_font(ctx: &eframe::egui::Context) -> String {
-    use eframe::egui::{FontData, FontFamily};
-    use eframe::epaint::text::{FontInsert, FontPriority, InsertFontFamily};
+    use eframe::egui::FontData;
     let system = cjk_font().and_then(|(path, index)| {
         let bytes = std::fs::read(&path).ok()?;
         let mut data = FontData::from_owned(bytes);
@@ -273,6 +272,19 @@ pub fn add_cjk_font(ctx: &eframe::egui::Context) -> String {
             "bundled Noto Sans CJK SC subset".into(),
         )
     });
+    insert_cjk_font(ctx, data);
+    from
+}
+
+/// The bundled subset as the CJK fallback, whatever the system has: the
+/// same glyphs on every machine (GUI snapshot tests).
+pub fn add_bundled_cjk_font(ctx: &eframe::egui::Context) {
+    insert_cjk_font(ctx, eframe::egui::FontData::from_static(BUNDLED_CJK_FONT));
+}
+
+fn insert_cjk_font(ctx: &eframe::egui::Context, data: eframe::egui::FontData) {
+    use eframe::egui::FontFamily;
+    use eframe::epaint::text::{FontInsert, FontPriority, InsertFontFamily};
     ctx.add_font(FontInsert::new(
         "cjk-fallback",
         data,
@@ -287,7 +299,6 @@ pub fn add_cjk_font(ctx: &eframe::egui::Context) -> String {
             },
         ],
     ));
-    from
 }
 
 #[cfg(test)]

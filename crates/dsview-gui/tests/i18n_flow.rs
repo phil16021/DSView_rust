@@ -49,7 +49,9 @@ fn switch_to_chinese_and_back() {
         .build_ui(move |ui| {
             let mut a = a2.lock().unwrap();
             let app = a.get_or_insert_with(|| {
-                dsview_gui::i18n::add_cjk_font(ui.ctx());
+                // the bundled subset, not a system font: the snapshot is
+                // the same on every machine
+                dsview_gui::i18n::add_bundled_cjk_font(ui.ctx());
                 App::new(s2.clone(), Shared::default(), "test", ui.ctx())
             });
             app.frame(ui);
