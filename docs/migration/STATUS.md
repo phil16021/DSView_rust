@@ -2039,6 +2039,9 @@ debug assertions (`CARGO_PROFILE_RELEASE_OVERFLOW_CHECKS=true`), with their own 
   - workspace 283/283 tests, golden check and MCP suite green;
   - the GUI on the DSLogic: capture, live UART and SPI decoding, hover measurement (screenshots
     by XTest/`import`).
+- **60-minute soak:** `soak --mode loop --device dslogic --minutes 60` with the Gray counter
+  running: one endless capture, resident set 94 440 KiB throughout, trend +0.00 % over 55 min
+  (661 samples).
 - **Unplug during a loop capture:** the transfers fail, the acquisition ends with an END packet
   in the same second, and there is no panic or crash report. After replugging (new address) the
   FPGA reloads, and `verify-counter` and `hwsig` pass.
