@@ -2010,3 +2010,48 @@ default output is unchanged.
 - workspace: 279 tests pass, and clippy `-D warnings` is clean;
 - golden check ok, decoder golden unchanged.
 
+## Hardware test with real signals (2026-10-31)
+
+Branch `philipp` fast-forwarded to `origin/master` (1dbc1b39), then tested on the DSLogic Plus
+(firmware 2.2) with a NUCLEO-G474RE as a pattern generator on channels 0-3 (PA5, PA6, PA7, PB6;
+170 MHz from its 24 MHz crystal). All hardware runs used a release build with overflow checks and
+debug assertions (`CARGO_PROFILE_RELEASE_OVERFLOW_CHECKS=true`), with their own XDG directories.
+
+- **New:** `tools/patgen-g474` (bare-metal firmware, text commands on the ST-LINK VCP) and
+  `dsviewr-cli hwsig [--only …] [--seconds S]`, which finds the generator pins by itself and checks:
+
+| Group | Result |
+|---|---|
+| pins | ch0=PA5 ch1=PA6 ch2=PA7 ch3=PB6, found by a per-pin toggle rate |
+| pwm | 1 kHz-42.5 MHz, 50/25 %, lowest and highest buffer rate: period +24…+59 ppm, jitter ≤ 1.2 samples, edge counts exact; PA5/PB6 skew ≤ 20 ns |
+| stream | Gray counter in all four stream modes at the top rate (16 ch 20 MHz … 3 ch 100 MHz), 60 s each: 0 wrong values, steps within 4 samples (the generator's busy-wait jitter); 6·10⁹ samples at 100 MHz |
+| uart | 9600 to 4 Mbaud, 8N1/8E1/8N2, 256 bytes: byte-exact, no warnings |
+| spi | bit-banged modes 0-3 (MOSI and an inverted MISO) and SPI1 up to 42.5 MHz: byte-exact |
+| i2c | 20-500 kHz, write, repeated start, read with NACK: byte-exact, ACK/NACK counts right |
+| trigger | position 0/10/50/90/100 % (100 % is capped at 90 %) within 50 samples; falling CS, two stages, serial trigger on SPI byte 0x5A: at the event ±2 samples |
+| vth | 0.3-3.3 V see every edge of the 3.3 V signal, 3.6 V and above none |
+| filter | 1-sample glitches: 2127 without, 0 with the filter; 2 µs pulses kept |
+| files | buffer capture and streams stopped after 137 ms/1021 ms: save, reload, save byte-identical, edges equal, CSV one row per change, VCD and srzip written |
+
+- **Also:**
+  - `hwmatrix` 132/132 (480 s);
+  - `verify-counter` 16 ch × 16 M, 0 breaks;
+  - workspace 283/283 tests, golden check and MCP suite green;
+  - the GUI on the DSLogic: capture, live UART and SPI decoding, hover measurement (screenshots
+    by XTest/`import`).
+- **Unplug during a loop capture:** the transfers fail, the acquisition ends with an END packet
+  in the same second, and there is no panic or crash report. After replugging (new address) the
+  FPGA reloads, and `verify-counter` and `hwsig` pass.
+- **Found and fixed:**
+  - **F40**, the overflow in `receive_header` (from the 2026-10-19 crash report);
+  - **F41**, re-enabled channels sorted before all others, so channel 0 was out of sight in the GUI;
+  - `i18n_flow`, which failed on machines with a system CJK font (the test now renders with the
+    bundled subset).
+- **Observed (hardware, not a defect):** when the trigger condition holds right after the start
+  (a running square wave), the DSLogic fires before the pre-trigger part is full. The trigger then
+  sits about 1000 samples in, whatever the position asks; `hwmatrix` saw the same on the counter.
+- **Test pitfalls**, now handled in `hwsig`:
+  - `set_sampling` rounds counts down to DSView's time steps (ask for more and check the limit);
+  - generator commands must not move idle levels before the data;
+  - SPI with CPOL=1 needs the peripheral enabled before SCK is handed to it.
+

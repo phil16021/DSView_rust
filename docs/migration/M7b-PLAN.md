@@ -120,7 +120,9 @@ retired", parts 1–4. F24/F26 (item 6) reviewed 2026-10-27: F26's three envelop
    the manifest.
 3. **Self-hosted `hw-dslogic` runner:** a nightly `hwmatrix --quick` + `verify-counter`.
 4. **Full `hwmatrix`** (132 steps) on the packaged build; only the quick run (37/37) was done.
-5. **RP2040 pattern generator** for real decode and trigger signals.
+5. ✔ (done 2026-10-31, with a NUCLEO-G474RE instead of an RP2040) **Pattern generator** for real
+   decode and trigger signals: `tools/patgen-g474` and `dsviewr-cli hwsig` (STATUS, "Hardware test with
+   real signals").
 
 ### B7. Release, packaging and CI
 
