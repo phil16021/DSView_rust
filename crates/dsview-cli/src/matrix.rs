@@ -156,7 +156,7 @@ impl M<'_> {
 }
 
 /// One `X01RFC` value string with `set` (channel, character), bit 15 first.
-fn value(set: &[(usize, char)]) -> String {
+pub(crate) fn value(set: &[(usize, char)]) -> String {
     let mut v = ['X'; 16];
     for &(ch, c) in set {
         v[15 - ch] = c;

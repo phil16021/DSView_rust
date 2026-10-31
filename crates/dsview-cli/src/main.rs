@@ -14,6 +14,7 @@ use dsview_session::{Paths, Session};
 
 mod cmds;
 mod diff;
+mod hwsig;
 mod matrix;
 mod soak;
 
@@ -37,6 +38,8 @@ usage: dsviewr-cli serve --mcp [options]
        dsviewr-cli verify-counter [--device D] [--samples N] [--timeout S]
        dsviewr-cli selftest [--timeout S] --out DIR
        dsviewr-cli hwmatrix [--cycles N] [--quick] [--out REPORT.json]
+       dsviewr-cli hwsig [--patgen /dev/ttyACM0] [--only pwm,stream,…]
+                        [--seconds S] [--work DIR] [--out REPORT.json]
        dsviewr-cli diff-dsl A.dsl B.dsl
        dsviewr-cli diff-ann A.json B.json
 
@@ -68,6 +71,13 @@ a capture per hardware device, the settings and the full log in DIR.
 hwmatrix: the DSLogic hardware matrix: the test counter, buffer and stream at
 every rate of every channel mode, triggers, stops, and N start/stop cycles
 (default 1000); --quick tries three rates per mode.
+
+hwsig: the DSLogic with real signals from the NUCLEO-G474RE pattern generator
+(tools/patgen-g474) on its serial port: the generator pins on channels 0-3,
+PWM timing, a Gray counter in every stream mode (--seconds per mode, default
+10), UART/SPI/I2C through the decoders, triggers, threshold and filter, and
+saved files. --only takes a comma list of pwm, stream, uart, spi, i2c,
+trigger, vth, filter, files.
 
 soak: captures for N minutes (default 60) in loop mode (one endless capture
 into the ring buffer; the demo's random pattern) or repeat mode (one capture
@@ -102,6 +112,7 @@ fn main() {
         "verify-counter",
         "selftest",
         "hwmatrix",
+        "hwsig",
         "diff-dsl",
         "diff-ann",
     ];
@@ -118,6 +129,12 @@ fn main() {
     let (mut mode, mut minutes, mut device) = (None, 60.0f64, None);
     let mut samples_file = None;
     let (mut cycles, mut quick) = (1000u32, false);
+    let (mut patgen, mut only, mut seconds, mut work) = (
+        "/dev/ttyACM0".to_owned(),
+        None::<String>,
+        10.0f64,
+        None::<String>,
+    );
     let mut level = 3;
     let mut o = cmds::Opts {
         timeout_s: 60.0,
@@ -151,6 +168,10 @@ fn main() {
             "--json" => o.json = true,
             "--cycles" => cycles = num(val()) as u32,
             "--quick" => quick = true,
+            "--patgen" => patgen = val(),
+            "--only" => only = Some(val()),
+            "--seconds" => seconds = val().parse().unwrap_or_else(|_| fail("bad --seconds")),
+            "--work" => work = Some(val()),
             "-h" | "--help" => {
                 print!("{USAGE}");
                 return;
@@ -225,6 +246,18 @@ fn main() {
     session.set_default_device();
     if cmd == "hwmatrix" {
         let code = matrix::run(&session, DSVIEW_VERSION, cycles, quick, o.out.as_deref());
+        session.exit();
+        std::process::exit(code);
+    }
+    if cmd == "hwsig" {
+        let o = hwsig::Opts {
+            port: &patgen,
+            only: only.as_deref(),
+            seconds,
+            out: o.out.as_deref(),
+            work: work.map_or_else(|| std::env::temp_dir().join("dsview-hwsig"), PathBuf::from),
+        };
+        let code = hwsig::run(&session, DSVIEW_VERSION, &o);
         session.exit();
         std::process::exit(code);
     }
