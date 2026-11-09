@@ -11,10 +11,13 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Duration;
 
 use dsview_decode::{DecoderInfo, OptValue, OutputData};
 use dsview_formats::header::{strtod, strtoll};
 use dsview_store::logic::LogicStore;
+
+use crate::fair::Fair;
 use serde_json::Value;
 
 /// `DecoderStack::MaxChunkSize`
@@ -578,7 +581,7 @@ impl DecoderStack {
     /// at the capture's end (`set_capture_end_flag`).
     pub fn decode(
         &self,
-        store: &Mutex<LogicStore>,
+        store: &Fair<LogicStore>,
         has_signal: &dyn Fn(i32) -> bool,
         samplerate: f64,
         last_sample: u64,
@@ -629,7 +632,7 @@ impl DecoderStack {
     /// `execute_decode_stack` + `decode_data`
     fn execute(
         &self,
-        store: &Mutex<LogicStore>,
+        store: &Fair<LogicStore>,
         decode_start: u64,
         decode_end: u64,
         rate: f64,
@@ -695,7 +698,7 @@ impl DecoderStack {
 
     fn decode_data(
         &self,
-        store: &Mutex<LogicStore>,
+        store: &Fair<LogicStore>,
         session: &dsview_decode::Session,
         bottom: Option<&Arc<dsview_decode::Instance>>,
         decode_start: u64,
@@ -745,7 +748,10 @@ impl DecoderStack {
                     continue;
                 }
             }
-            let mut s = store.lock().unwrap_or_else(|e| e.into_inner());
+            // the GUI reads the store every frame: it goes first (F43)
+            let mut s = store
+                .lock_after_waiters(Duration::from_millis(5))
+                .unwrap_or_else(|e| e.into_inner());
             let mut chunk_end = end_index;
             let mut ptrs: Vec<(*const u8, usize)> = Vec::with_capacity(map.len());
             let mut consts = Vec::with_capacity(map.len());

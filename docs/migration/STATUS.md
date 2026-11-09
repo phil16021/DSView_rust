@@ -2010,3 +2010,206 @@ default output is unchanged.
 - workspace: 279 tests pass, and clippy `-D warnings` is clean;
 - golden check ok, decoder golden unchanged.
 
+## Hardware test with real signals (2026-10-31)
+
+Branch `philipp` fast-forwarded to `origin/master` (1dbc1b39), then tested on the DSLogic Plus
+(firmware 2.2) with a NUCLEO-G474RE as a pattern generator on channels 0-3 (PA5, PA6, PA7, PB6;
+170 MHz from its 24 MHz crystal). All hardware runs used a release build with overflow checks and
+debug assertions (`CARGO_PROFILE_RELEASE_OVERFLOW_CHECKS=true`), with their own XDG directories.
+
+- **New:** `tools/patgen-g474` (bare-metal firmware, text commands on the ST-LINK VCP) and
+  `dsviewr-cli hwsig [--only …] [--seconds S]`, which finds the generator pins by itself and checks:
+
+| Group | Result |
+|---|---|
+| pins | ch0=PA5 ch1=PA6 ch2=PA7 ch3=PB6, found by a per-pin toggle rate |
+| pwm | 1 kHz-42.5 MHz, 50/25 %, lowest and highest buffer rate: period +24…+59 ppm, jitter ≤ 1.2 samples, edge counts exact; PA5/PB6 skew ≤ 20 ns |
+| stream | Gray counter in all four stream modes at the top rate (16 ch 20 MHz … 3 ch 100 MHz), 60 s each: 0 wrong values, steps within 4 samples (the generator's busy-wait jitter); 6·10⁹ samples at 100 MHz |
+| uart | 9600 to 4 Mbaud, 8N1/8E1/8N2, 256 bytes: byte-exact, no warnings |
+| spi | bit-banged modes 0-3 (MOSI and an inverted MISO) and SPI1 up to 42.5 MHz: byte-exact |
+| i2c | 20-500 kHz, write, repeated start, read with NACK: byte-exact, ACK/NACK counts right |
+| trigger | position 0/10/50/90/100 % (100 % is capped at 90 %) within 50 samples; falling CS, two stages, serial trigger on SPI byte 0x5A: at the event ±2 samples |
+| vth | 0.3-3.3 V see every edge of the 3.3 V signal, 3.6 V and above none |
+| filter | 1-sample glitches: 2127 without, 0 with the filter; 2 µs pulses kept |
+| files | buffer capture and streams stopped after 137 ms/1021 ms: save, reload, save byte-identical, edges equal, CSV one row per change, VCD and srzip written |
+
+- **Also:**
+  - `hwmatrix` 132/132 (480 s);
+  - `verify-counter` 16 ch × 16 M, 0 breaks;
+  - workspace 283/283 tests, golden check and MCP suite green;
+  - the GUI on the DSLogic: capture, live UART and SPI decoding, hover measurement (screenshots
+    by XTest/`import`).
+- **60-minute soak:** `soak --mode loop --device dslogic --minutes 60` with the Gray counter
+  running: one endless capture, resident set 94 440 KiB throughout, trend +0.00 % over 55 min
+  (661 samples).
+- **Unplug during a loop capture:** the transfers fail, the acquisition ends with an END packet
+  in the same second, and there is no panic or crash report. After replugging (new address) the
+  FPGA reloads, and `verify-counter` and `hwsig` pass.
+- **Found and fixed:**
+  - **F40**, the overflow in `receive_header` (from the 2026-10-19 crash report);
+  - **F41**, re-enabled channels sorted before all others, so channel 0 was out of sight in the GUI;
+  - `i18n_flow`, which failed on machines with a system CJK font (the test now renders with the
+    bundled subset).
+- **Observed (hardware, not a defect):** when the trigger condition holds right after the start
+  (a running square wave), the DSLogic fires before the pre-trigger part is full. The trigger then
+  sits about 1000 samples in, whatever the position asks; `hwmatrix` saw the same on the counter.
+- **Test pitfalls**, now handled in `hwsig`:
+  - `set_sampling` rounds counts down to DSView's time steps (ask for more and check the limit);
+  - generator commands must not move idle levels before the data;
+  - SPI with CPOL=1 needs the peripheral enabled before SCK is handed to it.
+
+
+## F42/F43: smooth GUI during a DSLogic capture (2026-11-09)
+
+The user watched a stream capture of the NUCLEO pattern generator in the GUI (2026-10-31): the
+traces moved in jerks. Two lock problems, both Rust only (DEVIATIONS F42, F43):
+
+- **F42, the device lock:** the GUI asked the device for its mode, sample rate, mode list,
+  `MAX_HEIGHT_VALUE` and progress 20 times a frame, and each time waited for the collect thread,
+  which holds the device during its USB waits. Now a per-device `Snapshot`, refreshed at every
+  unlock, answers these without waiting.
+- **F43, the logic store:** a live decode catching up holds the store chunk after chunk; the GUI
+  and the ingest thread waited for the whole backlog. Now the store is a `Fair` mutex
+  (`dsview-session/src/fair.rs`, also used for the devices): a busy loop lets counted waiters go
+  first.
+
+| DSLogic Plus, stream 16 ch 10 MHz, NUCLEO SPI/I²C/UART bursts | frames/s | longest gap | frame time | device locks/frame |
+|---|---|---|---|---|
+| before (2026-10-31) | 4-6 | 200-335 ms | 170-320 ms | ≈ 20 |
+| F42 only, no decoders | 50 | 37 ms | 0.3 ms | 0 |
+| F42 only, SPI + UART live | 33-40 | 86-127 ms | max 80-111 ms | 0 |
+| F42 + F43, SPI + I²C + UART live | 50 | 36 ms | max 2-4 ms | 0 |
+
+50 frames a second is the pace of the session's data events (33 ms). 40 screenshots 100 ms apart
+during a capture are now all different (17-22 before). In buffer mode the GUI draws every 200 ms
+(the progress; the data comes at the end), with no waits.
+
+- **New debugging aid:** `DSVIEW_FRAME_LOG=1` logs once a second the frames, the longest gap, the
+  frame time, and the count and wait of device and store locks (`fair::lock_stats`).
+- **Hardware regression** with the final build: `hwsig` 63/63, `verify-counter` 16 ch × 16 M
+  with 0 breaks, 10-minute `soak --mode loop --device dslogic` with the resident set flat
+  (94 552 KiB, trend +0.00 %). Workspace 286/286 tests, MCP suite, golden check.
+- **How it was found:** gdb samples of the main thread (the GUI started under gdb, since
+  `ptrace_scope=1` forbids attaching and `perf_event_paranoid=4` forbids perf), and a temporary
+  backtrace per device lock to list the 20 callers.
+- **Observed, as in C:** live decoders run one after another in the one decode thread; during a
+  60 s stream the first decoder (SPI) decodes up to the capture's end before I²C and UART start
+  (`SigSession::decode_task_proc` does the same).
+- **Observed, separate:** the SPI decoder takes 54-72 % of a core on a 10 MHz stream.
+
+## GUI soak with a frame gate; every decoder table at once (2026-11-09)
+
+- **Frame gate:** `dsview --soak MINUTES [--soak-device NAME] [--soak-repeat]` now also judges the
+  frames from the first data on: it fails when 99 % of the gaps exceed `DSVIEW_SOAK_MAX_P99_MS`
+  (100 ms) or one exceeds `DSVIEW_SOAK_MAX_GAP_MS` (300 ms), and it prints the device and store lock
+  waits. `--soak-device` runs it on a real device with its saved settings (default: the demo's
+  random pattern), `--soak-repeat` uses repeat mode (buffer mode has no loop). A capture restarted
+  over the control socket (to add decoders) may stop for up to 30 s. `framestats.rs` is shared with
+  `DSVIEW_FRAME_LOG`.
+- **Counter-check:** with F42's reads switched back to the device lock the gate fails (gap p50
+  100 ms, p99 126 ms, 93 ms a frame, 21 device locks a frame).
+- **DSLogic Plus with the NUCLEO signals, 5 minutes each:**
+
+| Case | gap p99 | gap max | frame time max | RSS trend |
+|---|---|---|---|---|
+| stream 16 ch 10 MHz, SPI + I²C + UART live | 35 ms | 127 ms | 117 ms | +0.03 % |
+| stream 3 ch 100 MHz | 35 ms | 123 ms | 2.2 ms | +0.01 % |
+| buffer 16 ch 1 MHz, 30 repeated captures | 36 ms | 40 ms | 0.7 ms | +0.02 % |
+
+- **Protocol dock (user request):** every decoder's table is shown at once, one below the other
+  and foldable; a table goes into its own window (the window icon next to "Settings") and back
+  (the icon again, or closing the window). The window opens where it was last, per protocol, moved
+  onto a screen if that one is gone. Checked on the desktop with the DSLogic: a second X window
+  with the live I²C table, steady in place, closed by the window manager and reopened at its place.
+  Fixed on the way: a click in a table marked the annotation on the wrong trace (the row index
+  shadowed the trace index), a window crept down by its title bar (its recorded place was fed back
+  into the viewport every frame), and a window reopened after a window-manager close closed again
+  at once (egui keeps the close request per viewport id: a new id per opening). The detach and
+  dock icons are SVGs: the UI font has no "⧉". Tests: `tests/protocol_multi.rs`, four snapshots
+  re-blessed after review (`protocol_dock`, `protocol_list_options`, `protocol_export_dialog`,
+  `decoder_show_buttons`).
+- **Not a defect (checked 2026-11-09):** after a window-manager close, a first synthetic click
+  seemed to only give the main window the focus back. The pointer log showed the click arriving
+  with the old pointer position: the test's XTest helper moved the pointer in one jump the main
+  window never saw. With a few motion steps, as a hand makes them, the first click works. Live decoders still run one after another (as in C), so during a long stream the
+  later tables fill only after the first decoder reached the capture's end.
+
+## B6.4 on the package, and F44 (2026-11-09)
+
+- **Packaged build on the hardware:** the `.deb` built as in CI (`cargo deb -p dsview-gui
+  --no-build`, then `tools/package/deb.sh` with the Python it links), unpacked with `dpkg-deb -x`
+  and run without `LD_LIBRARY_PATH` (the bundled libpython resolves through RUNPATH):
+  `hwmatrix` 132/132 (396 s), `hwsig` 63/63, `verify-counter` 16 ch × 16 M with 0 breaks. M7b-PLAN
+  B6.4 is done.
+- **F44:** a profile with all 16 channels enabled in the 3-channel 100 MHz stream mode ended the
+  capture at once with errno 12 (the USB buffers for 16 channels exceed the usbfs limit; C does the
+  same). The start is now refused with a message (GUI dialog, control API error). Test:
+  `dsview-session/tests/channel_mode.rs`.
+
+## Live decoders side by side (2026-11-09)
+
+- **User decision:** every decoder decodes live at the same time (C: one after another, so during
+  a 60 s stream only the first decoder's table filled). `Session::add_decode_task` starts a worker
+  per queued trace; a worker takes the first queued trace no other worker runs.
+- **Found on the way:** the decoders' store lock (`Fair::lock_after_waiters`) did not count a
+  blocked loop as a waiter, so one live decoder starved the other just like F43 starved the GUI;
+  the parallel test failed in the full workspace run. A blocked loop now counts as a waiter.
+- **DSLogic, 16 ch 10 MHz stream with the NUCLEO signals:** after 5/10/15 s each of SPI, I²C and
+  UART stood at 4-5/10/15 % with 1470/855/6919 annotations at 15 s (before: I²C and UART at 0 until
+  the capture ended); the GUI kept 50 frames a second.
+- **Tests:** `dsview-session/tests/parallel_decode.rs` (two `timing` decoders over 2 M samples are in
+  progress at the same time, and each gives the same annotations as alone; failed with the serial
+  worker), `fair::tests::two_busy_loops_take_turns`; workspace 291/291.
+
+## B6.2: unplug recording (2026-11-09)
+
+- `dumpcap` on `usbmon1` while `dsviewr-cli capture --device dslogic --samplerate 1000000 --samples
+  60000000` ran; the user unplugged the DSLogic after about 10 s and plugged it back in.
+- The driver saw the transfers fail ("hardware fault or protocol violation", then stalls), the
+  acquisition ended with an END packet, the data up to the unplug was saved, the hotplug thread saw
+  the device leave, and there was no panic or crash report.
+- After the replug (new address 1.5) the FPGA bitstream loads again and `verify-counter` passes
+  (16 ch × 16 M, 0 breaks).
+- The trace `testdata/usb/dslogic/unplug-during-stream.pcapng` (21.5 MB, outside git) is pinned by
+  sha256 in `manifest.json`. M7b-PLAN B6.2 is done.
+
+## Decoders added over the control socket show at once (2026-11-09)
+
+- An idle GUI drew a decoder added over the control socket (`add_decoder`) only on its next input
+  event: the call emits no session event and, without captured data, starts no decode. Every call
+  in `MUTATING` now ends with `ViewHooks::changed`, which the GUI answers with a repaint. Checked
+  on the desktop (two decoders appear right after the calls); test:
+  `dsview-control/tests/transcript.rs::mutating_calls_wake_the_view`. Workspace 292/292.
+
+## F30 follow-up: monitors that change while DSView runs (2026-11-09)
+
+- **Before:** the window was checked against the monitors once, at start. A monitor unplugged
+  while DSView ran (a laptop leaving its dock) could leave the window off every screen, and
+  docking again did not bring it back to the second screen.
+- **Now:** `main`'s probe reads the layout again every 2 s (an idle window asks for a frame that
+  often on X11, ~0.3 ms), and `App::track_window` acts on every change: back to the place the
+  window had in this layout (`window_by_layout`, at most 8 layouts), else onto the primary if it
+  left every monitor (`qsettings::place_for_layout` over `onto_screen`). The place is recorded
+  again once the window manager carried out the move (1 s). Detached decoder windows that left
+  every monitor move onto one.
+- **Tests:** `dsview-gui/tests/monitors.rs` (docked → undocked: the window from the second screen
+  moves to (160, 90); docked again: back to (2500, 100); failed with the start-only check) and
+  `qsettings::tests::a_place_per_monitor_layout`. Workspace 294/294.
+- **Not testable on this VM:** a real monitor change. Xvfb has no RandR monitor changes, winit sees
+  no monitors in Xephyr, and the xrdp desktop is the user's. The harness test drives the same path
+  with the layout and the window place injected.
+
+## B6.3 prepared: nightly hardware run on the home Forgejo (2026-11-09)
+
+- `tools/hw/nightly.sh [OUT]`: builds `dsview-cli`, copies it (a rebuild cannot swap it mid-run),
+  then runs `hwmatrix --quick`, `verify-counter` and, if the NUCLEO answers on `/dev/ttyACM0`,
+  `hwsig`, each with its own HOME/XDG directories; logs and JSON reports in OUT, exit 0 when all
+  passed (2 build failed, 3 no device).
+- `.forgejo/workflows/hw-nightly.yml`: 02:30 nightly and by hand, `runs-on: dslogic`, checks for
+  cargo, libpython and the DSLogic and refuses to start while a DSView holds the device; uploads
+  the reports. GitHub has no runner with that label, so its CI stays hardware-free.
+- Run by hand with the runner's environment (`env -i`, its PATH): hwmatrix --quick 37/37 (380 s),
+  verify-counter 16 ch × 16 M with 0 breaks, hwsig 63/63 (127 s).
+- The machine's runner (`philippprog-runner`, forgejo-runner v12.9.0, user service) carries the
+  label `dslogic:host` since 2026-11-09 (with the user's go-ahead; backup of the config next to it).
+- Open (the user's): the repository on the Forgejo, default branch `philipp` until the merge.

@@ -47,4 +47,7 @@ impl ViewHooks for GuiHooks {
         self.0.lock().cursors = Some(samples.to_vec());
         self.0.wake();
     }
+    fn changed(&self) {
+        self.0.wake();
+    }
 }

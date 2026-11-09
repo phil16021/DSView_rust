@@ -18,6 +18,13 @@ use eframe::egui::{self, Ui};
 use egui_extras::{Column, TableBuilder};
 use serde_json::{Map, Value, json};
 
+/// The viewport of a detached decoder's window.
+/// A new one per opening: egui keeps a closed viewport's close request,
+/// and a window reopened under the same id closed again at once.
+fn window_id(trace: usize, opening: u64) -> egui::ViewportId {
+    egui::ViewportId::from_hash_of(("decoder_window", trace, opening))
+}
+
 /// `protocol_sort_callback`: names compared case-insensitively.
 fn sorted_decoders() -> Vec<Arc<DecoderInfo>> {
     let mut v = dsview_decode::decoders();
@@ -280,21 +287,56 @@ type ColsKey = (
     dsview_session::numfmt::Format,
 );
 
-pub struct ProtocolDock {
-    pub open: bool,
-    search: String,
-    add: Option<AddDialog>,
-    /// The decoder trace the table shows.
-    table: usize,
+/// The screens (x, y, width, height in points) and the primary's index.
+pub type Screens = (Vec<(f32, f32, f32, f32)>, usize);
+
+/// One decoder's table: its search, the matches and the sorted columns.
+#[derive(Default)]
+struct TableState {
     /// The column searched.
     filter_col: usize,
     filter: String,
     matches: Vec<usize>,
     cur_match: usize,
-    filtered_for: (usize, usize, String, u64),
-    /// The table's columns, sorted, until the trace, its listed rows or
-    /// its results change (100k+ rows stay interactive).
+    /// (column, filter, result count) the matches are for.
+    filtered_for: Option<(usize, String, u64)>,
+    /// The columns, sorted, until the trace, its listed rows or its
+    /// results change (100k+ rows stay interactive).
     cols_cache: Option<(ColsKey, Arc<Table>)>,
+    folded: bool,
+    /// Shown in its own window instead of the dock.
+    detached: bool,
+    /// Where its window opened (x, y, width, height), fixed while it is
+    /// open: the place it moves to is only recorded, since feeding it back
+    /// into the viewport builder every frame made the window creep by its
+    /// title bar.
+    place: Option<[f32; 4]>,
+    /// Counts the window's openings (its viewport id).
+    opening: u64,
+}
+
+pub struct ProtocolDock {
+    pub open: bool,
+    search: String,
+    add: Option<AddDialog>,
+    /// The decoder trace last picked or clicked: the one the protocol list
+    /// options and the export work on, and whose annotation is marked.
+    table: usize,
+    /// Each decoder's table, by trace (`Arc::as_ptr`): every one is shown
+    /// at once, folded or not, in the dock or in its own window.
+    tables: HashMap<usize, TableState>,
+    /// The detached windows' place and size (x, y, width, height in
+    /// points) by protocol id, for the app to keep.
+    pub windows: std::collections::BTreeMap<String, [f32; 4]>,
+    pub windows_changed: bool,
+    /// The screens (x, y, width, height in points) and the primary one: a
+    /// window kept on a screen that is gone comes back onto one.
+    pub screens: Option<Screens>,
+    /// The screens were just read again (start, or the monitors changed):
+    /// detached windows that no longer show move onto a monitor.
+    pub screens_fresh: bool,
+    /// `windows` came from the options (once).
+    pub windows_loaded: bool,
     export: Option<Export>,
     pub message: Option<String>,
     /// The annotation clicked: the view jumps to it.
@@ -388,7 +430,12 @@ impl Default for ProtocolDock {
             search: String::new(),
             add: None,
             table: 0,
-            filter_col: 0,
+            tables: HashMap::new(),
+            windows: Default::default(),
+            windows_changed: false,
+            screens: None,
+            screens_fresh: false,
+            windows_loaded: false,
             cursors: Vec::new(),
             formats: Default::default(),
             formats_changed: false,
@@ -398,11 +445,6 @@ impl Default for ProtocolDock {
             exported_to: None,
             translate: true,
             translate_changed: None,
-            filter: String::new(),
-            matches: Vec::new(),
-            cur_match: 0,
-            filtered_for: (usize::MAX, 0, String::new(), 0),
-            cols_cache: None,
             export: None,
             message: None,
             jump: None,
@@ -470,8 +512,18 @@ impl ProtocolDock {
         let mut remove = None;
         for (i, t) in traces.iter().enumerate() {
             ui.horizontal(|ui| {
+                let id = Arc::as_ptr(t) as usize;
                 if ui.selectable_label(self.table == i, t.name()).clicked() {
                     self.table = i;
+                    // a folded table opens; a detached one comes forward
+                    let st = self.tables.entry(id).or_default();
+                    st.folded = false;
+                    if st.detached {
+                        ui.ctx().send_viewport_cmd_to(
+                            window_id(id, st.opening),
+                            egui::ViewportCommand::Focus,
+                        );
+                    }
                 }
                 let p = t.stack.progress();
                 ui.add(
@@ -508,6 +560,19 @@ impl ProtocolDock {
                 if ui.small_button(tr("Settings")).clicked() {
                     self.add = Some(AddDialog::edit(i, t));
                 }
+                let st = self.tables.entry(id).or_default();
+                let (icon, tip) = if st.detached {
+                    ("restore", tr("Back into the dock"))
+                } else {
+                    ("maximize", tr("In its own window"))
+                };
+                if crate::icons::icon_button(ui, icon, tip.to_string()).clicked() {
+                    st.detached = !st.detached;
+                    st.place = None;
+                    st.opening += 1;
+                    st.folded = false;
+                    self.windows_changed = true;
+                }
                 if ui
                     .small_button(tr("x"))
                     .on_hover_text(tr("Remove"))
@@ -532,20 +597,157 @@ impl ProtocolDock {
                 .request_repaint_after(std::time::Duration::from_millis(200));
         }
         ui.separator();
-        if let Some(t) = traces.get(self.table) {
-            self.table_ui(ui, s, t);
-            // the annotation jumped to is marked on its trace
-            // (`set_mark_index`), the others' marks cleared
-            if let Some((a, b)) = self.jump {
-                for x in &traces {
-                    x.stack.set_mark(-1);
-                }
-                t.stack.set_mark(((a + b) / 2) as i64);
+        self.tables_ui(ui, s, &traces);
+        // the annotation jumped to is marked on its trace
+        // (`set_mark_index`), the others' marks cleared
+        if let (Some((a, b)), Some(t)) = (self.jump, traces.get(self.table)) {
+            for x in &traces {
+                x.stack.set_mark(-1);
             }
+            t.stack.set_mark(((a + b) / 2) as i64);
         }
         self.add_dialog(ui.ctx(), s);
         self.list_options(ui.ctx(), &traces);
         self.export_job(ui.ctx(), s, &traces);
+    }
+
+    /// (folded, detached) of each decoder's table in `traces` order.
+    pub fn table_states(&self, traces: &[Arc<DecodeTrace>]) -> Vec<(bool, bool)> {
+        traces
+            .iter()
+            .map(|t| {
+                self.tables
+                    .get(&(Arc::as_ptr(t) as usize))
+                    .map_or((false, false), |s| (s.folded, s.detached))
+            })
+            .collect()
+    }
+
+    /// Every decoder's table: the docked ones one below the other (each can
+    /// be folded; the open ones share the height), the detached ones each in
+    /// its own window. Qt shows one table at a time.
+    fn tables_ui(&mut self, ui: &mut Ui, s: &Session, traces: &[Arc<DecodeTrace>]) {
+        let ids: Vec<usize> = traces.iter().map(|t| Arc::as_ptr(t) as usize).collect();
+        self.tables.retain(|k, _| ids.contains(k));
+        for &id in &ids {
+            self.tables.entry(id).or_default();
+        }
+        let docked: Vec<usize> = (0..traces.len())
+            .filter(|&i| !self.tables[&ids[i]].detached)
+            .collect();
+        let open = docked
+            .iter()
+            .filter(|&&i| !self.tables[&ids[i]].folded)
+            .count();
+        // a fold header, and per open table its search bar and column heads
+        let chrome = 24.0 * docked.len() as f32 + 52.0 * open as f32;
+        let height = ((ui.available_height() - chrome) / open.max(1) as f32).max(80.0);
+        egui::ScrollArea::vertical()
+            .id_salt("decoder_tables")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for &i in &docked {
+                    let (t, id) = (&traces[i], ids[i]);
+                    let mut st = self.tables.remove(&id).unwrap_or_default();
+                    let r = egui::CollapsingHeader::new(t.name())
+                        .id_salt(("decoder_table", id))
+                        .open(Some(!st.folded))
+                        .show(ui, |ui| self.table_ui(ui, s, t, i, &mut st, height));
+                    if r.header_response.clicked() {
+                        st.folded = !st.folded;
+                    }
+                    self.tables.insert(id, st);
+                }
+            });
+        for (i, t) in traces.iter().enumerate() {
+            if self.tables[&ids[i]].detached {
+                self.window_ui(ui.ctx(), s, t, i, ids[i]);
+            }
+        }
+        self.screens_fresh = false;
+    }
+
+    /// A detached decoder's own window (an egui viewport); closing it puts
+    /// the table back into the dock. Its place and size are kept per
+    /// protocol.
+    fn window_ui(
+        &mut self,
+        ctx: &egui::Context,
+        s: &Session,
+        t: &Arc<DecodeTrace>,
+        i: usize,
+        id: usize,
+    ) {
+        let key = t
+            .stack
+            .decoders()
+            .last()
+            .map(|d| d.info.id.clone())
+            .unwrap_or_default();
+        let mut st = self.tables.remove(&id).unwrap_or_default();
+        // the monitors changed: a window that left them all comes onto one
+        // (a one-time move of the builder's place, not a feedback)
+        if self.screens_fresh
+            && st.place.is_some()
+            && let Some(&[x, y, w, h]) = self.windows.get(&key)
+            && let Some((screens, primary)) = &self.screens
+            && let Some(&p) = screens.get(*primary)
+            && let Some((nx, ny)) =
+                dsview_viewmodel::qsettings::onto_screen((x, y, w, h), screens, p)
+        {
+            st.place = Some([nx, ny, w, h]);
+        }
+        if st.place.is_none() {
+            // the place kept for this protocol, brought onto a screen
+            st.place = Some(match self.windows.get(&key) {
+                Some(&[x, y, w, h]) => {
+                    let (x, y) = self
+                        .screens
+                        .as_ref()
+                        .and_then(|(screens, primary)| {
+                            let p = *screens.get(*primary)?;
+                            dsview_viewmodel::qsettings::onto_screen((x, y, w, h), screens, p)
+                        })
+                        .unwrap_or((x, y));
+                    [x, y, w, h]
+                }
+                None => [f32::NAN, f32::NAN, 560.0, 420.0],
+            });
+        }
+        let [x, y, w, h] = st.place.unwrap_or([f32::NAN, f32::NAN, 560.0, 420.0]);
+        let mut builder = egui::ViewportBuilder::default()
+            .with_title(format!("DSView – {}", t.name()))
+            .with_inner_size([w, h]);
+        if x.is_finite() && y.is_finite() {
+            builder = builder.with_position([x, y]);
+        }
+        let (close, rect) =
+            ctx.show_viewport_immediate(window_id(id, st.opening), builder, |ui, _| {
+                egui::CentralPanel::default().show(ui, |ui| {
+                    let h = (ui.available_height() - 52.0).max(80.0);
+                    self.table_ui(ui, s, t, i, &mut st, h);
+                });
+                ui.ctx().input(|inp| {
+                    let v = inp.viewport();
+                    let rect = v
+                        .outer_rect
+                        .zip(v.inner_rect)
+                        .map(|(o, r)| [o.left(), o.top(), r.width(), r.height()]);
+                    (v.close_requested(), rect)
+                })
+            });
+        if let Some(r) = rect
+            && self.windows.get(&key) != Some(&r)
+        {
+            self.windows.insert(key, r);
+        }
+        if close {
+            st.detached = false;
+            st.place = None;
+            st.opening += 1;
+            self.windows_changed = true;
+        }
+        self.tables.insert(id, st);
     }
 
     /// `ProtocolList`: the map zoom, the protocol the table shows and which
@@ -841,7 +1043,18 @@ impl ProtocolDock {
 
     /// The annotation table: one column per row shown in the list; table
     /// row n holds each column's n-th annotation (as Qt's model does).
-    fn table_ui(&mut self, ui: &mut Ui, s: &Session, t: &Arc<DecodeTrace>) {
+    /// One decoder's table (trace number `trace`) with its search bar, at most
+    /// `height` high.
+    fn table_ui(
+        &mut self,
+        ui: &mut Ui,
+        s: &Session,
+        t: &Arc<DecodeTrace>,
+        trace: usize,
+        st: &mut TableState,
+        height: f32,
+    ) {
+        let id = Arc::as_ptr(t) as usize;
         let fmt = t.stack.format();
         let sample_count = s
             .data()
@@ -860,7 +1073,7 @@ impl ProtocolDock {
         if rows.is_empty() {
             return;
         }
-        self.filter_col = self.filter_col.min(rows.len() - 1);
+        st.filter_col = st.filter_col.min(rows.len() - 1);
         let key: ColsKey = (
             Arc::as_ptr(t) as usize,
             rows.iter().map(|(i, _)| *i).collect(),
@@ -868,7 +1081,7 @@ impl ProtocolDock {
             sample_count,
             t.stack.format(),
         );
-        let table = match &self.cols_cache {
+        let table = match &st.cols_cache {
             Some((k, c)) if *k == key => c.clone(),
             _ => {
                 let cols: Vec<Vec<Ann>> = rows
@@ -879,7 +1092,7 @@ impl ProtocolDock {
                 // line (Qt put annotation n of every row on line n, F27)
                 let lines = dsview_session::decode::align_rows(&cols);
                 let c = Arc::new(Table { cols, lines });
-                self.cols_cache = Some((key, c.clone()));
+                st.cols_cache = Some((key, c.clone()));
                 c
             }
         };
@@ -889,48 +1102,46 @@ impl ProtocolDock {
         // search in the chosen column (case-sensitive, as Qt's filter)
         ui.horizontal(|ui| {
             ui.add(
-                egui::TextEdit::singleline(&mut self.filter)
+                egui::TextEdit::singleline(&mut st.filter)
+                    .id_salt(("protocol_filter", id))
                     .hint_text(tr("Search"))
                     .desired_width(120.0),
             )
             .widget_info(|| egui::WidgetInfo::labeled(egui::Role::TextInput, true, tr("Search")));
-            let key = (
-                self.table,
-                self.filter_col,
-                self.filter.clone(),
-                t.stack.result_count(),
-            );
-            if key != self.filtered_for {
-                self.matches = if self.filter.is_empty() {
+            let key = (st.filter_col, st.filter.clone(), t.stack.result_count());
+            if Some(&key) != st.filtered_for.as_ref() {
+                st.matches = if st.filter.is_empty() {
                     Vec::new()
                 } else {
                     (0..n)
                         .filter(|&l| {
                             table
-                                .at(l, self.filter_col)
-                                .is_some_and(|a| a.text_in(fmt).contains(&self.filter))
+                                .at(l, st.filter_col)
+                                .is_some_and(|a| a.text_in(fmt).contains(&st.filter))
                         })
                         .collect()
                 };
-                self.cur_match = 0;
-                self.filtered_for = key;
+                st.cur_match = 0;
+                st.filtered_for = Some(key);
             }
-            if !self.filter.is_empty() {
-                ui.label(format!("{} matches", self.matches.len()));
-                let jump = |m: &mut Self, k: usize| {
-                    if let Some(&l) = m.matches.get(k)
-                        && let Some(a) = table.at(l, m.filter_col)
-                    {
-                        m.jump = Some((a.start, a.end));
-                    }
-                };
-                if ui.small_button("<").clicked() && !self.matches.is_empty() {
-                    self.cur_match = (self.cur_match + self.matches.len() - 1) % self.matches.len();
-                    jump(self, self.cur_match);
+            if !st.filter.is_empty() {
+                ui.label(format!("{} matches", st.matches.len()));
+                let n = st.matches.len();
+                let mut step = None;
+                if ui.small_button("<").clicked() && n > 0 {
+                    step = Some((st.cur_match + n - 1) % n);
                 }
-                if ui.small_button(">").clicked() && !self.matches.is_empty() {
-                    self.cur_match = (self.cur_match + 1) % self.matches.len();
-                    jump(self, self.cur_match);
+                if ui.small_button(">").clicked() && n > 0 {
+                    step = Some((st.cur_match + 1) % n);
+                }
+                if let Some(k) = step {
+                    st.cur_match = k;
+                    if let Some(&l) = st.matches.get(k)
+                        && let Some(a) = table.at(l, st.filter_col)
+                    {
+                        self.jump = Some((a.start, a.end));
+                        self.table = trace;
+                    }
                 }
             }
             if ui
@@ -938,9 +1149,11 @@ impl ProtocolDock {
                 .on_hover_text(tr("Protocol list options"))
                 .clicked()
             {
+                self.table = trace;
                 self.list_opts = true;
             }
             if ui.button(tr("Export…")).clicked() && self.export.is_none() {
+                self.table = trace;
                 // the rows listed; the first one chosen
                 let rows = t
                     .stack
@@ -954,13 +1167,15 @@ impl ProtocolDock {
                 self.export = Some(Export::Options { txt: false, rows });
             }
         });
-        let shown_rows: Vec<usize> = if self.filter.is_empty() {
+        let shown_rows: Vec<usize> = if st.filter.is_empty() {
             (0..n).collect()
         } else {
-            self.matches.clone()
+            st.matches.clone()
         };
         let width = 110.0;
         TableBuilder::new(ui)
+            .id_salt(("protocol_table", id))
+            .max_scroll_height(height)
             .striped(true)
             .column(Column::exact(60.0))
             .column(Column::initial(90.0).resizable(true))
@@ -976,11 +1191,11 @@ impl ProtocolDock {
                     h.col(|ui| {
                         let short = title.split(": ").last().unwrap_or(title);
                         if ui
-                            .selectable_label(k == self.filter_col, short)
+                            .selectable_label(k == st.filter_col, short)
                             .on_hover_text(title)
                             .clicked()
                         {
-                            self.filter_col = k;
+                            st.filter_col = k;
                         }
                     });
                 }
@@ -1010,6 +1225,7 @@ impl ProtocolDock {
                                     .clicked()
                             {
                                 self.jump = Some((a.start, a.end));
+                                self.table = trace;
                             }
                         });
                     }

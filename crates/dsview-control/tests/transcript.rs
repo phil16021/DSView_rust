@@ -74,6 +74,46 @@ fn a_dialog_blocks_mutating_methods() {
     session.exit();
 }
 
+/// A mutating call tells the view so (the GUI redraws: a decoder added over
+/// the socket showed only on the window's next input event); a read does not.
+#[test]
+fn mutating_calls_wake_the_view() {
+    use dsview_control::ControlBackend;
+    use dsview_control::api::ViewHooks;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    struct Count(Arc<AtomicUsize>);
+    impl ViewHooks for Count {
+        fn changed(&self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+    let _g = serial();
+    init_decoders();
+    let session = Session::new(
+        Paths {
+            data_dir: root().join("assets"),
+            profile_dir: None,
+            version: "test".into(),
+        },
+        Arc::new(NoUsb),
+    );
+    session.set_default_device();
+    let n = Arc::new(AtomicUsize::new(0));
+    let api = Api::with_view(session.clone(), "test", Box::new(Count(n.clone())));
+    let empty = serde_json::Map::new();
+    assert!(api.call("get_config", &empty).is_ok());
+    assert_eq!(n.load(Ordering::SeqCst), 0, "a read woke the view");
+    let p: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(r#"{"id":"1:uart","channels":{"rxtx":0}}"#).unwrap();
+    assert!(api.call("add_decoder", &p).is_ok());
+    assert_eq!(
+        n.load(Ordering::SeqCst),
+        1,
+        "add_decoder did not wake the view"
+    );
+    session.exit();
+}
+
 #[test]
 fn demo_transcript_matches_qt() {
     let _g = serial();

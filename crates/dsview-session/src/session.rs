@@ -291,6 +291,10 @@ pub struct State {
     /// wait for the user's yes.
     pub held_decoders: Vec<crate::store::HeldDecoder>,
     decode_queue: VecDeque<Arc<DecodeTrace>>,
+    /// The traces a worker decodes right now (each by one worker only).
+    decode_running: Vec<Arc<DecodeTrace>>,
+    /// Decode workers alive; `decoding` while there is one.
+    decode_workers: usize,
     pub decoding: bool,
     pub collect_mode: CollectMode,
     /// Seconds between two captures in repeat mode (`_repeat_intvl`).
@@ -305,7 +309,8 @@ pub struct State {
 
 /// The captured data (`SessionData`): one store per signal type.
 pub struct Data {
-    pub logic: Mutex<LogicStore>,
+    /// Fair: a live decode reads it chunk after chunk, the GUI every frame (F43).
+    pub logic: crate::fair::Fair<LogicStore>,
     pub dso: Mutex<DsoStore>,
     pub analog: Mutex<AnalogStore>,
 }
@@ -313,7 +318,7 @@ pub struct Data {
 impl Data {
     fn new() -> Data {
         Data {
-            logic: Mutex::new(LogicStore::new()),
+            logic: crate::fair::Fair::new(LogicStore::new(), crate::fair::lock_stats::Stat::Store),
             dso: Mutex::new(DsoStore::new()),
             analog: Mutex::new(AnalogStore::new()),
         }
@@ -321,7 +326,7 @@ impl Data {
 
     /// `SessionData::clear()`
     fn clear(&self) {
-        lock(&self.logic).clear();
+        self.logic.lock().unwrap_or_else(|e| e.into_inner()).clear();
         lock(&self.dso).clear();
         lock(&self.analog).clear();
     }
@@ -604,6 +609,37 @@ impl Session {
         *lock(&self.0.mem_available) = f;
     }
 
+    /// The channel check of [`start_capture`](Self::start_capture) (F44):
+    /// no more logic channels enabled than the channel mode allows
+    /// (`VLD_CH_NUM`). Qt keeps to that only in its device options dialog; a
+    /// profile or the control API could enable all 16 channels in a 3-channel
+    /// mode, and the DSLogic's USB buffers for 16 channels at 100 MHz exceed
+    /// the kernel's usbfs limit: the capture died at once with errno 12.
+    pub fn check_channel_count(&self) -> Result<(), String> {
+        if self.mode() != Mode::Logic as i32 {
+            return Ok(());
+        }
+        let Some(max) = self
+            .config(key::VLD_CH_NUM, None)
+            .map(|v| v.get_i16())
+            .filter(|&n| n > 0)
+        else {
+            return Ok(());
+        };
+        let enabled = self
+            .channels()
+            .iter()
+            .filter(|c| c.ty == channel_type::LOGIC && c.enabled)
+            .count();
+        if enabled > max as usize {
+            return Err(format!(
+                "{enabled} channels are enabled, but the channel mode allows at most {max}. \
+                 Disable channels in the device options."
+            ));
+        }
+        Ok(())
+    }
+
     /// The memory check of [`start_capture`](Self::start_capture): a logic
     /// capture of `sample_limit` samples on the enabled channels must fit
     /// into the available memory (plus what the buffer it replaces holds).
@@ -623,7 +659,11 @@ impl Session {
             .count() as u64;
         let need = logic_capture_bytes(self.sample_limit(), channels);
         let held = {
-            let l = lock(&self.capture_data().logic);
+            let l = self
+                .capture_data()
+                .logic
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             logic_capture_bytes(l.ring_sample_count(), u64::from(l.channel_num()))
         };
         let budget = (avail + held).saturating_sub(MEM_HEADROOM);
@@ -786,25 +826,31 @@ impl Session {
             .unwrap_or_default()
     }
 
+    /// The active device's modes. Like [`mode`](Self::mode), [`sample_rate`](Self::sample_rate),
+    /// [`max_height_value`](Self::max_height_value) and [`capture_status`](Self::capture_status)
+    /// this reads the device as of its last unlock and does not wait for it: the GUI asks for
+    /// these on every frame, and during a capture the collect thread holds the device while it
+    /// waits for USB (F42).
     pub fn modes(&self) -> Vec<Mode> {
         self.active()
-            .map(|e| e.lock().mode_list())
+            .map(|e| e.snapshot().modes)
             .unwrap_or_default()
     }
 
     /// `DeviceAgent::get_work_mode()` (logic without a device).
     pub fn mode(&self) -> i32 {
-        self.active().map_or(0, |e| e.lock().info().mode as i32)
+        self.active().map_or(0, |e| e.snapshot().mode)
+    }
+
+    /// `MAX_HEIGHT_VALUE` of the active device (DSLogic: the depth of a
+    /// trace in the device's own units).
+    pub fn max_height_value(&self) -> Option<u8> {
+        self.active().and_then(|e| e.snapshot().max_height)
     }
 
     /// `get_sample_rate()`: the external clock rate when the clock is external.
     pub fn sample_rate(&self) -> u64 {
-        let key = if self.config_bool(key::CLOCK_TYPE).unwrap_or(false) {
-            key::EXT_SAMPLERATE
-        } else {
-            key::SAMPLERATE
-        };
-        self.config_u64(key).unwrap_or(0)
+        self.active().map_or(0, |e| e.snapshot().sample_rate)
     }
 
     /// `get_sample_limit()`
@@ -1161,6 +1207,10 @@ impl Session {
                 continue;
             }
             let prev = old.iter().find(|s| s.index == c.index && s.ty == c.ty);
+            // F41: a new signal takes its position as view index, as Qt's
+            // make_channels_view_index() numbers every signal; -1 would sort
+            // it before all the others
+            let position = st.signals.len() as i32;
             st.signals.push(match prev {
                 Some(p) => p.clone(),
                 None => Signal {
@@ -1168,7 +1218,7 @@ impl Session {
                     ty: c.ty,
                     name: c.name.clone(),
                     trig: trig::NONE,
-                    view_index: -1,
+                    view_index: position,
                     colour: None,
                 },
             });
@@ -1695,7 +1745,14 @@ impl Session {
         match self.mode() {
             1 => lock(&self.data().dso).sample_count() > 0,
             2 => lock(&self.data().analog).sample_count() > 0,
-            _ => lock(&self.data().logic).sample_count() > 0,
+            _ => {
+                self.data()
+                    .logic
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .sample_count()
+                    > 0
+            }
         }
     }
 
@@ -1772,7 +1829,10 @@ impl Session {
             sr_err!("Error!Device is running.");
             return false;
         }
-        if let Err(e) = self.check_capture_memory() {
+        if let Err(e) = self
+            .check_channel_count()
+            .and_then(|()| self.check_capture_memory())
+        {
             sr_err!("{e}");
             self.state().start_error = Some(e);
             self.notify();
@@ -1998,11 +2058,7 @@ impl Session {
     /// device reports a status.
     pub fn capture_status(&self) -> Option<(bool, i32)> {
         let limits = self.state().cur_samplelimits;
-        let status = {
-            let e = self.active()?;
-            let d = e.lock();
-            d.status(true).ok()?
-        };
+        let status = self.active()?.snapshot().progress?;
         let triggered = status.trig_hit & 1 != 0;
         let mut cnt = u64::from(status.captured_cnt0)
             + (u64::from(status.captured_cnt1) << 8)
@@ -2118,7 +2174,11 @@ impl Session {
                 }
             }
             Body::Logic { data, .. } => {
-                let mut store = lock(&self.capture_data().logic);
+                let mut store = self
+                    .capture_data()
+                    .logic
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
                 if store.memory_failed() {
                     return;
                 }
@@ -2233,7 +2293,10 @@ impl Session {
             }
             Body::End => {
                 let d = self.capture_data();
-                lock(&d.logic).capture_ended();
+                d.logic
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .capture_ended();
                 lock(&d.dso).capture_ended();
                 lock(&d.analog).capture_ended();
                 if p.status != pkt_status::OK {
@@ -2416,33 +2479,45 @@ impl Session {
         true
     }
 
-    /// `add_decode_task`: queues a trace; one thread works the queue.
+    /// `add_decode_task`: queues a trace and starts a worker for it.
+    ///
+    /// C has one thread that decodes the traces one after another, so in a
+    /// long live capture the later tables stayed empty until the first
+    /// decoder reached the capture's end. Here every queued trace gets its
+    /// own worker; they take turns on the logic store chunk by chunk (a
+    /// decoder reads its chunk with the store locked, F43), so every table
+    /// fills while the data comes in. A trace is decoded by one worker at a
+    /// time: a worker takes the first queued trace no other one runs.
     fn add_decode_task(&self, t: Arc<DecodeTrace>) {
-        let spawn = {
+        {
             let mut st = self.state();
             st.decode_queue.push_back(t);
-            let spawn = !st.decoding;
+            st.decode_workers += 1;
             st.decoding = true;
-            spawn
-        };
-        self.notify();
-        if spawn {
-            let me = self.clone();
-            std::thread::Builder::new()
-                .name("decode_task".into())
-                .spawn(move || me.decode_task_proc())
-                .expect("decode thread");
         }
+        self.notify();
+        let me = self.clone();
+        std::thread::Builder::new()
+            .name("decode_task".into())
+            .spawn(move || me.decode_task_proc())
+            .expect("decode thread");
     }
 
     fn decode_task_proc(&self) {
         loop {
             let (t, rate, last, signals) = {
                 let mut st = self.state();
-                let Some(t) = st.decode_queue.pop_front() else {
-                    st.decoding = false;
+                let next = st
+                    .decode_queue
+                    .iter()
+                    .position(|q| !st.decode_running.iter().any(|r| Arc::ptr_eq(r, q)));
+                let Some(t) = next.and_then(|i| st.decode_queue.remove(i)) else {
+                    // the rest (if any) is taken by the workers running it
+                    st.decode_workers -= 1;
+                    st.decoding = st.decode_workers > 0;
                     break;
                 };
+                st.decode_running.push(t.clone());
                 let signals: Vec<i32> = st
                     .signals
                     .iter()
@@ -2465,13 +2540,20 @@ impl Session {
             );
             if self.0.capture_ended.load(Ordering::Acquire) {
                 // the leaves kept for a live decode can go now
-                lock(&self.data().logic).decode_end();
+                self.data()
+                    .logic
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .decode_end();
             }
+            self.state().decode_running.retain(|r| !Arc::ptr_eq(r, &t));
             self.notify();
             self.emit(SessionEvent::DecodeProgress);
         }
         self.notify();
-        self.emit(SessionEvent::DecodeDone);
+        if !self.state().decoding {
+            self.emit(SessionEvent::DecodeDone);
+        }
     }
 
     /// Marks the session as saving (or done).

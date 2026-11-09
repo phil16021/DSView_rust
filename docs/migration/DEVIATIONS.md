@@ -600,6 +600,12 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
   keeps its place, and any other moves to the middle of the primary. egui only gives the current
   monitor's size, not its position, so `main` runs eframe's event loop itself to read the layout.
   Without a layout (Wayland, where clients cannot place their windows) the check is skipped.
+  - **Extended 2026-11-09:** the layout is read again every 2 s while DSView runs (on X11 the
+    window asks for a frame at least that often), and the check runs on every change, not only at
+    start. The window's place is also kept per monitor layout (`window_by_layout` in
+    `dsview-rs.json`, at most 8 layouts): docked again, it goes back to where it was on the second
+    screen. A detached decoder window that left every monitor moves onto one. Test:
+    `dsview-gui/tests/monitors.rs`, `qsettings::tests::a_place_per_monitor_layout`.
 
 ### F31. Runtime findings (M6g)
 - **A missing FPGA bitstream shows as a USB error.** `dsl_fpga_config` sets
@@ -781,6 +787,96 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
   soak's IndexError before.
 - **Reach:** C DSView runs the same file.
 
+### F40. A stream stopped with upload can report more remaining samples than asked for (hardware test)
+- **Found by** a crash report of `dsview-cli` from the DSLogic Plus hardware runs (2026-10-19, debug
+  build): `attempt to subtract with overflow` in `Dsl::receive_header`.
+- **The defect:** `receive_trigger_pos` (dsl.c:2600) computes `limit_samples - remain_cnt`. The
+  device was programmed with the sample count rounded up to 1024 (`actual_samples`), so a capture
+  stopped before it wrote a whole block reports `remain_cnt` above `limit_samples`. Buffer mode
+  rejects that header (`remain < limit_samples`), but stream mode accepts every header and
+  still takes this branch when the state is `Abort` (stop with upload).
+- **C:** the unsigned subtraction wraps, so `actual_samples`/`actual_bytes` become garbage and
+  the stop condition of the data path (`num_bytes >= actual_bytes`) is arbitrary. The Rust
+  release build wrapped the same way; the debug build panicked in the collect thread.
+- **Fix:** `limit_samples.saturating_sub(remain)`. Fewer than 1024 samples were captured, and
+  the C alignment (`& ~SAMPLES_ALIGN`) makes that 0 anyway, so the result is the value C means.
+- **Test:** `dsl::device::tests::stream_abort_header_with_remain_above_limit` (panicked before
+  the fix at the same line as the crash report) and `…_counts_captured_blocks` (the normal case).
+
+### F41. Channels switched off and on again lost their place in the trace order (hardware test, GUI)
+- **Found by** the GUI on the DSLogic after `hwsig`/`hwmatrix` runs: the time view began with
+  channel 1; channel 0 sat below channel 15, out of sight.
+- **The defect (Rust only):** `Session::reload_signals` gave a signal that was not there before
+  `view_index = -1`. The layout sorts logic traces by view index (`View::signals_changed`), so -1
+  went before every channel that kept its index. Switching the DSLogic from 16 to 4 channels and
+  back (the device options, `hwmatrix`, `hwsig`) left `0,1,2,3,-1,-1,…`; the profile saved it
+  and the next start showed 4..15 above 0..3.
+- **C:** `SigSession::reload()` numbers every new signal (`make_channels_view_index`) and then
+  copies the old indexes back by position, so a signal never has -1.
+- **Fix:** a new signal takes its position in the signal list as its view index (signals that
+  stay keep theirs, by channel, as before). `load_channel_view_indexes` maps a -1 in a profile
+  (written by an earlier DSViewR) to the position, so damaged profiles heal on the next load.
+- **Test:** `session.rs::reenabled_channels_keep_their_place` and
+  `…::view_index_minus_one_in_a_profile_takes_the_position` (both failed before the fix).
+
+### F42. The GUI drew 4-6 frames a second during a DSLogic capture (hardware test, GUI)
+- **Found by** the user watching a stream capture of the NUCLEO pattern generator in the GUI:
+  the traces moved in jerks. `DSVIEW_FRAME_LOG=1` (new): 50-70 frames a second idle, 4-6 during
+  the capture, each 170-320 ms long while the main thread used about 2 % CPU. gdb samples of the
+  main thread: all of them waited for the device mutex, from `Session::mode()`.
+- **The defect (Rust only):** the collect thread polls the driver with the device locked, and
+  a DSLogic poll waits up to 10 ms (`WAIT_SLICE`) for a USB transfer; then it locks again at
+  once. The GUI asked the device for its mode, sample rate, mode list, `MAX_HEIGHT_VALUE` and
+  progress 20 times a frame (traced: 12× `mode()`, 2× `sample_rate()` with two locks each, …).
+  Each waited for a poll to end, and the std mutex is not fair, so the collect thread often
+  took it again before the GUI thread woke.
+- **C:** the Qt GUI reads `sdi` without a lock while libusb waits in `g_poll`.
+- **Fix:** each device entry keeps a `Snapshot` of these values, refreshed whenever a lock on
+  the device ends (`DeviceGuard`'s drop). Every change of a device happens under its lock, so
+  the snapshot is the device as of its last unlock; `mode()`, `modes()`, `sample_rate()`,
+  `max_height_value()` and `capture_status()` read it without waiting. The device mutex is a
+  `Fair` mutex (`fair.rs`): the collect thread lets callers of `lock()` (MCP, dialogs) go first.
+  With the DSLogic streaming 16 channels at 10 MHz: 0 device locks a frame, 50 frames a second
+  (the 33 ms data events), 0.3 ms a frame.
+- **Test:** `session.rs::frame_values_do_not_wait_for_the_device` (waited 5 s for a held device
+  before the fix), `…::frame_values_follow_device_changes`, and
+  `fair::tests::a_busy_loop_lets_waiters_go_first` (607 ms with a plain mutex).
+
+### F43. A live decode held off the GUI for about 100 ms once a second (hardware test, GUI)
+- **Found by** the frame log after F42, with SPI and UART decoding live: 33-40 frames a second,
+  but one frame of 80-120 ms each second. gdb samples: the main thread waited for the logic
+  store's mutex (`timeview.rs` drawing and input, the auto-scroll in `app.rs`).
+- **The defect (Rust only):** a live decode catches up after its 200 ms wait for data, chunk
+  after chunk (`MAX_CHUNK_SIZE`), and holds the store while the decoders run on a chunk. It locks
+  again right after each one; with the unfair mutex the GUI waited for the whole backlog.
+- **C:** `DecoderStack::decode_data` reads the snapshot's blocks without holding a lock during
+  `srd_session_send`.
+  The ingest thread, which appends the USB data, waited the same way: data events came
+  80-130 ms apart instead of 33.
+- **Fix:** the logic store is a `Fair` mutex, and the decode loop locks it with
+  `lock_after_waiters`: the GUI and the ingest thread wait for at most one chunk. `Fair` has no
+  way around its counted `lock()`. The store stays locked while a chunk is decoded (the leaves it
+  reads must stay put), unlike C. With SPI, I²C and UART decoding a 16-channel 10 MHz stream:
+  50 frames a second, at most 36 ms between two, 2-4 ms a frame, store waits ≤ 2 ms.
+- **Test:** `fair::tests::a_busy_loop_lets_waiters_go_first` (the plain mutex starved the
+  waiter for 607 ms); on the DSLogic see STATUS.
+
+### F44. More channels enabled than the channel mode allows ended the capture with a USB error (hardware test)
+- **Found by** the GUI soak matrix on the DSLogic Plus: a profile in stream mode "Use 3 Channels
+  (Max 100MHz)" with all 16 channels enabled made the capture end at once with
+  `receive_transfer: transfer failed: unknown (errno 12)`.
+- **The defect (C and Rust):** a DSLogic channel mode lists all 16 channels (`num`) but allows
+  only `vld_num` of them. Qt keeps to that only in its device options dialog (`channel_check`);
+  loading a profile (and in Rust the control API's `set_channels`) can enable more. The stream
+  buffers are sized from the enabled channels: 16 channels at 100 MHz want about 20 MB of USB
+  transfers, over the kernel's usbfs limit of 16 MB, so the submit fails with ENOMEM.
+- **C:** the same: the transfers fail and the capture ends without a word to the user.
+- **Fix:** `Session::check_channel_count` refuses the start, like the memory check, with "16
+  channels are enabled, but the channel mode allows at most 3. Disable channels in the device
+  options." The GUI shows it in a message box, the control API returns it as the error.
+- **Test:** `dsview-session/tests/channel_mode.rs` on the simulated DSLogic (the capture started
+  before the fix); on the hardware the reproducing profile now gives the message.
+
 ## Planned behaviour deviations (Rust intentionally differs)
 
 | Area | C behaviour | Rust behaviour | Phase |
@@ -796,6 +892,8 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
 | Decoder `wait()` pin tuple | One tuple object, mutated in place | A fresh tuple per call | 2 |
 | Decoder options from files | Applied as stored | Path/exec options (`objdump`, `elffile`, `mapping`) from a file the user opens (`.dsl`, a loaded `.dsc`) start at their defaults; the GUI asks before setting them. DSView's own profiles and the shipped demos are trusted; a headless session keeps the defaults | M6g ✔ |
 | Missing FPGA bitstream (F31) | Reported as a USB I/O error | Reported as "Firmware file is not exist", the code C meant | M6g ✔ |
+| Decode tasks (user request, 2026-11-09) | One decode thread works the decoders one after another (`decode_task_proc`): in a long live capture the later decoders start only once the first reached the capture's end | One worker per decoder; they take turns on the logic store chunk by chunk (`Fair::lock_after_waiters`, which now counts a waiting loop as a waiter too, so two decoders do not starve each other), and every table fills while the data comes in. A trace is decoded by one worker at a time. Each decoder's annotations are the same as alone. Tests: `dsview-session/tests/parallel_decode.rs`, `fair::tests::two_busy_loops_take_turns` | M7b ✔ |
+| Protocol dock tables (user request, 2026-11-09) | One decoder's table at a time, picked in a combo box | Every decoder's table at once, one below the other, each foldable and each detachable into its own window (closing it puts it back); the window's place and size are kept per protocol (`protocol_windows` in `dsview-rs.json`). Search, matches and the sorted columns are per table. Test: `dsview-gui/tests/protocol_multi.rs` | M7b ✔ |
 | srzip chunk names past 32767 chunks | `logic-1-%d` of `(short)` index: wraps to negative numbers (more than 268 M samples at 8192 per chunk) | Counts on | M6g ✔ |
 | srzip and GKeyFile value escaping | GLib escapes leading spaces and tabs only | The same, now also for `.dsl` headers (spaces were escaped only as the first character, tabs everywhere) | M6g ✔ |
 | USB stop/abort | No transfer cancellation, infinite timeouts, unbounded busy-polls | FORCE_RDY → grace period → cancel all transfers; every wait has a deadline | 3 ✔ |

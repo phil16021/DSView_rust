@@ -512,9 +512,7 @@ impl TimeView {
         let font_id = self.font(13.0);
         let painter = ui.painter_at(full);
         let font_h = Font(&painter, font_id.clone()).height() as f64;
-        let max_height_value = s
-            .config(dsview_core::key::MAX_HEIGHT_VALUE, None)
-            .map(|v| v.get_byte());
+        let max_height_value = s.max_height_value();
         let l = vlayout::layout(
             &slots,
             &LayoutParams {

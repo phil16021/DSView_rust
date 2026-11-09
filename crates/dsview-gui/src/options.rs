@@ -35,6 +35,8 @@ pub struct AppOptions {
     pub original_data: bool,
     /// The protocol list's number format by protocol id.
     pub protocol_formats: std::collections::BTreeMap<String, String>,
+    /// Detached decoder windows: x, y, width, height (points) by protocol id.
+    pub protocol_windows: std::collections::BTreeMap<String, [f32; 4]>,
     /// Log: level 0-5, written to the log file, appended to it.
     pub log_level: i32,
     pub able_save_log: bool,
@@ -87,6 +89,9 @@ pub struct FrameOptions {
     pub is_max: bool,
     /// x, y, width, height of the normal window, once known.
     pub window: Option<[i64; 4]>,
+    /// The same per monitor layout (`qsettings::layout_key`): docked and
+    /// undocked each keep their place.
+    pub window_by_layout: std::collections::BTreeMap<String, [i64; 4]>,
     pub logic_dock: DockOptions,
     pub analog_dock: DockOptions,
     pub dso_dock: DockOptions,
@@ -99,6 +104,7 @@ impl Default for FrameOptions {
             language: -1,
             is_max: false,
             window: None,
+            window_by_layout: Default::default(),
             logic_dock: DockOptions::default(),
             analog_dock: DockOptions::default(),
             dso_dock: DockOptions::default(),
@@ -161,6 +167,7 @@ impl Default for AppOptions {
             dso_persistence_ms: 0,
             original_data: false,
             protocol_formats: Default::default(),
+            protocol_windows: Default::default(),
             log_level: 3,
             able_save_log: false,
             append_log_mode: false,
@@ -295,6 +302,8 @@ impl AppOptions {
                 fi("y").unwrap_or(qsettings::NO_POINT_VALUE),
             )
             .map(|(x, y, w, h)| [x, y, w, h]),
+            // Rust only: kept in dsview-rs.json, not in DSView.conf
+            window_by_layout: Default::default(),
             logic_dock: dock("LOGIC_DOCK"),
             analog_dock: dock("ANALOG_DOCK"),
             dso_dock: dock("DSO_DOCK"),

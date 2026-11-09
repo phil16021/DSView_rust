@@ -53,8 +53,9 @@ F-numbers refer to DEVIATIONS.md; PLAN.md's M7b section stays the summary and li
 
 ### B3. Qt-parity quirks to retire (F27/F29/F30)
 
-✔ Done 2026-10-27, except the multi-monitor window position (F30, follow-up): see STATUS "Qt quirks
-retired", parts 1–4. F24/F26 (item 6) reviewed 2026-10-27: F26's three envelope defects fixed, F24's re-open kept.
+✔ Done 2026-10-27 (the multi-monitor start-up check the same day, STATUS "the off-screen window
+check uses every monitor"; monitor changes while running and a place per layout 2026-11-09): see
+STATUS "Qt quirks retired", parts 1–4. F24/F26 (item 6) reviewed 2026-10-27: F26's three envelope defects fixed, F24's re-open kept.
 
 1. **Ruler and viewport:**
    - 1-2-5 ruler steps;
@@ -116,11 +117,22 @@ retired", parts 1–4. F24/F26 (item 6) reviewed 2026-10-27: F26's three envelop
 
    Plan: get the 14 missing `.fw` files (4 of 18 models' are in `assets/res`); ask owners for `dsviewr-cli selftest --out DIR`
    bundles; add an issue template that asks for them.
-2. **Manual pcapng recording** of an unplug during capture (`cargo xtask usb record`), pinned in
-   the manifest.
+2. ✔ (done 2026-11-09) **Manual pcapng recording** of an unplug during capture:
+   `testdata/usb/dslogic/unplug-during-stream.pcapng` (34 s, 1490 packets), pinned by sha256 in the
+   manifest (`traces`, with the recipe under `manual`).
 3. **Self-hosted `hw-dslogic` runner:** a nightly `hwmatrix --quick` + `verify-counter`.
-4. **Full `hwmatrix`** (132 steps) on the packaged build; only the quick run (37/37) was done.
-5. **RP2040 pattern generator** for real decode and trigger signals.
+   *Prepared 2026-11-09 (user decision: the home Forgejo, not GitHub):* `tools/hw/nightly.sh`
+   (also `hwsig` when the generator answers) and `.forgejo/workflows/hw-nightly.yml` (02:30,
+   `runs-on: dslogic`). Run by hand with the runner's minimal environment: hwmatrix --quick 37/37
+   (380 s), verify-counter 0 breaks, hwsig 63/63. The runner carries the `dslogic` label
+   (2026-11-09). Open: the repository on the Forgejo (the user's).
+4. ✔ (done 2026-11-09) **Full `hwmatrix`** (132 steps) on the packaged build: the `.deb` as CI
+   builds it (`cargo deb` + `tools/package/deb.sh`), unpacked without installing and run without
+   `LD_LIBRARY_PATH` (bundled Python through RUNPATH): `hwmatrix` 132/132 (396 s), `hwsig` 63/63,
+   `verify-counter` 0 breaks.
+5. ✔ (done 2026-10-31, with a NUCLEO-G474RE instead of an RP2040) **Pattern generator** for real
+   decode and trigger signals: `tools/patgen-g474` and `dsviewr-cli hwsig` (STATUS, "Hardware test with
+   real signals").
 
 ### B7. Release, packaging and CI
 

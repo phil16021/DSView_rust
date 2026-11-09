@@ -28,7 +28,7 @@ use dsview_gui::DSVIEW_VERSION;
 
 fn usage() -> ! {
     eprintln!(
-        "usage: DSViewR [-l N] [-s] [-v] [--mcp] [--data-dir DIR] [--bench SECONDS] [--soak MINUTES] [FILE]"
+        "usage: DSViewR [-l N] [-s] [-v] [--mcp] [--data-dir DIR] [--bench SECONDS] [--soak MINUTES [--soak-device NAME] [--soak-repeat]] [FILE]"
     );
     std::process::exit(2);
 }
@@ -39,31 +39,56 @@ struct MonitorProbe<'a> {
     inner: eframe::EframeWinitApplication<'a>,
     monitors: app::Monitors,
     wayland: bool,
-    probed: bool,
+    /// When the layout was last read: at start, then every 2 s while the
+    /// loop runs (a monitor plugged in or out while DSView runs).
+    probed: Option<Instant>,
+}
+
+impl MonitorProbe<'_> {
+    fn probe(&mut self, event_loop: &ActiveEventLoop) {
+        if self.wayland
+            || self
+                .probed
+                .is_some_and(|t| t.elapsed() < Duration::from_secs(2))
+        {
+            return;
+        }
+        self.probed = Some(Instant::now());
+        let all: Vec<_> = event_loop.available_monitors().collect();
+        let primary = event_loop.primary_monitor();
+        let layout = (!all.is_empty()).then(|| app::MonitorLayout {
+            monitors: all
+                .iter()
+                .map(|m| {
+                    let (p, s) = (m.position(), m.size());
+                    [p.x, p.y, s.width as i32, s.height as i32]
+                })
+                .collect(),
+            // none known: the first one
+            primary: primary
+                .and_then(|p| all.iter().position(|m| *m == p))
+                .unwrap_or(0),
+        });
+        if let Ok(mut m) = self.monitors.lock()
+            && *m != layout
+        {
+            {
+                dsview_gui::log::info(&format!(
+                    "monitors: {}",
+                    layout.as_ref().map_or("none".into(), |l| {
+                        dsview_viewmodel::qsettings::layout_key(&l.monitors)
+                    })
+                ));
+            }
+            *m = layout;
+            app::monitors_changed();
+        }
+    }
 }
 
 impl ApplicationHandler<eframe::UserEvent> for MonitorProbe<'_> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if !std::mem::replace(&mut self.probed, true) && !self.wayland {
-            let all: Vec<_> = event_loop.available_monitors().collect();
-            let primary = event_loop.primary_monitor();
-            let layout = (!all.is_empty()).then(|| app::MonitorLayout {
-                monitors: all
-                    .iter()
-                    .map(|m| {
-                        let (p, s) = (m.position(), m.size());
-                        [p.x, p.y, s.width as i32, s.height as i32]
-                    })
-                    .collect(),
-                // none known: the first one
-                primary: primary
-                    .and_then(|p| all.iter().position(|m| *m == p))
-                    .unwrap_or(0),
-            });
-            if let Ok(mut m) = self.monitors.lock() {
-                *m = layout;
-            }
-        }
+        self.probe(event_loop);
         self.inner.resumed(event_loop);
     }
 
@@ -72,6 +97,9 @@ impl ApplicationHandler<eframe::UserEvent> for MonitorProbe<'_> {
     }
 
     fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
+        if self.probed.is_some() {
+            self.probe(event_loop);
+        }
         self.inner.new_events(event_loop, cause);
     }
 
@@ -122,6 +150,8 @@ fn main() -> eframe::Result {
     let mut args = std::env::args().skip(1);
     let (mut data_dir, mut bench, mut file, mut mcp) = (None, None, None, false);
     let mut soak = None;
+    let mut soak_device: Option<String> = None;
+    let mut soak_repeat = false;
     let mut level = 3;
     let mut store_log = false;
     while let Some(a) = args.next() {
@@ -138,6 +168,8 @@ fn main() -> eframe::Result {
             "--bench" => bench = args.next().and_then(|v| v.parse::<f64>().ok()),
             "--mcp" => mcp = true,
             "--soak" => soak = args.next().and_then(|v| v.parse::<f64>().ok()),
+            "--soak-device" => soak_device = args.next(),
+            "--soak-repeat" => soak_repeat = true,
             "-l" | "--loglevel" => level = args.next().and_then(|v| v.parse().ok()).unwrap_or(3),
             "-v" | "-V" | "--version" => {
                 println!("DSViewR {DSVIEW_VERSION}");
@@ -191,13 +223,32 @@ fn main() -> eframe::Result {
             });
         }
         None if soak.is_some() => {
-            // a loop capture on the demo's random pattern
+            // a loop capture: on the demo's random pattern, or on the device
+            // whose name contains --soak-device (with its saved settings)
             let (list, _) = session.devices();
-            if let Some(e) = list.iter().find(|e| e.name == "Demo Logic") {
-                session.set_device(e.handle);
+            match &soak_device {
+                Some(name) => {
+                    let Some(e) = list.iter().find(|e| e.name.contains(name.as_str())) else {
+                        eprintln!("soak: no device named like {name:?}");
+                        std::process::exit(2);
+                    };
+                    session.set_device(e.handle);
+                }
+                None => {
+                    if let Some(e) = list.iter().find(|e| e.name == "Demo Logic") {
+                        session.set_device(e.handle);
+                    }
+                    session.set_demo_pattern("random");
+                }
             }
-            session.set_demo_pattern("random");
-            session.set_collect_mode(dsview_session::session::CollectMode::Loop, 0.0);
+            // repeat for a device in buffer mode, which has no loop
+            use dsview_session::session::CollectMode;
+            let mode = if soak_repeat {
+                CollectMode::Repeat
+            } else {
+                CollectMode::Loop
+            };
+            session.set_collect_mode(mode, 0.0);
             session.start_capture(false);
         }
         None => {
@@ -316,7 +367,7 @@ fn main() -> eframe::Result {
         inner,
         monitors,
         wayland: is_wayland(&event_loop),
-        probed: false,
+        probed: None,
     };
     let r = event_loop.run_app(&mut probe).map_err(eframe::Error::from);
     drop(server);

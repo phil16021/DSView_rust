@@ -16,6 +16,7 @@ macro_rules! sr_info { ($($t:tt)*) => { dsview_drivers::sys::log(3, &format!($($
 
 pub mod crash;
 pub mod decode;
+pub mod fair;
 pub mod library;
 pub mod numfmt;
 pub mod session;

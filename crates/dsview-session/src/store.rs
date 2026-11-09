@@ -330,7 +330,8 @@ pub fn load_demo_decoders(s: &Session, file: &Path) {
 
 /// `load_channel_view_indexs`: positions by signal order (C reads past the
 /// end when the file lists fewer channels; extra signals keep theirs here).
-fn load_channel_view_indexes(s: &Session, doc: &Value) {
+#[doc(hidden)]
+pub fn load_channel_view_indexes(s: &Session, doc: &Value) {
     if s.mode() != Mode::Logic as i32 {
         return;
     }
@@ -343,8 +344,10 @@ fn load_channel_view_indexes(s: &Session, doc: &Value) {
         .map(|o| to_int(o.get("view_index")))
         .collect();
     let mut st = s.state();
-    for (sig, v) in st.signals.iter_mut().zip(idx) {
-        sig.view_index = v;
+    for (i, (sig, v)) in st.signals.iter_mut().zip(idx).enumerate() {
+        // F41: earlier DSViewR builds wrote -1 for channels switched off
+        // and on again (Qt never does); such a channel takes its position
+        sig.view_index = if v < 0 { i as i32 } else { v };
     }
 }
 

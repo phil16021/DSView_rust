@@ -148,6 +148,8 @@ fn dso_trigger_dock() {
     let mut harness = Harness::builder()
         .with_size(egui::vec2(280.0, 520.0))
         .wgpu()
+        // every decoder's table: a few frames more to settle on a slow machine
+        .with_max_steps(16)
         .build_ui(move |ui| {
             dock.show(ui, &s2);
         });
@@ -434,6 +436,8 @@ fn trigger_dock() {
     let mut harness = Harness::builder()
         .with_size(egui::vec2(360.0, 640.0))
         .wgpu()
+        // every decoder's table: a few frames more to settle on a slow machine
+        .with_max_steps(16)
         .build_ui(move |ui| {
             dock.show(ui, &s2);
         });
@@ -453,6 +457,8 @@ fn measure_dock() {
     let mut harness = Harness::builder()
         .with_size(egui::vec2(340.0, 520.0))
         .wgpu()
+        // every decoder's table: a few frames more to settle on a slow machine
+        .with_max_steps(16)
         .build_ui(move |ui| {
             dock.show(ui, &s2, &mut view);
         });
@@ -646,6 +652,8 @@ fn protocol_dock() {
     let mut harness = Harness::builder()
         .with_size(egui::vec2(420.0, 640.0))
         .wgpu()
+        // every decoder's table: a few frames more to settle on a slow machine
+        .with_max_steps(16)
         .build_ui(move |ui| {
             dock.show(ui, &s2);
         });
@@ -663,11 +671,14 @@ fn protocol_list_options() {
     let mut harness = Harness::builder()
         .with_size(egui::vec2(520.0, 640.0))
         .wgpu()
+        // every decoder's table: a few frames more to settle on a slow machine
+        .with_max_steps(16)
         .build_ui(move |ui| {
             dock.show(ui, &s2);
         });
     harness.run();
-    harness.get_by_label("List…").click();
+    // the first decoder's table (every decoder has one now)
+    harness.get_all_by_label("List…").next().unwrap().click();
     harness.run();
     let t = s.state().decoders[0].clone();
     // the first row listed by default (bit and warning rows are not)
@@ -691,11 +702,14 @@ fn protocol_export_dialog() {
     let mut harness = Harness::builder()
         .with_size(egui::vec2(520.0, 640.0))
         .wgpu()
+        // every decoder's table: a few frames more to settle on a slow machine
+        .with_max_steps(16)
         .build_ui(move |ui| {
             dock.show(ui, &s2);
         });
     harness.run();
-    harness.get_by_label("Export…").click();
+    // the first decoder's table (every decoder has one now)
+    harness.get_all_by_label("Export…").next().unwrap().click();
     harness.run();
     harness.get_by_label("Export Format: ");
     harness.snapshot("protocol_export_dialog");
@@ -716,6 +730,8 @@ fn decoder_show_buttons() {
     let mut harness = Harness::builder()
         .with_size(egui::vec2(560.0, 900.0))
         .wgpu()
+        // every decoder's table: a few frames more to settle on a slow machine
+        .with_max_steps(16)
         .build_ui(move |ui| {
             dock.show(ui, &s2);
         });
@@ -1139,6 +1155,8 @@ fn protocol_table_marks_annotation() {
     let mut harness = Harness::builder()
         .with_size(egui::vec2(520.0, 640.0))
         .wgpu()
+        // every decoder's table: a few frames more to settle on a slow machine
+        .with_max_steps(16)
         .build_ui(move |ui| {
             dock.show(ui, &s2);
             if let Some(j) = dock.jump.take() {
