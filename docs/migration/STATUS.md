@@ -2198,3 +2198,17 @@ during a capture are now all different (17-22 before). In buffer mode the GUI dr
 - **Not testable on this VM:** a real monitor change. Xvfb has no RandR monitor changes, winit sees
   no monitors in Xephyr, and the xrdp desktop is the user's. The harness test drives the same path
   with the layout and the window place injected.
+
+## B6.3 prepared: nightly hardware run on the home Forgejo (2026-11-09)
+
+- `tools/hw/nightly.sh [OUT]`: builds `dsview-cli`, copies it (a rebuild cannot swap it mid-run),
+  then runs `hwmatrix --quick`, `verify-counter` and, if the NUCLEO answers on `/dev/ttyACM0`,
+  `hwsig`, each with its own HOME/XDG directories; logs and JSON reports in OUT, exit 0 when all
+  passed (2 build failed, 3 no device).
+- `.forgejo/workflows/hw-nightly.yml`: 02:30 nightly and by hand, `runs-on: dslogic`, checks for
+  cargo, libpython and the DSLogic and refuses to start while a DSView holds the device; uploads
+  the reports. GitHub has no runner with that label, so its CI stays hardware-free.
+- Run by hand with the runner's environment (`env -i`, its PATH): hwmatrix --quick 37/37 (380 s),
+  verify-counter 16 ch × 16 M with 0 breaks, hwsig 63/63 (127 s).
+- Open (the user's): the repository on the Forgejo, and the label `dslogic:host` on the machine's
+  runner (`philippprog-runner`, today `kicad-ws` and `apps-ws`).

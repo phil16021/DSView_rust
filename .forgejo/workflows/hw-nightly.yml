@@ -1,0 +1,61 @@
+# The nightly hardware run (M7b-PLAN B6.3) on the home Forgejo, on the
+# machine the DSLogic Plus and the NUCLEO-G474RE pattern generator hang on.
+#
+# The runner there carries the label `dslogic` (host mode): the jobs use the
+# real USB devices, so they must never run anywhere else. GitHub has no runner
+# with that label; its CI (build.yml, rust.yml) stays hardware-free.
+#
+# What runs: tools/hw/nightly.sh, i.e. `hwmatrix --quick`, `verify-counter`
+# and, when the generator answers, `hwsig`. Each step uses its own HOME and
+# XDG directories, so the DSView settings of the machine's user stay as they
+# are. The DSLogic opens exclusively: a DSView left open on it makes the run
+# fail at its first step, so the job checks for one before it starts.
+
+name: hw-nightly
+
+on:
+  schedule:
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: hw-nightly
+  cancel-in-progress: false
+
+jobs:
+  dslogic:
+    runs-on: dslogic
+    name: DSLogic hardware
+    # a hanging capture is caught here; a normal run takes about 9 minutes
+    # (measured 2026-11-09: hwmatrix --quick 380 s, verify-counter, hwsig 127 s)
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check the machine
+        run: |
+          missing=""
+          [ -x "$HOME/.cargo/bin/cargo" ] || missing="$missing cargo"
+          [ -e "${DSVIEW_PYLIB:-$HOME/.pyenv/versions/3.12.10/lib}/libpython3.12.so.1.0" ] \
+            || missing="$missing libpython3.12"
+          lsusb -d 2a0e: >/dev/null || missing="$missing DSLogic(USB)"
+          if [ -n "$missing" ]; then
+            echo "MISSING:$missing"
+            exit 1
+          fi
+          if pgrep -x -u "$(id -u)" 'DSView|DSViewR|dsview|dsview-cli|dsviewr-cli' >/dev/null; then
+            echo "A DSView holds the DSLogic; close it and run the job again."
+            pgrep -a -x -u "$(id -u)" 'DSView|DSViewR|dsview|dsview-cli|dsviewr-cli'
+            exit 1
+          fi
+
+      - name: Hardware run
+        run: tools/hw/nightly.sh "$GITHUB_WORKSPACE/target/hw-nightly"
+
+      - name: Reports
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: hw-nightly
+          path: target/hw-nightly/
