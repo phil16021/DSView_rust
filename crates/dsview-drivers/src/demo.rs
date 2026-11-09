@@ -1820,7 +1820,17 @@ impl Device for Demo {
     fn config_set(&mut self, id: i32, data: &ConfValue, ch: Option<usize>) -> SrResult<()> {
         match id {
             key::SAMPLERATE => {
-                self.samplerate = data.get_u64();
+                // F45: C takes any rate, and start() sizes its packet buffer
+                // from it (enabled probes × rate / 8000); 10^12 Hz on 16
+                // probes asked for 2 GiB, and g_malloc0 aborts. The device
+                // offers at most SAMPLERATES' last rate (or a demo file's).
+                let rate = data.get_u64();
+                let max = SAMPLERATES[SAMPLERATES.len() - 1].max(shared().samplerates_file);
+                if rate > max {
+                    sr_err!("Samplerate {rate} is above the demo's {max}.");
+                    return Err(SrError::Arg);
+                }
+                self.samplerate = rate;
                 sr_dbg!("Setting samplerate to {}.", self.samplerate);
             }
             key::LIMIT_SAMPLES => {

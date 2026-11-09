@@ -877,6 +877,19 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
 - **Test:** `dsview-session/tests/channel_mode.rs` on the simulated DSLogic (the capture started
   before the fix); on the hardware the reproducing profile now gives the message.
 
+### F45. The demo device took any sample rate and sized its buffer from it (nightly fuzzer)
+- **Found by** the nightly `fuzz (demo)` job, red every night since its first run (2026-10-28):
+  libFuzzer's out-of-memory at 2 GiB. Locally: one `malloc(2147483648)` in `Demo::start`.
+- **The defect (C and Rust):** `config_set(SAMPLERATE)` stores any value; `start()` allocates the
+  logic packet buffer as enabled probes × packet length, and the packet length grows with the rate
+  (rate / 8000 bytes, rounded up to a power of two from 100 MHz). 10^12 Hz on 16 probes asked for
+  2 GiB. The GUI offers only the listed rates; a hand-edited profile or the fuzzer does not.
+- **C:** the same, and `g_malloc0` aborts when the allocation fails.
+- **Fix:** a rate above the demo's own top rate (10 GHz, or a loaded demo file's) is refused with
+  `SR_ERR_ARG`; the top rate takes about 34 MB on 16 probes.
+- **Test:** `dsview-drivers/tests/demo.rs::a_samplerate_above_the_list_is_refused`; the fuzzer's
+  input replays in 99 ms, and 10 minutes of `cargo fuzz run demo` (12 212 runs) stayed at 435 MB.
+
 ## Planned behaviour deviations (Rust intentionally differs)
 
 | Area | C behaviour | Rust behaviour | Phase |

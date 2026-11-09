@@ -2213,3 +2213,12 @@ during a capture are now all different (17-22 before). In buffer mode the GUI dr
 - The machine's runner (`philippprog-runner`, forgejo-runner v12.9.0, user service) carries the
   label `dslogic:host` since 2026-11-09 (with the user's go-ahead; backup of the config next to it).
 - Open (the user's): the repository on the Forgejo, default branch `philipp` until the merge.
+
+## F45: the nightly demo fuzzer's out-of-memory (2026-11-09)
+
+- The nightly `fuzz (demo)` job had failed every night since 2026-10-28 (libFuzzer out-of-memory);
+  nobody had looked. Locally the fuzzer found one 2 GiB allocation in `Demo::start`: the demo took
+  any sample rate (also C) and sized its packet buffer from it. A rate above the demo's own top
+  rate is now refused (DEVIATIONS F45).
+- After the fix: the fuzzer's input replays in 99 ms; 10 minutes of `cargo fuzz run demo`
+  (12 212 runs, `-rss_limit_mb=2048` as in CI) without a finding, RSS steady at 435 MB.
