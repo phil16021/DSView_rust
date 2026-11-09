@@ -38,14 +38,19 @@ impl<T> Fair<T> {
     }
 
     /// The lock for a loop that takes it again right after letting it go:
-    /// waits up to `max` for the callers waiting in [`lock`](Self::lock) to
-    /// get it first.
+    /// waits up to `max` for the callers waiting for the lock to get it
+    /// first. While it then waits itself it counts as a waiter too, so two
+    /// such loops (two live decoders) take turns instead of one starving
+    /// the other.
     pub fn lock_after_waiters(&self, max: Duration) -> LockResult<MutexGuard<'_, T>> {
         let since = Instant::now();
         while self.waiting.load(Ordering::Acquire) > 0 && since.elapsed() < max {
             std::thread::yield_now();
         }
-        self.m.lock()
+        self.waiting.fetch_add(1, Ordering::AcqRel);
+        let g = self.m.lock();
+        self.waiting.fetch_sub(1, Ordering::AcqRel);
+        g
     }
 }
 
@@ -112,7 +117,43 @@ pub mod lock_stats {
 mod tests {
     use super::*;
     use std::sync::Arc;
-    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::{AtomicBool, AtomicU64};
+
+    /// Two busy loops (two live decoders) both get the lock: neither waits
+    /// for the other to finish.
+    #[test]
+    fn two_busy_loops_take_turns() {
+        let f = Arc::new(Fair::new((), lock_stats::Stat::Store));
+        let counts: Arc<[AtomicU64; 2]> = Arc::new([AtomicU64::new(0), AtomicU64::new(0)]);
+        let stop = Arc::new(AtomicBool::new(false));
+        let loops: Vec<_> = (0..2)
+            .map(|k| {
+                let (f, counts, stop) = (f.clone(), counts.clone(), stop.clone());
+                std::thread::spawn(move || {
+                    while !stop.load(Ordering::Relaxed) {
+                        let _g = f.lock_after_waiters(Duration::from_millis(5)).unwrap();
+                        let t = Instant::now();
+                        while t.elapsed() < Duration::from_millis(1) {
+                            std::hint::spin_loop();
+                        }
+                        counts[k].fetch_add(1, Ordering::Relaxed);
+                    }
+                })
+            })
+            .collect();
+        std::thread::sleep(Duration::from_millis(500));
+        stop.store(true, Ordering::Relaxed);
+        for l in loops {
+            l.join().unwrap();
+        }
+        let (a, b) = (
+            counts[0].load(Ordering::Relaxed),
+            counts[1].load(Ordering::Relaxed),
+        );
+        // they take turns: about half of the holds each (the plain mutex
+        // gave 311 and 180, and starved a live decoder completely)
+        assert!(a.min(b) * 5 > a.max(b) * 4, "holds {a} and {b}");
+    }
 
     /// A loop that holds the lock 2 ms and takes it again at once (the
     /// collect thread, a live decode) must not starve a caller of `lock`.

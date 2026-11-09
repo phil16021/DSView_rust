@@ -291,6 +291,10 @@ pub struct State {
     /// wait for the user's yes.
     pub held_decoders: Vec<crate::store::HeldDecoder>,
     decode_queue: VecDeque<Arc<DecodeTrace>>,
+    /// The traces a worker decodes right now (each by one worker only).
+    decode_running: Vec<Arc<DecodeTrace>>,
+    /// Decode workers alive; `decoding` while there is one.
+    decode_workers: usize,
     pub decoding: bool,
     pub collect_mode: CollectMode,
     /// Seconds between two captures in repeat mode (`_repeat_intvl`).
@@ -2475,33 +2479,45 @@ impl Session {
         true
     }
 
-    /// `add_decode_task`: queues a trace; one thread works the queue.
+    /// `add_decode_task`: queues a trace and starts a worker for it.
+    ///
+    /// C has one thread that decodes the traces one after another, so in a
+    /// long live capture the later tables stayed empty until the first
+    /// decoder reached the capture's end. Here every queued trace gets its
+    /// own worker; they take turns on the logic store chunk by chunk (a
+    /// decoder reads its chunk with the store locked, F43), so every table
+    /// fills while the data comes in. A trace is decoded by one worker at a
+    /// time: a worker takes the first queued trace no other one runs.
     fn add_decode_task(&self, t: Arc<DecodeTrace>) {
-        let spawn = {
+        {
             let mut st = self.state();
             st.decode_queue.push_back(t);
-            let spawn = !st.decoding;
+            st.decode_workers += 1;
             st.decoding = true;
-            spawn
-        };
-        self.notify();
-        if spawn {
-            let me = self.clone();
-            std::thread::Builder::new()
-                .name("decode_task".into())
-                .spawn(move || me.decode_task_proc())
-                .expect("decode thread");
         }
+        self.notify();
+        let me = self.clone();
+        std::thread::Builder::new()
+            .name("decode_task".into())
+            .spawn(move || me.decode_task_proc())
+            .expect("decode thread");
     }
 
     fn decode_task_proc(&self) {
         loop {
             let (t, rate, last, signals) = {
                 let mut st = self.state();
-                let Some(t) = st.decode_queue.pop_front() else {
-                    st.decoding = false;
+                let next = st
+                    .decode_queue
+                    .iter()
+                    .position(|q| !st.decode_running.iter().any(|r| Arc::ptr_eq(r, q)));
+                let Some(t) = next.and_then(|i| st.decode_queue.remove(i)) else {
+                    // the rest (if any) is taken by the workers running it
+                    st.decode_workers -= 1;
+                    st.decoding = st.decode_workers > 0;
                     break;
                 };
+                st.decode_running.push(t.clone());
                 let signals: Vec<i32> = st
                     .signals
                     .iter()
@@ -2530,11 +2546,14 @@ impl Session {
                     .unwrap_or_else(|e| e.into_inner())
                     .decode_end();
             }
+            self.state().decode_running.retain(|r| !Arc::ptr_eq(r, &t));
             self.notify();
             self.emit(SessionEvent::DecodeProgress);
         }
         self.notify();
-        self.emit(SessionEvent::DecodeDone);
+        if !self.state().decoding {
+            self.emit(SessionEvent::DecodeDone);
+        }
     }
 
     /// Marks the session as saving (or done).

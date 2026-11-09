@@ -2143,3 +2143,18 @@ during a capture are now all different (17-22 before). In buffer mode the GUI dr
   capture at once with errno 12 (the USB buffers for 16 channels exceed the usbfs limit; C does the
   same). The start is now refused with a message (GUI dialog, control API error). Test:
   `dsview-session/tests/channel_mode.rs`.
+
+## Live decoders side by side (2026-11-09)
+
+- **User decision:** every decoder decodes live at the same time (C: one after another, so during
+  a 60 s stream only the first decoder's table filled). `Session::add_decode_task` starts a worker
+  per queued trace; a worker takes the first queued trace no other worker runs.
+- **Found on the way:** the decoders' store lock (`Fair::lock_after_waiters`) did not count a
+  blocked loop as a waiter, so one live decoder starved the other just like F43 starved the GUI;
+  the parallel test failed in the full workspace run. A blocked loop now counts as a waiter.
+- **DSLogic, 16 ch 10 MHz stream with the NUCLEO signals:** after 5/10/15 s each of SPI, I²C and
+  UART stood at 4-5/10/15 % with 1470/855/6919 annotations at 15 s (before: I²C and UART at 0 until
+  the capture ended); the GUI kept 50 frames a second.
+- **Tests:** `dsview-session/tests/parallel_decode.rs` (two `timing` decoders over 2 M samples are in
+  progress at the same time, and each gives the same annotations as alone; failed with the serial
+  worker), `fair::tests::two_busy_loops_take_turns`; workspace 291/291.
