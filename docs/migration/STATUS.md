@@ -2058,3 +2058,41 @@ debug assertions (`CARGO_PROFILE_RELEASE_OVERFLOW_CHECKS=true`), with their own 
   - generator commands must not move idle levels before the data;
   - SPI with CPOL=1 needs the peripheral enabled before SCK is handed to it.
 
+
+## F42/F43: smooth GUI during a DSLogic capture (2026-11-09)
+
+The user watched a stream capture of the NUCLEO pattern generator in the GUI (2026-10-31): the
+traces moved in jerks. Two lock problems, both Rust only (DEVIATIONS F42, F43):
+
+- **F42, the device lock:** the GUI asked the device for its mode, sample rate, mode list,
+  `MAX_HEIGHT_VALUE` and progress 20 times a frame, and each time waited for the collect thread,
+  which holds the device during its USB waits. Now a per-device `Snapshot`, refreshed at every
+  unlock, answers these without waiting.
+- **F43, the logic store:** a live decode catching up holds the store chunk after chunk; the GUI
+  and the ingest thread waited for the whole backlog. Now the store is a `Fair` mutex
+  (`dsview-session/src/fair.rs`, also used for the devices): a busy loop lets counted waiters go
+  first.
+
+| DSLogic Plus, stream 16 ch 10 MHz, NUCLEO SPI/I²C/UART bursts | frames/s | longest gap | frame time | device locks/frame |
+|---|---|---|---|---|
+| before (2026-10-31) | 4-6 | 200-335 ms | 170-320 ms | ≈ 20 |
+| F42 only, no decoders | 50 | 37 ms | 0.3 ms | 0 |
+| F42 only, SPI + UART live | 33-40 | 86-127 ms | max 80-111 ms | 0 |
+| F42 + F43, SPI + I²C + UART live | 50 | 36 ms | max 2-4 ms | 0 |
+
+50 frames a second is the pace of the session's data events (33 ms). 40 screenshots 100 ms apart
+during a capture are now all different (17-22 before). In buffer mode the GUI draws every 200 ms
+(the progress; the data comes at the end), with no waits.
+
+- **New debugging aid:** `DSVIEW_FRAME_LOG=1` logs once a second the frames, the longest gap, the
+  frame time, and the count and wait of device and store locks (`fair::lock_stats`).
+- **Hardware regression** with the final build: `hwsig` 63/63, `verify-counter` 16 ch × 16 M
+  with 0 breaks, 10-minute `soak --mode loop --device dslogic` with the resident set flat
+  (94 552 KiB, trend +0.00 %). Workspace 286/286 tests, MCP suite, golden check.
+- **How it was found:** gdb samples of the main thread (the GUI started under gdb, since
+  `ptrace_scope=1` forbids attaching and `perf_event_paranoid=4` forbids perf), and a temporary
+  backtrace per device lock to list the 20 callers.
+- **Observed, as in C:** live decoders run one after another in the one decode thread; during a
+  60 s stream the first decoder (SPI) decodes up to the capture's end before I²C and UART start
+  (`SigSession::decode_task_proc` does the same).
+- **Observed, separate:** the SPI decoder takes 54-72 % of a core on a 10 MHz stream.

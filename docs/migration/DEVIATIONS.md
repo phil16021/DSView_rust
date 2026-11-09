@@ -813,6 +813,48 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
 - **Test:** `session.rs::reenabled_channels_keep_their_place` and
   `…::view_index_minus_one_in_a_profile_takes_the_position` (both failed before the fix).
 
+### F42. The GUI drew 4-6 frames a second during a DSLogic capture (hardware test, GUI)
+- **Found by** the user watching a stream capture of the NUCLEO pattern generator in the GUI:
+  the traces moved in jerks. `DSVIEW_FRAME_LOG=1` (new): 50-70 frames a second idle, 4-6 during
+  the capture, each 170-320 ms long while the main thread used about 2 % CPU. gdb samples of the
+  main thread: all of them waited for the device mutex, from `Session::mode()`.
+- **The defect (Rust only):** the collect thread polls the driver with the device locked, and
+  a DSLogic poll waits up to 10 ms (`WAIT_SLICE`) for a USB transfer; then it locks again at
+  once. The GUI asked the device for its mode, sample rate, mode list, `MAX_HEIGHT_VALUE` and
+  progress 20 times a frame (traced: 12× `mode()`, 2× `sample_rate()` with two locks each, …).
+  Each waited for a poll to end, and the std mutex is not fair, so the collect thread often
+  took it again before the GUI thread woke.
+- **C:** the Qt GUI reads `sdi` without a lock while libusb waits in `g_poll`.
+- **Fix:** each device entry keeps a `Snapshot` of these values, refreshed whenever a lock on
+  the device ends (`DeviceGuard`'s drop). Every change of a device happens under its lock, so
+  the snapshot is the device as of its last unlock; `mode()`, `modes()`, `sample_rate()`,
+  `max_height_value()` and `capture_status()` read it without waiting. The device mutex is a
+  `Fair` mutex (`fair.rs`): the collect thread lets callers of `lock()` (MCP, dialogs) go first.
+  With the DSLogic streaming 16 channels at 10 MHz: 0 device locks a frame, 50 frames a second
+  (the 33 ms data events), 0.3 ms a frame.
+- **Test:** `session.rs::frame_values_do_not_wait_for_the_device` (waited 5 s for a held device
+  before the fix), `…::frame_values_follow_device_changes`, and
+  `fair::tests::a_busy_loop_lets_waiters_go_first` (607 ms with a plain mutex).
+
+### F43. A live decode held off the GUI for about 100 ms once a second (hardware test, GUI)
+- **Found by** the frame log after F42, with SPI and UART decoding live: 33-40 frames a second,
+  but one frame of 80-120 ms each second. gdb samples: the main thread waited for the logic
+  store's mutex (`timeview.rs` drawing and input, the auto-scroll in `app.rs`).
+- **The defect (Rust only):** a live decode catches up after its 200 ms wait for data, chunk
+  after chunk (`MAX_CHUNK_SIZE`), and holds the store while the decoders run on a chunk. It locks
+  again right after each one; with the unfair mutex the GUI waited for the whole backlog.
+- **C:** `DecoderStack::decode_data` reads the snapshot's blocks without holding a lock during
+  `srd_session_send`.
+  The ingest thread, which appends the USB data, waited the same way: data events came
+  80-130 ms apart instead of 33.
+- **Fix:** the logic store is a `Fair` mutex, and the decode loop locks it with
+  `lock_after_waiters`: the GUI and the ingest thread wait for at most one chunk. `Fair` has no
+  way around its counted `lock()`. The store stays locked while a chunk is decoded (the leaves it
+  reads must stay put), unlike C. With SPI, I²C and UART decoding a 16-channel 10 MHz stream:
+  50 frames a second, at most 36 ms between two, 2-4 ms a frame, store waits ≤ 2 ms.
+- **Test:** `fair::tests::a_busy_loop_lets_waiters_go_first` (the plain mutex starved the
+  waiter for 607 ms); on the DSLogic see STATUS.
+
 ## Planned behaviour deviations (Rust intentionally differs)
 
 | Area | C behaviour | Rust behaviour | Phase |
