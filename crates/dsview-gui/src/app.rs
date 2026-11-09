@@ -321,6 +321,9 @@ impl App {
     /// `appOptions` (trace heights, DSO split).
     pub fn save_settings(&mut self) {
         self.options.trace_height_factor = self.view.height_factor;
+        if self.protocol.screens.is_some() {
+            self.options.protocol_windows = self.protocol.windows.clone();
+        }
         self.options.dso_split_channels = self.view.dso.split;
         self.options.save();
     }
@@ -1005,9 +1008,29 @@ impl App {
                 .show(ui, |ui| {
                     self.protocol.cursors = self.view.cursors.samples.clone();
                     self.protocol.formats = self.options.protocol_formats.clone();
+                    if self.protocol.screens.is_none() {
+                        self.protocol.windows = self.options.protocol_windows.clone();
+                        let ppp = ui.ctx().pixels_per_point();
+                        let layout = self.monitors.lock().ok().and_then(|l| l.clone());
+                        self.protocol.screens = Some(layout.map_or((Vec::new(), 0), |l| {
+                            let s = l
+                                .monitors
+                                .iter()
+                                .map(|m| {
+                                    let [x, y, w, h] = m.map(|v| v as f32 / ppp);
+                                    (x, y, w, h)
+                                })
+                                .collect();
+                            (s, l.primary)
+                        }));
+                    }
                     self.protocol.show(ui, &self.session);
                     if std::mem::take(&mut self.protocol.formats_changed) {
                         self.options.protocol_formats = self.protocol.formats.clone();
+                        self.options.save();
+                    }
+                    if std::mem::take(&mut self.protocol.windows_changed) {
+                        self.options.protocol_windows = self.protocol.windows.clone();
                         self.options.save();
                     }
                 });
@@ -1201,11 +1224,11 @@ impl App {
 
         self.store_docks();
         if let Some(soak) = &mut self.soak {
-            if !self.session.is_working() {
+            if soak.capture_ended(self.session.is_working()) {
                 println!("soak: the capture stopped");
                 std::process::exit(1);
             }
-            if soak.frame() {
+            if soak.frame(t0, data) {
                 self.session.stop_capture();
                 let ok = soak.report(self.session.state().captures);
                 self.session.exit();
@@ -1240,21 +1263,13 @@ impl App {
 
 /// `DSVIEW_FRAME_LOG=1`: once a second, the frames painted, the longest gap
 /// between two, the time spent in them and how many saw new data (to tell a
-/// slow frame from one that is not asked for).
+/// slow frame from one that is not asked for), and the lock waits.
 fn frame_log(t0: Instant, data: bool) {
-    use std::sync::Mutex;
-    use std::sync::OnceLock;
-    struct Log {
-        since: Instant,
-        last: Instant,
-        frames: u32,
-        data: u32,
-        max_gap: f64,
-        cpu: f64,
-        max_cpu: f64,
-    }
+    use crate::framestats::FrameStats;
+    use dsview_session::fair::lock_stats::{Stat, take};
+    use std::sync::{Mutex, OnceLock};
     static ON: OnceLock<bool> = OnceLock::new();
-    static LOG: Mutex<Option<Log>> = Mutex::new(None);
+    static LOG: Mutex<Option<(Instant, FrameStats)>> = Mutex::new(None);
     let on = *ON.get_or_init(|| {
         let on = std::env::var_os("DSVIEW_FRAME_LOG").is_some();
         if on {
@@ -1266,35 +1281,20 @@ fn frame_log(t0: Instant, data: bool) {
         return;
     }
     let now = Instant::now();
-    let cpu = (now - t0).as_secs_f64() * 1000.0;
     let mut g = LOG.lock().unwrap_or_else(|e| e.into_inner());
-    let l = g.get_or_insert(Log {
-        since: t0,
-        last: t0,
-        frames: 0,
-        data: 0,
-        max_gap: 0.0,
-        cpu: 0.0,
-        max_cpu: 0.0,
-    });
-    l.max_gap = l.max_gap.max((t0 - l.last).as_secs_f64() * 1000.0);
-    l.last = t0;
-    l.frames += 1;
-    l.data += u32::from(data);
-    l.cpu += cpu;
-    l.max_cpu = l.max_cpu.max(cpu);
-    if now - l.since >= std::time::Duration::from_secs(1) {
-        use dsview_session::fair::lock_stats::{Stat, take};
+    let (since, l) = g.get_or_insert_with(|| (t0, FrameStats::default()));
+    l.frame(t0, (now - t0).as_secs_f64() * 1000.0, data);
+    if now - *since >= std::time::Duration::from_secs(1) {
         let (calls, wait, max_wait) = take(Stat::Device);
         let (s_calls, s_wait, s_max) = take(Stat::Store);
         crate::log::info(&format!(
             "frames: {} in {:.0} ms, {} with new data, longest gap {:.0} ms, frame time mean {:.1} ms max {:.1} ms; device locks {} ({:.1}/frame), waited {:.1} ms, longest {:.1} ms; store locks {}, waited {:.1} ms, longest {:.1} ms",
             l.frames,
-            (now - l.since).as_secs_f64() * 1000.0,
+            (now - *since).as_secs_f64() * 1000.0,
             l.data,
-            l.max_gap,
-            l.cpu / f64::from(l.frames),
-            l.max_cpu,
+            l.max_gap(),
+            l.mean_cpu(),
+            l.max_cpu(),
             calls,
             calls as f64 / f64::from(l.frames.max(1)),
             wait as f64 / 1e6,
@@ -1303,14 +1303,7 @@ fn frame_log(t0: Instant, data: bool) {
             s_wait as f64 / 1e6,
             s_max as f64 / 1e6
         ));
-        *l = Log {
-            since: now,
-            last: t0,
-            frames: 0,
-            data: 0,
-            max_gap: 0.0,
-            cpu: 0.0,
-            max_cpu: 0.0,
-        };
+        *since = now;
+        l.reset();
     }
 }

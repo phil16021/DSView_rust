@@ -37,9 +37,11 @@ icon_set!(
     "logo_noColor",
     "manual",
     "math",
+    "maximize",
     "measure",
     "open",
     "protocol",
+    "restore",
     "save",
     "search",
     "single",
@@ -115,6 +117,18 @@ pub fn image(ctx: &egui::Context, name: &'static str, points: f32) -> Option<egu
         }
     };
     Some(egui::Image::new(&tex).fit_to_exact_size(egui::vec2(points, points)))
+}
+
+/// A small button showing only an icon (the text when the icon is missing),
+/// with `label` as its tooltip and accessible name.
+pub fn icon_button(ui: &mut egui::Ui, name: &'static str, label: String) -> egui::Response {
+    let h = ui.text_style_height(&egui::TextStyle::Button);
+    let r = match image(ui.ctx(), name, h) {
+        // the alt text names the button for accessibility
+        Some(img) => ui.add(egui::Button::image(img.alt_text(label.as_str())).small()),
+        None => ui.small_button(label.as_str()),
+    };
+    r.on_hover_text(label)
 }
 
 /// A button with an icon and text, or the text alone when the icon is

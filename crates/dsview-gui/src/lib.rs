@@ -10,6 +10,7 @@ pub mod deviceoptions;
 pub mod dsotrigger;
 pub mod dsoview;
 pub mod fftview;
+pub mod framestats;
 pub mod help;
 pub mod hooks;
 pub mod i18n;

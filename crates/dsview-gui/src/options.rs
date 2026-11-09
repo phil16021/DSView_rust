@@ -35,6 +35,8 @@ pub struct AppOptions {
     pub original_data: bool,
     /// The protocol list's number format by protocol id.
     pub protocol_formats: std::collections::BTreeMap<String, String>,
+    /// Detached decoder windows: x, y, width, height (points) by protocol id.
+    pub protocol_windows: std::collections::BTreeMap<String, [f32; 4]>,
     /// Log: level 0-5, written to the log file, appended to it.
     pub log_level: i32,
     pub able_save_log: bool,
@@ -161,6 +163,7 @@ impl Default for AppOptions {
             dso_persistence_ms: 0,
             original_data: false,
             protocol_formats: Default::default(),
+            protocol_windows: Default::default(),
             log_level: 3,
             able_save_log: false,
             append_log_mode: false,

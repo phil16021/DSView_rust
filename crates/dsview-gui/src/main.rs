@@ -28,7 +28,7 @@ use dsview_gui::DSVIEW_VERSION;
 
 fn usage() -> ! {
     eprintln!(
-        "usage: DSViewR [-l N] [-s] [-v] [--mcp] [--data-dir DIR] [--bench SECONDS] [--soak MINUTES] [FILE]"
+        "usage: DSViewR [-l N] [-s] [-v] [--mcp] [--data-dir DIR] [--bench SECONDS] [--soak MINUTES [--soak-device NAME] [--soak-repeat]] [FILE]"
     );
     std::process::exit(2);
 }
@@ -122,6 +122,8 @@ fn main() -> eframe::Result {
     let mut args = std::env::args().skip(1);
     let (mut data_dir, mut bench, mut file, mut mcp) = (None, None, None, false);
     let mut soak = None;
+    let mut soak_device: Option<String> = None;
+    let mut soak_repeat = false;
     let mut level = 3;
     let mut store_log = false;
     while let Some(a) = args.next() {
@@ -138,6 +140,8 @@ fn main() -> eframe::Result {
             "--bench" => bench = args.next().and_then(|v| v.parse::<f64>().ok()),
             "--mcp" => mcp = true,
             "--soak" => soak = args.next().and_then(|v| v.parse::<f64>().ok()),
+            "--soak-device" => soak_device = args.next(),
+            "--soak-repeat" => soak_repeat = true,
             "-l" | "--loglevel" => level = args.next().and_then(|v| v.parse().ok()).unwrap_or(3),
             "-v" | "-V" | "--version" => {
                 println!("DSViewR {DSVIEW_VERSION}");
@@ -191,13 +195,32 @@ fn main() -> eframe::Result {
             });
         }
         None if soak.is_some() => {
-            // a loop capture on the demo's random pattern
+            // a loop capture: on the demo's random pattern, or on the device
+            // whose name contains --soak-device (with its saved settings)
             let (list, _) = session.devices();
-            if let Some(e) = list.iter().find(|e| e.name == "Demo Logic") {
-                session.set_device(e.handle);
+            match &soak_device {
+                Some(name) => {
+                    let Some(e) = list.iter().find(|e| e.name.contains(name.as_str())) else {
+                        eprintln!("soak: no device named like {name:?}");
+                        std::process::exit(2);
+                    };
+                    session.set_device(e.handle);
+                }
+                None => {
+                    if let Some(e) = list.iter().find(|e| e.name == "Demo Logic") {
+                        session.set_device(e.handle);
+                    }
+                    session.set_demo_pattern("random");
+                }
             }
-            session.set_demo_pattern("random");
-            session.set_collect_mode(dsview_session::session::CollectMode::Loop, 0.0);
+            // repeat for a device in buffer mode, which has no loop
+            use dsview_session::session::CollectMode;
+            let mode = if soak_repeat {
+                CollectMode::Repeat
+            } else {
+                CollectMode::Loop
+            };
+            session.set_collect_mode(mode, 0.0);
             session.start_capture(false);
         }
         None => {
