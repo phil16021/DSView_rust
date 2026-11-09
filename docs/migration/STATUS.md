@@ -2158,3 +2158,15 @@ during a capture are now all different (17-22 before). In buffer mode the GUI dr
 - **Tests:** `dsview-session/tests/parallel_decode.rs` (two `timing` decoders over 2 M samples are in
   progress at the same time, and each gives the same annotations as alone; failed with the serial
   worker), `fair::tests::two_busy_loops_take_turns`; workspace 291/291.
+
+## B6.2: unplug recording (2026-11-09)
+
+- `dumpcap` on `usbmon1` while `dsviewr-cli capture --device dslogic --samplerate 1000000 --samples
+  60000000` ran; the user unplugged the DSLogic after about 10 s and plugged it back in.
+- The driver saw the transfers fail ("hardware fault or protocol violation", then stalls), the
+  acquisition ended with an END packet, the data up to the unplug was saved, the hotplug thread saw
+  the device leave, and there was no panic or crash report.
+- After the replug (new address 1.5) the FPGA bitstream loads again and `verify-counter` passes
+  (16 ch × 16 M, 0 breaks).
+- The trace `testdata/usb/dslogic/unplug-during-stream.pcapng` (21.5 MB, outside git) is pinned by
+  sha256 in `manifest.json`. M7b-PLAN B6.2 is done.

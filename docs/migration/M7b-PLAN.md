@@ -116,8 +116,9 @@ retired", parts 1–4. F24/F26 (item 6) reviewed 2026-10-27: F26's three envelop
 
    Plan: get the 14 missing `.fw` files (4 of 18 models' are in `assets/res`); ask owners for `dsviewr-cli selftest --out DIR`
    bundles; add an issue template that asks for them.
-2. **Manual pcapng recording** of an unplug during capture (`cargo xtask usb record`), pinned in
-   the manifest.
+2. ✔ (done 2026-11-09) **Manual pcapng recording** of an unplug during capture:
+   `testdata/usb/dslogic/unplug-during-stream.pcapng` (34 s, 1490 packets), pinned by sha256 in the
+   manifest (`traces`, with the recipe under `manual`).
 3. **Self-hosted `hw-dslogic` runner:** a nightly `hwmatrix --quick` + `verify-counter`.
 4. ✔ (done 2026-11-09) **Full `hwmatrix`** (132 steps) on the packaged build: the `.deb` as CI
    builds it (`cargo deb` + `tools/package/deb.sh`), unpacked without installing and run without

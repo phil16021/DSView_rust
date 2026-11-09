@@ -2,6 +2,9 @@
   "device": "DSLogic PLus",
   "dry_run": false,
   "iface": "usbmon1",
+  "manual": {
+    "unplug-during-stream.pcapng": "hand-made 2026-11-09: dsviewr-cli capture --device dslogic --samplerate 1000000 --samples 60000000, the DSLogic unplugged after ~10 s and plugged back in; the capture ends with an END packet, the data so far is saved"
+  },
   "scenarios": [
     {
       "channels": 16,
@@ -679,6 +682,10 @@
     "trigger-rising-ch0-stop-while-waiting.pcapng": {
       "bytes": 210644,
       "sha256": "1c9a4866a5a21dbef7304a3f8150acc0c38ec4eb521e8ac58eca536b3f58dca1"
+    },
+    "unplug-during-stream.pcapng": {
+      "bytes": 21543340,
+      "sha256": "012e0dfea9b76d41d80ca4cab38c733d5ad3d3a90378ed698dd7d4fe743f6b45"
     }
   }
 }
