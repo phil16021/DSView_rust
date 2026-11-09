@@ -119,7 +119,10 @@ retired", parts 1–4. F24/F26 (item 6) reviewed 2026-10-27: F26's three envelop
 2. **Manual pcapng recording** of an unplug during capture (`cargo xtask usb record`), pinned in
    the manifest.
 3. **Self-hosted `hw-dslogic` runner:** a nightly `hwmatrix --quick` + `verify-counter`.
-4. **Full `hwmatrix`** (132 steps) on the packaged build; only the quick run (37/37) was done.
+4. ✔ (done 2026-11-09) **Full `hwmatrix`** (132 steps) on the packaged build: the `.deb` as CI
+   builds it (`cargo deb` + `tools/package/deb.sh`), unpacked without installing and run without
+   `LD_LIBRARY_PATH` (bundled Python through RUNPATH): `hwmatrix` 132/132 (396 s), `hwsig` 63/63,
+   `verify-counter` 0 breaks.
 5. ✔ (done 2026-10-31, with a NUCLEO-G474RE instead of an RP2040) **Pattern generator** for real
    decode and trigger signals: `tools/patgen-g474` and `dsviewr-cli hwsig` (STATUS, "Hardware test with
    real signals").

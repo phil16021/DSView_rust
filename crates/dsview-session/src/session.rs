@@ -605,6 +605,37 @@ impl Session {
         *lock(&self.0.mem_available) = f;
     }
 
+    /// The channel check of [`start_capture`](Self::start_capture) (F44):
+    /// no more logic channels enabled than the channel mode allows
+    /// (`VLD_CH_NUM`). Qt keeps to that only in its device options dialog; a
+    /// profile or the control API could enable all 16 channels in a 3-channel
+    /// mode, and the DSLogic's USB buffers for 16 channels at 100 MHz exceed
+    /// the kernel's usbfs limit: the capture died at once with errno 12.
+    pub fn check_channel_count(&self) -> Result<(), String> {
+        if self.mode() != Mode::Logic as i32 {
+            return Ok(());
+        }
+        let Some(max) = self
+            .config(key::VLD_CH_NUM, None)
+            .map(|v| v.get_i16())
+            .filter(|&n| n > 0)
+        else {
+            return Ok(());
+        };
+        let enabled = self
+            .channels()
+            .iter()
+            .filter(|c| c.ty == channel_type::LOGIC && c.enabled)
+            .count();
+        if enabled > max as usize {
+            return Err(format!(
+                "{enabled} channels are enabled, but the channel mode allows at most {max}. \
+                 Disable channels in the device options."
+            ));
+        }
+        Ok(())
+    }
+
     /// The memory check of [`start_capture`](Self::start_capture): a logic
     /// capture of `sample_limit` samples on the enabled channels must fit
     /// into the available memory (plus what the buffer it replaces holds).
@@ -1794,7 +1825,10 @@ impl Session {
             sr_err!("Error!Device is running.");
             return false;
         }
-        if let Err(e) = self.check_capture_memory() {
+        if let Err(e) = self
+            .check_channel_count()
+            .and_then(|()| self.check_capture_memory())
+        {
             sr_err!("{e}");
             self.state().start_error = Some(e);
             self.notify();

@@ -2096,3 +2096,50 @@ during a capture are now all different (17-22 before). In buffer mode the GUI dr
   60 s stream the first decoder (SPI) decodes up to the capture's end before I²C and UART start
   (`SigSession::decode_task_proc` does the same).
 - **Observed, separate:** the SPI decoder takes 54-72 % of a core on a 10 MHz stream.
+
+## GUI soak with a frame gate; every decoder table at once (2026-11-09)
+
+- **Frame gate:** `dsview --soak MINUTES [--soak-device NAME] [--soak-repeat]` now also judges the
+  frames from the first data on: it fails when 99 % of the gaps exceed `DSVIEW_SOAK_MAX_P99_MS`
+  (100 ms) or one exceeds `DSVIEW_SOAK_MAX_GAP_MS` (300 ms), and it prints the device and store lock
+  waits. `--soak-device` runs it on a real device with its saved settings (default: the demo's
+  random pattern), `--soak-repeat` uses repeat mode (buffer mode has no loop). A capture restarted
+  over the control socket (to add decoders) may stop for up to 30 s. `framestats.rs` is shared with
+  `DSVIEW_FRAME_LOG`.
+- **Counter-check:** with F42's reads switched back to the device lock the gate fails (gap p50
+  100 ms, p99 126 ms, 93 ms a frame, 21 device locks a frame).
+- **DSLogic Plus with the NUCLEO signals, 5 minutes each:**
+
+| Case | gap p99 | gap max | frame time max | RSS trend |
+|---|---|---|---|---|
+| stream 16 ch 10 MHz, SPI + I²C + UART live | 35 ms | 127 ms | 117 ms | +0.03 % |
+| stream 3 ch 100 MHz | 35 ms | 123 ms | 2.2 ms | +0.01 % |
+| buffer 16 ch 1 MHz, 30 repeated captures | 36 ms | 40 ms | 0.7 ms | +0.02 % |
+
+- **Protocol dock (user request):** every decoder's table is shown at once, one below the other
+  and foldable; a table goes into its own window (the window icon next to "Settings") and back
+  (the icon again, or closing the window). The window opens where it was last, per protocol, moved
+  onto a screen if that one is gone. Checked on the desktop with the DSLogic: a second X window
+  with the live I²C table, steady in place, closed by the window manager and reopened at its place.
+  Fixed on the way: a click in a table marked the annotation on the wrong trace (the row index
+  shadowed the trace index), a window crept down by its title bar (its recorded place was fed back
+  into the viewport every frame), and a window reopened after a window-manager close closed again
+  at once (egui keeps the close request per viewport id: a new id per opening). The detach and
+  dock icons are SVGs: the UI font has no "⧉". Tests: `tests/protocol_multi.rs`, four snapshots
+  re-blessed after review (`protocol_dock`, `protocol_list_options`, `protocol_export_dialog`,
+  `decoder_show_buttons`).
+- **Known:** after a window-manager close the first click on the main window only gives it the
+  focus back. Live decoders still run one after another (as in C), so during a long stream the
+  later tables fill only after the first decoder reached the capture's end.
+
+## B6.4 on the package, and F44 (2026-11-09)
+
+- **Packaged build on the hardware:** the `.deb` built as in CI (`cargo deb -p dsview-gui
+  --no-build`, then `tools/package/deb.sh` with the Python it links), unpacked with `dpkg-deb -x`
+  and run without `LD_LIBRARY_PATH` (the bundled libpython resolves through RUNPATH):
+  `hwmatrix` 132/132 (396 s), `hwsig` 63/63, `verify-counter` 16 ch × 16 M with 0 breaks. M7b-PLAN
+  B6.4 is done.
+- **F44:** a profile with all 16 channels enabled in the 3-channel 100 MHz stream mode ended the
+  capture at once with errno 12 (the USB buffers for 16 channels exceed the usbfs limit; C does the
+  same). The start is now refused with a message (GUI dialog, control API error). Test:
+  `dsview-session/tests/channel_mode.rs`.

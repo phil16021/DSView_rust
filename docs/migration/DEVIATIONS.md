@@ -855,6 +855,22 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
 - **Test:** `fair::tests::a_busy_loop_lets_waiters_go_first` (the plain mutex starved the
   waiter for 607 ms); on the DSLogic see STATUS.
 
+### F44. More channels enabled than the channel mode allows ended the capture with a USB error (hardware test)
+- **Found by** the GUI soak matrix on the DSLogic Plus: a profile in stream mode "Use 3 Channels
+  (Max 100MHz)" with all 16 channels enabled made the capture end at once with
+  `receive_transfer: transfer failed: unknown (errno 12)`.
+- **The defect (C and Rust):** a DSLogic channel mode lists all 16 channels (`num`) but allows
+  only `vld_num` of them. Qt keeps to that only in its device options dialog (`channel_check`);
+  loading a profile (and in Rust the control API's `set_channels`) can enable more. The stream
+  buffers are sized from the enabled channels: 16 channels at 100 MHz want about 20 MB of USB
+  transfers, over the kernel's usbfs limit of 16 MB, so the submit fails with ENOMEM.
+- **C:** the same: the transfers fail and the capture ends without a word to the user.
+- **Fix:** `Session::check_channel_count` refuses the start, like the memory check, with "16
+  channels are enabled, but the channel mode allows at most 3. Disable channels in the device
+  options." The GUI shows it in a message box, the control API returns it as the error.
+- **Test:** `dsview-session/tests/channel_mode.rs` on the simulated DSLogic (the capture started
+  before the fix); on the hardware the reproducing profile now gives the message.
+
 ## Planned behaviour deviations (Rust intentionally differs)
 
 | Area | C behaviour | Rust behaviour | Phase |
@@ -870,6 +886,7 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
 | Decoder `wait()` pin tuple | One tuple object, mutated in place | A fresh tuple per call | 2 |
 | Decoder options from files | Applied as stored | Path/exec options (`objdump`, `elffile`, `mapping`) from a file the user opens (`.dsl`, a loaded `.dsc`) start at their defaults; the GUI asks before setting them. DSView's own profiles and the shipped demos are trusted; a headless session keeps the defaults | M6g ✔ |
 | Missing FPGA bitstream (F31) | Reported as a USB I/O error | Reported as "Firmware file is not exist", the code C meant | M6g ✔ |
+| Protocol dock tables (user request, 2026-11-09) | One decoder's table at a time, picked in a combo box | Every decoder's table at once, one below the other, each foldable and each detachable into its own window (closing it puts it back); the window's place and size are kept per protocol (`protocol_windows` in `dsview-rs.json`). Search, matches and the sorted columns are per table. Test: `dsview-gui/tests/protocol_multi.rs` | M7b ✔ |
 | srzip chunk names past 32767 chunks | `logic-1-%d` of `(short)` index: wraps to negative numbers (more than 268 M samples at 8192 per chunk) | Counts on | M6g ✔ |
 | srzip and GKeyFile value escaping | GLib escapes leading spaces and tabs only | The same, now also for `.dsl` headers (spaces were escaped only as the first character, tabs everywhere) | M6g ✔ |
 | USB stop/abort | No transfer cancellation, infinite timeouts, unbounded busy-polls | FORCE_RDY → grace period → cancel all transfers; every wait has a deadline | 3 ✔ |
