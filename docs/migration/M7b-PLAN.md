@@ -124,8 +124,8 @@ STATUS "Qt quirks retired", parts 1–4. F24/F26 (item 6) reviewed 2026-10-27: F
    *Prepared 2026-11-09 (user decision: the home Forgejo, not GitHub):* `tools/hw/nightly.sh`
    (also `hwsig` when the generator answers) and `.forgejo/workflows/hw-nightly.yml` (02:30,
    `runs-on: dslogic`). Run by hand with the runner's minimal environment: hwmatrix --quick 37/37
-   (380 s), verify-counter 0 breaks, hwsig 63/63. Open: the repository on the Forgejo and the
-   `dslogic` label on the machine's runner (both the user's).
+   (380 s), verify-counter 0 breaks, hwsig 63/63. The runner carries the `dslogic` label
+   (2026-11-09). Open: the repository on the Forgejo (the user's).
 4. ✔ (done 2026-11-09) **Full `hwmatrix`** (132 steps) on the packaged build: the `.deb` as CI
    builds it (`cargo deb` + `tools/package/deb.sh`), unpacked without installing and run without
    `LD_LIBRARY_PATH` (bundled Python through RUNPATH): `hwmatrix` 132/132 (396 s), `hwsig` 63/63,

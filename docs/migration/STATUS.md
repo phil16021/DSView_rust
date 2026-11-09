@@ -2210,5 +2210,6 @@ during a capture are now all different (17-22 before). In buffer mode the GUI dr
   the reports. GitHub has no runner with that label, so its CI stays hardware-free.
 - Run by hand with the runner's environment (`env -i`, its PATH): hwmatrix --quick 37/37 (380 s),
   verify-counter 16 ch × 16 M with 0 breaks, hwsig 63/63 (127 s).
-- Open (the user's): the repository on the Forgejo, and the label `dslogic:host` on the machine's
-  runner (`philippprog-runner`, today `kicad-ws` and `apps-ws`).
+- The machine's runner (`philippprog-runner`, forgejo-runner v12.9.0, user service) carries the
+  label `dslogic:host` since 2026-11-09 (with the user's go-ahead; backup of the config next to it).
+- Open (the user's): the repository on the Forgejo, default branch `philipp` until the merge.
