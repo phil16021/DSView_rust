@@ -53,8 +53,9 @@ F-numbers refer to DEVIATIONS.md; PLAN.md's M7b section stays the summary and li
 
 ### B3. Qt-parity quirks to retire (F27/F29/F30)
 
-✔ Done 2026-10-27, except the multi-monitor window position (F30, follow-up): see STATUS "Qt quirks
-retired", parts 1–4. F24/F26 (item 6) reviewed 2026-10-27: F26's three envelope defects fixed, F24's re-open kept.
+✔ Done 2026-10-27 (the multi-monitor start-up check the same day, STATUS "the off-screen window
+check uses every monitor"; monitor changes while running and a place per layout 2026-11-09): see
+STATUS "Qt quirks retired", parts 1–4. F24/F26 (item 6) reviewed 2026-10-27: F26's three envelope defects fixed, F24's re-open kept.
 
 1. **Ruler and viewport:**
    - 1-2-5 ruler steps;

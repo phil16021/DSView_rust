@@ -39,31 +39,56 @@ struct MonitorProbe<'a> {
     inner: eframe::EframeWinitApplication<'a>,
     monitors: app::Monitors,
     wayland: bool,
-    probed: bool,
+    /// When the layout was last read: at start, then every 2 s while the
+    /// loop runs (a monitor plugged in or out while DSView runs).
+    probed: Option<Instant>,
+}
+
+impl MonitorProbe<'_> {
+    fn probe(&mut self, event_loop: &ActiveEventLoop) {
+        if self.wayland
+            || self
+                .probed
+                .is_some_and(|t| t.elapsed() < Duration::from_secs(2))
+        {
+            return;
+        }
+        self.probed = Some(Instant::now());
+        let all: Vec<_> = event_loop.available_monitors().collect();
+        let primary = event_loop.primary_monitor();
+        let layout = (!all.is_empty()).then(|| app::MonitorLayout {
+            monitors: all
+                .iter()
+                .map(|m| {
+                    let (p, s) = (m.position(), m.size());
+                    [p.x, p.y, s.width as i32, s.height as i32]
+                })
+                .collect(),
+            // none known: the first one
+            primary: primary
+                .and_then(|p| all.iter().position(|m| *m == p))
+                .unwrap_or(0),
+        });
+        if let Ok(mut m) = self.monitors.lock()
+            && *m != layout
+        {
+            {
+                dsview_gui::log::info(&format!(
+                    "monitors: {}",
+                    layout.as_ref().map_or("none".into(), |l| {
+                        dsview_viewmodel::qsettings::layout_key(&l.monitors)
+                    })
+                ));
+            }
+            *m = layout;
+            app::monitors_changed();
+        }
+    }
 }
 
 impl ApplicationHandler<eframe::UserEvent> for MonitorProbe<'_> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if !std::mem::replace(&mut self.probed, true) && !self.wayland {
-            let all: Vec<_> = event_loop.available_monitors().collect();
-            let primary = event_loop.primary_monitor();
-            let layout = (!all.is_empty()).then(|| app::MonitorLayout {
-                monitors: all
-                    .iter()
-                    .map(|m| {
-                        let (p, s) = (m.position(), m.size());
-                        [p.x, p.y, s.width as i32, s.height as i32]
-                    })
-                    .collect(),
-                // none known: the first one
-                primary: primary
-                    .and_then(|p| all.iter().position(|m| *m == p))
-                    .unwrap_or(0),
-            });
-            if let Ok(mut m) = self.monitors.lock() {
-                *m = layout;
-            }
-        }
+        self.probe(event_loop);
         self.inner.resumed(event_loop);
     }
 
@@ -72,6 +97,9 @@ impl ApplicationHandler<eframe::UserEvent> for MonitorProbe<'_> {
     }
 
     fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
+        if self.probed.is_some() {
+            self.probe(event_loop);
+        }
         self.inner.new_events(event_loop, cause);
     }
 
@@ -339,7 +367,7 @@ fn main() -> eframe::Result {
         inner,
         monitors,
         wayland: is_wayland(&event_loop),
-        probed: false,
+        probed: None,
     };
     let r = event_loop.run_app(&mut probe).map_err(eframe::Error::from);
     drop(server);

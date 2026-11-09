@@ -600,6 +600,12 @@ The Rust GUI's viewmodel reproduces these for parity; they are candidates for fi
   keeps its place, and any other moves to the middle of the primary. egui only gives the current
   monitor's size, not its position, so `main` runs eframe's event loop itself to read the layout.
   Without a layout (Wayland, where clients cannot place their windows) the check is skipped.
+  - **Extended 2026-11-09:** the layout is read again every 2 s while DSView runs (on X11 the
+    window asks for a frame at least that often), and the check runs on every change, not only at
+    start. The window's place is also kept per monitor layout (`window_by_layout` in
+    `dsview-rs.json`, at most 8 layouts): docked again, it goes back to where it was on the second
+    screen. A detached decoder window that left every monitor moves onto one. Test:
+    `dsview-gui/tests/monitors.rs`, `qsettings::tests::a_place_per_monitor_layout`.
 
 ### F31. Runtime findings (M6g)
 - **A missing FPGA bitstream shows as a USB error.** `dsl_fpga_config` sets

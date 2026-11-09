@@ -33,8 +33,34 @@ pub struct MonitorLayout {
     pub primary: usize,
 }
 
-/// Filled by `main`'s event loop before the window opens.
+/// Filled by `main`'s event loop before the window opens, and again when
+/// the monitors change.
 pub type Monitors = std::sync::Arc<std::sync::Mutex<Option<MonitorLayout>>>;
+
+static MONITOR_CTX: std::sync::OnceLock<egui::Context> = std::sync::OnceLock::new();
+
+/// `main`'s probe saw another monitor layout: the window takes a look.
+pub fn monitors_changed() {
+    if let Some(c) = MONITOR_CTX.get() {
+        c.request_repaint();
+    }
+}
+
+/// Whether there is a monitor layout to keep an eye on (none on Wayland).
+fn layout_watched(m: &Monitors) -> bool {
+    m.lock().is_ok_and(|l| l.is_some())
+}
+
+/// The monitors in points (egui's units) and the primary's index.
+fn screens_in_points(l: &MonitorLayout, ppp: f32) -> Vec<dsview_viewmodel::qsettings::Screen> {
+    l.monitors
+        .iter()
+        .map(|m| {
+            let [x, y, w, h] = m.map(|v| v as f32 / ppp);
+            (x, y, w, h)
+        })
+        .collect()
+}
 
 pub struct Bench {
     pub until: Instant,
@@ -94,7 +120,13 @@ pub struct App {
     /// The dialogs at start-up, while any is left (set by `main`).
     pub startup: Option<crate::startup::Startup>,
     /// The restored window was checked against the screen.
-    window_checked: bool,
+    /// The monitor layout the window was last placed for; None until the
+    /// first frame that knows the window's place (start-up counts as a
+    /// change).
+    seen_layout: Option<Option<MonitorLayout>>,
+    /// After a move for a new layout: the place is not recorded until the
+    /// window manager has carried it out.
+    settle_until: Option<Instant>,
     /// The monitor layout the check uses (set by `main`).
     pub monitors: Monitors,
     pub bench: Option<Bench>,
@@ -270,37 +302,54 @@ impl App {
             let v = i.viewport();
             (v.maximized, v.outer_rect, v.inner_rect)
         });
-        // once, at start: a window left on a screen that is gone comes back
-        if !self.window_checked
-            && let Some(o) = outer
+        // with a layout to watch (X11), a frame at least every 2 s lets
+        // `main`'s probe see monitors that came or went while DSView idles
+        if layout_watched(&self.monitors) {
+            ctx.request_repaint_after(std::time::Duration::from_secs(2));
+        }
+        // at start and whenever the monitors change: back to the place the
+        // window had in this layout, or onto a monitor if it left them all
+        // (F30; at start only once before)
+        let layout = self.monitors.lock().ok().and_then(|l| l.clone());
+        if let Some(o) = outer
+            && self.seen_layout.as_ref() != Some(&layout)
         {
-            self.window_checked = true;
-            let layout = self.monitors.lock().ok().and_then(|l| l.clone());
+            self.seen_layout = Some(layout.clone());
+            // the detached decoder windows check their places too
+            self.protocol.screens = None;
             // without a layout the window may well be right: left alone
             if max == Some(false)
-                && let Some(l) = layout
+                && let Some(l) = &layout
             {
-                // outer_rect is physical pixels over egui's pixels per point
                 let ppp = ctx.pixels_per_point();
-                let screens: Vec<_> = l
-                    .monitors
-                    .iter()
-                    .map(|m| {
-                        let [x, y, w, h] = m.map(|v| v as f32 / ppp);
-                        (x, y, w, h)
-                    })
-                    .collect();
+                let screens = screens_in_points(l, ppp);
+                let key = dsview_viewmodel::qsettings::layout_key(&l.monitors);
+                let kept = self
+                    .options
+                    .frame
+                    .window_by_layout
+                    .get(&key)
+                    .map(|w| w.map(|v| v as f32))
+                    .map(|[x, y, w, h]| (x, y, w, h));
                 if let Some(&primary) = screens.get(l.primary)
-                    && let Some((x, y)) = dsview_viewmodel::qsettings::onto_screen(
+                    && let Some((x, y, w, h)) = dsview_viewmodel::qsettings::place_for_layout(
                         (o.left(), o.top(), o.width(), o.height()),
+                        kept,
                         &screens,
                         primary,
                     )
                 {
                     ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(x, y)));
+                    if kept.is_some_and(|k| (k.0, k.1) == (x, y)) {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(w, h)));
+                    }
+                    self.settle_until = Some(Instant::now() + std::time::Duration::from_secs(1));
                     return;
                 }
             }
+        }
+        if self.settle_until.is_some_and(|t| Instant::now() < t) {
+            return;
         }
         if let Some(m) = max {
             self.options.frame.is_max = m;
@@ -308,12 +357,25 @@ impl App {
         if max == Some(false)
             && let (Some(o), Some(r)) = (outer, inner)
         {
-            self.options.frame.window = Some([
+            let w = [
                 o.left() as i64,
                 o.top() as i64,
                 r.width() as i64,
                 r.height() as i64,
-            ]);
+            ];
+            self.options.frame.window = Some(w);
+            if let Some(l) = &layout {
+                let places = &mut self.options.frame.window_by_layout;
+                let key = dsview_viewmodel::qsettings::layout_key(&l.monitors);
+                // a few layouts are enough (home, office, laptop alone)
+                if !places.contains_key(&key) && places.len() >= 8 {
+                    let first = places.keys().next().cloned();
+                    if let Some(f) = first {
+                        places.remove(&f);
+                    }
+                }
+                places.insert(key, w);
+            }
         }
     }
 
@@ -382,6 +444,7 @@ impl App {
 
     pub fn new(session: Session, shared: Shared, version: &str, ctx: &egui::Context) -> App {
         let _ = shared.ctx.set(ctx.clone());
+        let _ = MONITOR_CTX.set(ctx.clone());
         // repaint when the session changes (events arrive on other threads)
         let events = session.subscribe();
         let (tx, rx) = channel();
@@ -432,7 +495,8 @@ impl App {
             started: Instant::now(),
             dock_mode: None,
             startup: None,
-            window_checked: false,
+            seen_layout: None,
+            settle_until: None,
             monitors: Monitors::default(),
             bench: None,
             soak: None,
@@ -1009,7 +1073,11 @@ impl App {
                     self.protocol.cursors = self.view.cursors.samples.clone();
                     self.protocol.formats = self.options.protocol_formats.clone();
                     if self.protocol.screens.is_none() {
-                        self.protocol.windows = self.options.protocol_windows.clone();
+                        if !self.protocol.windows_loaded {
+                            self.protocol.windows = self.options.protocol_windows.clone();
+                            self.protocol.windows_loaded = true;
+                        }
+                        self.protocol.screens_fresh = true;
                         let ppp = ui.ctx().pixels_per_point();
                         let layout = self.monitors.lock().ok().and_then(|l| l.clone());
                         self.protocol.screens = Some(layout.map_or((Vec::new(), 0), |l| {

@@ -89,6 +89,9 @@ pub struct FrameOptions {
     pub is_max: bool,
     /// x, y, width, height of the normal window, once known.
     pub window: Option<[i64; 4]>,
+    /// The same per monitor layout (`qsettings::layout_key`): docked and
+    /// undocked each keep their place.
+    pub window_by_layout: std::collections::BTreeMap<String, [i64; 4]>,
     pub logic_dock: DockOptions,
     pub analog_dock: DockOptions,
     pub dso_dock: DockOptions,
@@ -101,6 +104,7 @@ impl Default for FrameOptions {
             language: -1,
             is_max: false,
             window: None,
+            window_by_layout: Default::default(),
             logic_dock: DockOptions::default(),
             analog_dock: DockOptions::default(),
             dso_dock: DockOptions::default(),
@@ -298,6 +302,8 @@ impl AppOptions {
                 fi("y").unwrap_or(qsettings::NO_POINT_VALUE),
             )
             .map(|(x, y, w, h)| [x, y, w, h]),
+            // Rust only: kept in dsview-rs.json, not in DSView.conf
+            window_by_layout: Default::default(),
             logic_dock: dock("LOGIC_DOCK"),
             analog_dock: dock("ANALOG_DOCK"),
             dso_dock: dock("DSO_DOCK"),

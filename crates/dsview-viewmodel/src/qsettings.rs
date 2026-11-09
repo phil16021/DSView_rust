@@ -227,9 +227,79 @@ pub fn onto_screen(
     ))
 }
 
+/// A key for a monitor layout (each monitor's x, y, width, height in
+/// physical pixels, in any order): the window keeps a place per layout, so
+/// a laptop on its own and docked to a second screen each get theirs back.
+pub fn layout_key(monitors: &[[i32; 4]]) -> String {
+    let mut m = monitors.to_vec();
+    m.sort_unstable();
+    m.iter()
+        .map(|[x, y, w, h]| format!("{x},{y},{w}x{h}"))
+        .collect::<Vec<_>>()
+        .join(";")
+}
+
+/// Where a window goes when the monitor layout changes (or at start): to
+/// the place it had in this layout before (`kept`: x, y, w, h), if that
+/// still shows on a monitor; else onto a monitor by [`onto_screen`] if it
+/// left them all; else nowhere (None).
+pub fn place_for_layout(
+    win: (f32, f32, f32, f32),
+    kept: Option<(f32, f32, f32, f32)>,
+    screens: &[Screen],
+    primary: Screen,
+) -> Option<(f32, f32, f32, f32)> {
+    if let Some(k) = kept
+        && onto_screen(k, screens, primary).is_none()
+        && k != win
+    {
+        return Some(k);
+    }
+    onto_screen(win, screens, primary).map(|(x, y)| (x, y, win.2, win.3))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_place_per_monitor_layout() {
+        let laptop = [[0, 0, 1920, 1080]];
+        let docked = [[1920, 0, 2560, 1440], [0, 0, 1920, 1080]];
+        // the key does not depend on the order winit lists the monitors in
+        assert_eq!(
+            layout_key(&docked),
+            layout_key(&[[0, 0, 1920, 1080], [1920, 0, 2560, 1440]])
+        );
+        assert_ne!(layout_key(&laptop), layout_key(&docked));
+
+        let screens_l: Vec<Screen> = vec![(0.0, 0.0, 1920.0, 1080.0)];
+        let screens_d: Vec<Screen> =
+            vec![(0.0, 0.0, 1920.0, 1080.0), (1920.0, 0.0, 2560.0, 1440.0)];
+        let on_second = (2200.0, 100.0, 1600.0, 900.0);
+        // undocked: the window on the second screen comes onto the laptop's
+        assert_eq!(
+            place_for_layout(on_second, None, &screens_l, screens_l[0]),
+            Some((160.0, 90.0, 1600.0, 900.0))
+        );
+        // docked again: back to its place on the second screen
+        let now = (160.0, 90.0, 1600.0, 900.0);
+        assert_eq!(
+            place_for_layout(now, Some(on_second), &screens_d, screens_d[0]),
+            Some(on_second)
+        );
+        // a kept place that no longer shows is not used
+        assert_eq!(
+            place_for_layout(now, Some(on_second), &screens_l, screens_l[0]),
+            None
+        );
+        // a window that shows and has no other place stays
+        assert_eq!(place_for_layout(now, None, &screens_d, screens_d[0]), None);
+        assert_eq!(
+            place_for_layout(now, Some(now), &screens_d, screens_d[0]),
+            None
+        );
+    }
 
     const CONF: &str = r#"[Application]
 ableSaveLog=false

@@ -2180,3 +2180,21 @@ during a capture are now all different (17-22 before). In buffer mode the GUI dr
   in `MUTATING` now ends with `ViewHooks::changed`, which the GUI answers with a repaint. Checked
   on the desktop (two decoders appear right after the calls); test:
   `dsview-control/tests/transcript.rs::mutating_calls_wake_the_view`. Workspace 292/292.
+
+## F30 follow-up: monitors that change while DSView runs (2026-11-09)
+
+- **Before:** the window was checked against the monitors once, at start. A monitor unplugged
+  while DSView ran (a laptop leaving its dock) could leave the window off every screen, and
+  docking again did not bring it back to the second screen.
+- **Now:** `main`'s probe reads the layout again every 2 s (an idle window asks for a frame that
+  often on X11, ~0.3 ms), and `App::track_window` acts on every change: back to the place the
+  window had in this layout (`window_by_layout`, at most 8 layouts), else onto the primary if it
+  left every monitor (`qsettings::place_for_layout` over `onto_screen`). The place is recorded
+  again once the window manager carried out the move (1 s). Detached decoder windows that left
+  every monitor move onto one.
+- **Tests:** `dsview-gui/tests/monitors.rs` (docked → undocked: the window from the second screen
+  moves to (160, 90); docked again: back to (2500, 100); failed with the start-only check) and
+  `qsettings::tests::a_place_per_monitor_layout`. Workspace 294/294.
+- **Not testable on this VM:** a real monitor change. Xvfb has no RandR monitor changes, winit sees
+  no monitors in Xephyr, and the xrdp desktop is the user's. The harness test drives the same path
+  with the layout and the window place injected.

@@ -332,6 +332,11 @@ pub struct ProtocolDock {
     /// The screens (x, y, width, height in points) and the primary one: a
     /// window kept on a screen that is gone comes back onto one.
     pub screens: Option<Screens>,
+    /// The screens were just read again (start, or the monitors changed):
+    /// detached windows that no longer show move onto a monitor.
+    pub screens_fresh: bool,
+    /// `windows` came from the options (once).
+    pub windows_loaded: bool,
     export: Option<Export>,
     pub message: Option<String>,
     /// The annotation clicked: the view jumps to it.
@@ -429,6 +434,8 @@ impl Default for ProtocolDock {
             windows: Default::default(),
             windows_changed: false,
             screens: None,
+            screens_fresh: false,
+            windows_loaded: false,
             cursors: Vec::new(),
             formats: Default::default(),
             formats_changed: false,
@@ -657,6 +664,7 @@ impl ProtocolDock {
                 self.window_ui(ui.ctx(), s, t, i, ids[i]);
             }
         }
+        self.screens_fresh = false;
     }
 
     /// A detached decoder's own window (an egui viewport); closing it puts
@@ -677,6 +685,18 @@ impl ProtocolDock {
             .map(|d| d.info.id.clone())
             .unwrap_or_default();
         let mut st = self.tables.remove(&id).unwrap_or_default();
+        // the monitors changed: a window that left them all comes onto one
+        // (a one-time move of the builder's place, not a feedback)
+        if self.screens_fresh
+            && st.place.is_some()
+            && let Some(&[x, y, w, h]) = self.windows.get(&key)
+            && let Some((screens, primary)) = &self.screens
+            && let Some(&p) = screens.get(*primary)
+            && let Some((nx, ny)) =
+                dsview_viewmodel::qsettings::onto_screen((x, y, w, h), screens, p)
+        {
+            st.place = Some([nx, ny, w, h]);
+        }
         if st.place.is_none() {
             // the place kept for this protocol, brought onto a screen
             st.place = Some(match self.windows.get(&key) {
