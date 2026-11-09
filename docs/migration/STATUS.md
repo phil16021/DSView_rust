@@ -2128,8 +2128,10 @@ during a capture are now all different (17-22 before). In buffer mode the GUI dr
   dock icons are SVGs: the UI font has no "⧉". Tests: `tests/protocol_multi.rs`, four snapshots
   re-blessed after review (`protocol_dock`, `protocol_list_options`, `protocol_export_dialog`,
   `decoder_show_buttons`).
-- **Known:** after a window-manager close the first click on the main window only gives it the
-  focus back. Live decoders still run one after another (as in C), so during a long stream the
+- **Not a defect (checked 2026-11-09):** after a window-manager close, a first synthetic click
+  seemed to only give the main window the focus back. The pointer log showed the click arriving
+  with the old pointer position: the test's XTest helper moved the pointer in one jump the main
+  window never saw. With a few motion steps, as a hand makes them, the first click works. Live decoders still run one after another (as in C), so during a long stream the
   later tables fill only after the first decoder reached the capture's end.
 
 ## B6.4 on the package, and F44 (2026-11-09)
@@ -2170,3 +2172,11 @@ during a capture are now all different (17-22 before). In buffer mode the GUI dr
   (16 ch × 16 M, 0 breaks).
 - The trace `testdata/usb/dslogic/unplug-during-stream.pcapng` (21.5 MB, outside git) is pinned by
   sha256 in `manifest.json`. M7b-PLAN B6.2 is done.
+
+## Decoders added over the control socket show at once (2026-11-09)
+
+- An idle GUI drew a decoder added over the control socket (`add_decoder`) only on its next input
+  event: the call emits no session event and, without captured data, starts no decode. Every call
+  in `MUTATING` now ends with `ViewHooks::changed`, which the GUI answers with a repaint. Checked
+  on the desktop (two decoders appear right after the calls); test:
+  `dsview-control/tests/transcript.rs::mutating_calls_wake_the_view`. Workspace 292/292.

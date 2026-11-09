@@ -64,6 +64,10 @@ pub trait ViewHooks: Send + Sync {
     fn show_region(&self, _start: u64, _end: u64) {}
     /// `clear_cursors`, `add_cursor` for each sample, `show_cursors`.
     fn set_cursors(&self, _samples: &[u64]) {}
+    /// A call in [`MUTATING`] returned: the view shows the change (a GUI
+    /// idle between frames would show an added decoder only on its next
+    /// input event).
+    fn changed(&self) {}
 }
 
 struct NoView;
@@ -1590,6 +1594,16 @@ impl Api {
 
 impl ControlBackend for Api {
     fn call(&self, method: &str, p: &Map<String, Value>) -> Result<Value, String> {
+        let r = self.dispatch(method, p);
+        if MUTATING.contains(&method) {
+            self.view.changed();
+        }
+        r
+    }
+}
+
+impl Api {
+    fn dispatch(&self, method: &str, p: &Map<String, Value>) -> Result<Value, String> {
         if MUTATING.contains(&method)
             && let Some(text) = self.view.dialog_open()
         {
