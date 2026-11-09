@@ -319,3 +319,32 @@ fn dso_status_mean_and_rms_match_the_samples() {
         assert!(checked > 0, "instant={instant}: no frame checked");
     }
 }
+
+/// F45: a sample rate above the demo's own list is refused (C took it, and
+/// start() then asked for enabled probes × rate / 8000 bytes: 10^12 Hz on 16
+/// probes was 2 GiB, the nightly fuzzer's out-of-memory). The top rate of
+/// the list still goes.
+#[test]
+fn a_samplerate_above_the_list_is_refused() {
+    let _g = setup();
+    let mut d = logic_device();
+    d.open().unwrap();
+    let rate = |d: &mut demo::Demo| {
+        d.config_get(key::SAMPLERATE, None)
+            .unwrap()
+            .unwrap()
+            .get_u64()
+    };
+    let before = rate(&mut d);
+    assert_eq!(
+        d.config_set(key::SAMPLERATE, &ConfValue::U64(1_000_000_000_000), None),
+        Err(SrError::Arg)
+    );
+    assert_eq!(rate(&mut d), before);
+    let top = 10_000_000_000;
+    assert_eq!(
+        d.config_set(key::SAMPLERATE, &ConfValue::U64(top), None),
+        Ok(())
+    );
+    assert_eq!(rate(&mut d), top);
+}
