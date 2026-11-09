@@ -864,3 +864,58 @@ fn view_index_minus_one_in_a_profile_takes_the_position() {
     let vi: Vec<i32> = s.state().signals.iter().map(|x| x.view_index).collect();
     assert_eq!(vi, (0..n as i32).collect::<Vec<_>>());
 }
+
+/// F42: what the GUI reads on every frame does not wait for the device.
+/// During a capture the collect thread holds it while a USB driver waits
+/// for a transfer; the GUI, which asked for the mode, the sample rate and
+/// the progress about 20 times a frame, drew 4-6 frames a second.
+#[test]
+fn frame_values_do_not_wait_for_the_device() {
+    let (_g, s) = session("Demo Logic");
+    let e = s.library().active().expect("an active device");
+    let rate = s.config_u64(key::SAMPLERATE).expect("a sample rate");
+    let (held_tx, held_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+    let holder = std::thread::spawn(move || {
+        let _d = e.lock();
+        held_tx.send(()).unwrap();
+        let _ = release_rx.recv_timeout(Duration::from_secs(5));
+    });
+    held_rx.recv().unwrap();
+    let t = std::time::Instant::now();
+    let mode = s.mode();
+    let modes = s.modes();
+    let sample_rate = s.sample_rate();
+    let _ = s.max_height_value();
+    let _ = s.capture_status();
+    let took = t.elapsed();
+    release_tx.send(()).unwrap();
+    holder.join().unwrap();
+    assert!(
+        took < Duration::from_secs(1),
+        "waited {took:?} for the device"
+    );
+    assert_eq!(mode, dsview_core::Mode::Logic as i32);
+    assert!(modes.contains(&dsview_core::Mode::Logic));
+    assert_eq!(sample_rate, rate);
+}
+
+/// F42: the values read without the lock follow every change made under it.
+#[test]
+fn frame_values_follow_device_changes() {
+    let (_g, s) = session("Demo Logic");
+    let other = if s.sample_rate() == 1_000_000 {
+        2_000_000
+    } else {
+        1_000_000
+    };
+    assert!(s.set_config(key::SAMPLERATE, ConfValue::U64(other), None));
+    assert_eq!(s.sample_rate(), other);
+    assert_eq!(s.sample_rate(), s.config_u64(key::SAMPLERATE).unwrap());
+    for m in s.modes() {
+        s.set_config(key::DEVICE_MODE, ConfValue::I16(m as i16), None);
+        let direct = s.library().active().unwrap().lock().info().mode as i32;
+        assert_eq!(s.mode(), direct);
+        assert_eq!(s.mode(), m as i32);
+    }
+}

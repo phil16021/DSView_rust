@@ -1234,5 +1234,83 @@ impl App {
             }
             ctx.request_repaint();
         }
+        frame_log(t0, data);
+    }
+}
+
+/// `DSVIEW_FRAME_LOG=1`: once a second, the frames painted, the longest gap
+/// between two, the time spent in them and how many saw new data (to tell a
+/// slow frame from one that is not asked for).
+fn frame_log(t0: Instant, data: bool) {
+    use std::sync::Mutex;
+    use std::sync::OnceLock;
+    struct Log {
+        since: Instant,
+        last: Instant,
+        frames: u32,
+        data: u32,
+        max_gap: f64,
+        cpu: f64,
+        max_cpu: f64,
+    }
+    static ON: OnceLock<bool> = OnceLock::new();
+    static LOG: Mutex<Option<Log>> = Mutex::new(None);
+    let on = *ON.get_or_init(|| {
+        let on = std::env::var_os("DSVIEW_FRAME_LOG").is_some();
+        if on {
+            dsview_session::fair::lock_stats::enable();
+        }
+        on
+    });
+    if !on {
+        return;
+    }
+    let now = Instant::now();
+    let cpu = (now - t0).as_secs_f64() * 1000.0;
+    let mut g = LOG.lock().unwrap_or_else(|e| e.into_inner());
+    let l = g.get_or_insert(Log {
+        since: t0,
+        last: t0,
+        frames: 0,
+        data: 0,
+        max_gap: 0.0,
+        cpu: 0.0,
+        max_cpu: 0.0,
+    });
+    l.max_gap = l.max_gap.max((t0 - l.last).as_secs_f64() * 1000.0);
+    l.last = t0;
+    l.frames += 1;
+    l.data += u32::from(data);
+    l.cpu += cpu;
+    l.max_cpu = l.max_cpu.max(cpu);
+    if now - l.since >= std::time::Duration::from_secs(1) {
+        use dsview_session::fair::lock_stats::{Stat, take};
+        let (calls, wait, max_wait) = take(Stat::Device);
+        let (s_calls, s_wait, s_max) = take(Stat::Store);
+        crate::log::info(&format!(
+            "frames: {} in {:.0} ms, {} with new data, longest gap {:.0} ms, frame time mean {:.1} ms max {:.1} ms; device locks {} ({:.1}/frame), waited {:.1} ms, longest {:.1} ms; store locks {}, waited {:.1} ms, longest {:.1} ms",
+            l.frames,
+            (now - l.since).as_secs_f64() * 1000.0,
+            l.data,
+            l.max_gap,
+            l.cpu / f64::from(l.frames),
+            l.max_cpu,
+            calls,
+            calls as f64 / f64::from(l.frames.max(1)),
+            wait as f64 / 1e6,
+            max_wait as f64 / 1e6,
+            s_calls,
+            s_wait as f64 / 1e6,
+            s_max as f64 / 1e6
+        ));
+        *l = Log {
+            since: now,
+            last: t0,
+            frames: 0,
+            data: 0,
+            max_gap: 0.0,
+            cpu: 0.0,
+            max_cpu: 0.0,
+        };
     }
 }

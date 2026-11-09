@@ -305,7 +305,8 @@ pub struct State {
 
 /// The captured data (`SessionData`): one store per signal type.
 pub struct Data {
-    pub logic: Mutex<LogicStore>,
+    /// Fair: a live decode reads it chunk after chunk, the GUI every frame (F43).
+    pub logic: crate::fair::Fair<LogicStore>,
     pub dso: Mutex<DsoStore>,
     pub analog: Mutex<AnalogStore>,
 }
@@ -313,7 +314,7 @@ pub struct Data {
 impl Data {
     fn new() -> Data {
         Data {
-            logic: Mutex::new(LogicStore::new()),
+            logic: crate::fair::Fair::new(LogicStore::new(), crate::fair::lock_stats::Stat::Store),
             dso: Mutex::new(DsoStore::new()),
             analog: Mutex::new(AnalogStore::new()),
         }
@@ -321,7 +322,7 @@ impl Data {
 
     /// `SessionData::clear()`
     fn clear(&self) {
-        lock(&self.logic).clear();
+        self.logic.lock().unwrap_or_else(|e| e.into_inner()).clear();
         lock(&self.dso).clear();
         lock(&self.analog).clear();
     }
@@ -623,7 +624,11 @@ impl Session {
             .count() as u64;
         let need = logic_capture_bytes(self.sample_limit(), channels);
         let held = {
-            let l = lock(&self.capture_data().logic);
+            let l = self
+                .capture_data()
+                .logic
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             logic_capture_bytes(l.ring_sample_count(), u64::from(l.channel_num()))
         };
         let budget = (avail + held).saturating_sub(MEM_HEADROOM);
@@ -786,25 +791,31 @@ impl Session {
             .unwrap_or_default()
     }
 
+    /// The active device's modes. Like [`mode`](Self::mode), [`sample_rate`](Self::sample_rate),
+    /// [`max_height_value`](Self::max_height_value) and [`capture_status`](Self::capture_status)
+    /// this reads the device as of its last unlock and does not wait for it: the GUI asks for
+    /// these on every frame, and during a capture the collect thread holds the device while it
+    /// waits for USB (F42).
     pub fn modes(&self) -> Vec<Mode> {
         self.active()
-            .map(|e| e.lock().mode_list())
+            .map(|e| e.snapshot().modes)
             .unwrap_or_default()
     }
 
     /// `DeviceAgent::get_work_mode()` (logic without a device).
     pub fn mode(&self) -> i32 {
-        self.active().map_or(0, |e| e.lock().info().mode as i32)
+        self.active().map_or(0, |e| e.snapshot().mode)
+    }
+
+    /// `MAX_HEIGHT_VALUE` of the active device (DSLogic: the depth of a
+    /// trace in the device's own units).
+    pub fn max_height_value(&self) -> Option<u8> {
+        self.active().and_then(|e| e.snapshot().max_height)
     }
 
     /// `get_sample_rate()`: the external clock rate when the clock is external.
     pub fn sample_rate(&self) -> u64 {
-        let key = if self.config_bool(key::CLOCK_TYPE).unwrap_or(false) {
-            key::EXT_SAMPLERATE
-        } else {
-            key::SAMPLERATE
-        };
-        self.config_u64(key).unwrap_or(0)
+        self.active().map_or(0, |e| e.snapshot().sample_rate)
     }
 
     /// `get_sample_limit()`
@@ -1699,7 +1710,14 @@ impl Session {
         match self.mode() {
             1 => lock(&self.data().dso).sample_count() > 0,
             2 => lock(&self.data().analog).sample_count() > 0,
-            _ => lock(&self.data().logic).sample_count() > 0,
+            _ => {
+                self.data()
+                    .logic
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .sample_count()
+                    > 0
+            }
         }
     }
 
@@ -2002,11 +2020,7 @@ impl Session {
     /// device reports a status.
     pub fn capture_status(&self) -> Option<(bool, i32)> {
         let limits = self.state().cur_samplelimits;
-        let status = {
-            let e = self.active()?;
-            let d = e.lock();
-            d.status(true).ok()?
-        };
+        let status = self.active()?.snapshot().progress?;
         let triggered = status.trig_hit & 1 != 0;
         let mut cnt = u64::from(status.captured_cnt0)
             + (u64::from(status.captured_cnt1) << 8)
@@ -2122,7 +2136,11 @@ impl Session {
                 }
             }
             Body::Logic { data, .. } => {
-                let mut store = lock(&self.capture_data().logic);
+                let mut store = self
+                    .capture_data()
+                    .logic
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
                 if store.memory_failed() {
                     return;
                 }
@@ -2237,7 +2255,10 @@ impl Session {
             }
             Body::End => {
                 let d = self.capture_data();
-                lock(&d.logic).capture_ended();
+                d.logic
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .capture_ended();
                 lock(&d.dso).capture_ended();
                 lock(&d.analog).capture_ended();
                 if p.status != pkt_status::OK {
@@ -2469,7 +2490,11 @@ impl Session {
             );
             if self.0.capture_ended.load(Ordering::Acquire) {
                 // the leaves kept for a live decode can go now
-                lock(&self.data().logic).decode_end();
+                self.data()
+                    .logic
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .decode_end();
             }
             self.notify();
             self.emit(SessionEvent::DecodeProgress);

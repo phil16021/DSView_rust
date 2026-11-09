@@ -1,25 +1,27 @@
 //! `lib_main.c`: the device list, the active device, hotplug, the collect
 //! thread. Function names follow the `ds_*` API they implement.
 
+use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
 use std::sync::mpsc::RecvTimeoutError;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use dsview_core::{Packet, SrError, SrResult, dev_status, dev_type};
+use dsview_core::{Mode, Packet, SrError, SrResult, Status, dev_status, dev_type, key};
 use dsview_drivers::dsl::device::{self, Family, Probed};
 use dsview_drivers::sys;
 use dsview_drivers::{Device, Step, demo, file};
 use dsview_usb::{Hotplug, UsbBackend};
 
 use crate::event;
+use crate::fair::{Fair, lock_stats};
 
 /// `ds_device_handle`: names a device for as long as it is in the list.
 pub type Handle = u64;
 
 /// A device shared with the host's mirror of it.
-pub type SharedDevice = Arc<Mutex<Box<dyn Device>>>;
+pub type SharedDevice = Arc<Fair<Box<dyn Device>>>;
 
 /// What a device is.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -37,13 +39,93 @@ pub enum Kind {
 #[derive(Clone)]
 pub struct Entry {
     pub handle: Handle,
-    pub dev: SharedDevice,
+    dev: SharedDevice,
     pub kind: Kind,
     pub name: String,
     pub actived_times: i32,
+    /// What the GUI reads every frame, as of the last unlock, F42.
+    snapshot: Arc<Mutex<Snapshot>>,
+}
+
+/// The device values the GUI asks for on every frame, read when a lock on
+/// the device ends ([`DeviceGuard`]'s drop). Every change of a device
+/// happens under its lock, so this is the device as it was at the last
+/// unlock: what a caller would see that got the lock right before the
+/// current holder. Read without waiting for the device (F42).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Snapshot {
+    /// `info().mode`
+    pub mode: i32,
+    /// `mode_list()`
+    pub modes: Vec<Mode>,
+    /// `get_sample_rate()`: the external clock rate when the clock is external.
+    pub sample_rate: u64,
+    /// `MAX_HEIGHT_VALUE`
+    pub max_height: Option<u8>,
+    /// `status(true)` (the capture progress)
+    pub progress: Option<Status>,
+}
+
+impl Snapshot {
+    fn read(d: &mut dyn Device) -> Self {
+        let mut get = |k| d.config_get(k, None).ok().flatten();
+        let external = get(key::CLOCK_TYPE).is_some_and(|v| v.get_bool());
+        let rate = get(if external {
+            key::EXT_SAMPLERATE
+        } else {
+            key::SAMPLERATE
+        });
+        let max_height = get(key::MAX_HEIGHT_VALUE).map(|v| v.get_byte());
+        Snapshot {
+            mode: d.info().mode as i32,
+            modes: d.mode_list(),
+            sample_rate: rate.map_or(0, |v| v.get_u64()),
+            max_height,
+            progress: d.status(true).ok(),
+        }
+    }
+}
+
+/// A lock on a device; refreshes the entry's [`Snapshot`] when it ends.
+pub struct DeviceGuard<'a> {
+    dev: MutexGuard<'a, Box<dyn Device>>,
+    snapshot: &'a Mutex<Snapshot>,
+}
+
+impl Deref for DeviceGuard<'_> {
+    type Target = Box<dyn Device>;
+    fn deref(&self) -> &Self::Target {
+        &self.dev
+    }
+}
+
+impl DerefMut for DeviceGuard<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.dev
+    }
+}
+
+impl Drop for DeviceGuard<'_> {
+    fn drop(&mut self) {
+        let snap = Snapshot::read(self.dev.as_mut());
+        *self.snapshot.lock().unwrap_or_else(|e| e.into_inner()) = snap;
+    }
 }
 
 impl Entry {
+    fn new(handle: Handle, mut dev: Box<dyn Device>, kind: Kind) -> Self {
+        let name = dev.info().model;
+        let snapshot = Snapshot::read(dev.as_mut());
+        Entry {
+            handle,
+            dev: Arc::new(Fair::new(dev, lock_stats::Stat::Device)),
+            kind,
+            name,
+            actived_times: 0,
+            snapshot: Arc::new(Mutex::new(snapshot)),
+        }
+    }
+
     pub fn dev_type(&self) -> i32 {
         match self.kind {
             Kind::Demo => dev_type::DEMO,
@@ -60,13 +142,35 @@ impl Entry {
         }
     }
 
-    pub fn lock(&self) -> MutexGuard<'_, Box<dyn Device>> {
-        lock(&self.dev)
+    pub fn lock(&self) -> DeviceGuard<'_> {
+        DeviceGuard {
+            dev: self.dev.lock().unwrap_or_else(|e| e.into_inner()),
+            snapshot: &self.snapshot,
+        }
     }
-}
 
-fn lock(d: &SharedDevice) -> MutexGuard<'_, Box<dyn Device>> {
-    d.lock().unwrap_or_else(|e| e.into_inner())
+    /// The device values as of the last unlock, without waiting for the
+    /// device (the collect thread holds it while it waits for USB).
+    pub fn snapshot(&self) -> Snapshot {
+        self.snapshot
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// The collect thread's lock before each poll: callers waiting in
+    /// [`lock`](Self::lock) go first (F42: a USB driver's poll waits up to
+    /// 10 ms for a transfer with the device locked, and the collect thread
+    /// polls again at once).
+    fn lock_for_poll(&self) -> DeviceGuard<'_> {
+        DeviceGuard {
+            dev: self
+                .dev
+                .lock_after_waiters(Duration::from_millis(5))
+                .unwrap_or_else(|e| e.into_inner()),
+            snapshot: &self.snapshot,
+        }
+    }
 }
 
 /// The library's user: the events and data, and its copies of the devices.
@@ -178,14 +282,7 @@ impl Library {
     fn push(&self, st: &mut State, dev: Box<dyn Device>, kind: Kind) -> Handle {
         let handle = st.next_handle;
         st.next_handle += 1;
-        let name = dev.info().model;
-        st.devices.push(Entry {
-            handle,
-            dev: Arc::new(Mutex::new(dev)),
-            kind,
-            name,
-            actived_times: 0,
-        });
+        st.devices.push(Entry::new(handle, dev, kind));
         handle
     }
 
@@ -821,7 +918,7 @@ impl Library {
         host.sync_in(e.handle);
         let mut out = Vec::new();
         let more = loop {
-            let step = e.lock().poll(abort, &mut out);
+            let step = e.lock_for_poll().poll(abort, &mut out);
             host.sync_out(e.handle, false);
             host.packets(e.handle, &out);
             out.clear();
